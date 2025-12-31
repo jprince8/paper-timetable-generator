@@ -22,7 +22,7 @@ def rtt_get(path, params=None):
 
 @app.route("/")
 def index():
-    return send_from_directory(app.static_folder, "rtt-timetable-corridor-all.html")
+    return send_from_directory(app.static_folder, "index.html")
 
 @app.route("/rtt/search")
 def api_search():
