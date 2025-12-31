@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Realtime Trains – Corridor Timetable (All Services)</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; line-height: 1.4; }
+    h1 { font-size: 1.6rem; margin-bottom: 0.25rem; }
+    h2 { margin-top: 1.5rem; }
+    label { display: inline-block; margin-right: 1rem; margin-top: 0.5rem; }
+    input { padding: 0.25rem 0.4rem; font-size: 1rem; margin-left: 0.25rem; }
+    input[type="text"] { width: 4rem; text-transform: uppercase; }
+    input[type="date"] { width: 11rem; }
+    input[type="time"] { width: 7rem; }
+    button { margin-top: 0.75rem; padding: 0.4rem 0.8rem; font-size: 1rem; cursor: pointer; }
+    #status { margin-top: 1rem; font-family: monospace; white-space: pre-wrap; }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      min-width: 40rem;
+      font-size: 0.85rem;
+      margin-bottom: 2rem;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 0.25rem 0.4rem;
+      text-align: center;
+    }
+    th.sticky-top {
+      position: sticky;
+      top: 0;
+      background: #f0f0f0;
+      z-index: 2;
+    }
+    th.sticky-left,
+    td.sticky-left {
+      position: sticky;
+      left: 0;
+      background: #f9f9f9;
+      text-align: left;
+      z-index: 3;
+    }
+    td.sticky-left.station-row-label {
+      white-space: normal;   /* allow wrapping */
+      text-align: right;
+      padding-right: 0.5rem;
+      min-width: 16ch;
+    }
+    th.corner {
+      z-index: 4;
+    }
+    .station-row-label {
+      font-weight: 600;
+    }
+    .small { font-size: 0.9rem; color: #555; margin-top: 0.5rem; max-width: 60rem; }
+    .time-empty { color: #ccc; }
+    .service-header {
+      font-weight: 600;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>Realtime Trains – Corridor Timetable (All Services)</h1>
+  <p class="small">
+    Rows: stations between the two endpoints (each with <em>arr</em> and <em>dep</em>).<br>
+    Columns: services that run along the corridor and call at <strong>at least two</strong> of these stations
+    (including the endpoints).<br>
+    Stations are derived from the union of calling points of services directly between the endpoints, using the
+    <code>/json/service/&lt;uid&gt;/&lt;date&gt;</code> API, and ignoring locations whose <code>displayAs</code>
+    is <code>PASS</code> or <code>CANCELLED_PASS</code>.<br>
+    Services are split into two tables by direction: A→B (where A occurs before B in the calling pattern) and
+    B→A (where B occurs before A). For services starting/ending outside the corridor, an italic
+    <em>from X</em> or <em>to Y</em> is shown in the same column in the row immediately before/after the first/last
+    timing point, using spare rows at the very top/bottom if needed.
+  </p>
+
+  <form id="form">
+    <label>
+      From (CRS):
+      <input type="text" id="fromCrs" maxlength="3" required />
+    </label>
+
+    <!-- Add Via button starts between From and To -->
+    <button type="button" id="addViaBtn">Add Via</button>
+
+    <label>
+      To (CRS):
+      <input type="text" id="toCrs" maxlength="3" required />
+    </label>
+    <label>
+      Date:
+      <input type="date" id="serviceDate" required />
+    </label>
+    <label>
+      Start time:
+      <input type="time" id="startTime" required />
+    </label>
+    <label>
+      End time:
+      <input type="time" id="endTime" required />
+    </label>
+    <button type="submit">Build timetable</button>
+  </form>
+
+  <div id="status"></div>
+
+  <h2 id="headingAB"></h2>
+  <table>
+    <thead>
+      <tr id="header-row-ab"></tr>
+    </thead>
+    <tbody id="body-rows-ab"></tbody>
+  </table>
+
+  <h2 id="headingBA"></h2>
+  <table>
+    <thead>
+      <tr id="header-row-ba"></tr>
+    </thead>
+    <tbody id="body-rows-ba"></tbody>
+  </table>
+
+  <script>
+    // === DEFAULTS ===
+    const DEFAULT_FROM = "SHR";
+    const DEFAULT_TO = "WRX";
+    const DEFAULT_DATE = "2025-12-31";
+    const DEFAULT_START_TIME = "14:00";
+    const DEFAULT_END_TIME = "16:00";
+
+    const DEBUG_STATIONS = true; // set true to log station selection
+
+    // === PROXY ENDPOINTS ===
+    const PROXY_SEARCH = "http://127.0.0.1:5000/rtt/search";
+    const PROXY_SERVICE = "http://127.0.0.1:5000/rtt/service";
+
+    const form = document.getElementById("form");
+    const statusEl = document.getElementById("status");
+    const headingAB = document.getElementById("headingAB");
+    const headingBA = document.getElementById("headingBA");
+    const headerRowAB = document.getElementById("header-row-ab");
+    const bodyRowsAB = document.getElementById("body-rows-ab");
+    const headerRowBA = document.getElementById("header-row-ba");
+    const bodyRowsBA = document.getElementById("body-rows-ba");
+    const addViaBtn = document.getElementById("addViaBtn");
+
+    // Track dynamically-added via inputs
+    const viaInputs = [];
+
+    // Set default input values
+    document.getElementById("fromCrs").value = DEFAULT_FROM;
+    document.getElementById("toCrs").value = DEFAULT_TO;
+    document.getElementById("serviceDate").value = DEFAULT_DATE;
+    document.getElementById("startTime").value = DEFAULT_START_TIME;
+    document.getElementById("endTime").value = DEFAULT_END_TIME;
+
+    let currentDate = DEFAULT_DATE;
+    let startMinutes = timeStrToMinutes(DEFAULT_START_TIME);
+    let endMinutes = timeStrToMinutes(DEFAULT_END_TIME);
+
+    // Add Via button behaviour:
+    // Each click inserts a new "Via (CRS)" label+input immediately above the button.
+    addViaBtn.addEventListener("click", () => {
+      const label = document.createElement("label");
+      label.textContent = "Via (CRS):";
+
+      const input = document.createElement("input");
+      input.type = "text";
+      input.maxLength = 3;
+      input.required = false; // vias are optional
+      input.id = "viaCrs" + (viaInputs.length + 1);
+
+      label.appendChild(input);
+
+      // Insert the new Via label before the Add Via button
+      form.insertBefore(label, addViaBtn);
+
+      viaInputs.push(input);
+    });
+
+    function htmlEscape(str) {
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function normaliseCrs(v) {
+      return (v || "").trim().toUpperCase();
+    }
+
+    function padTime(str) {
+      if (!str) return "";
+      const s = String(str);
+      if (s.length === 4) {
+        return s.slice(0, 2) + ":" + s.slice(2);
+      } else if (s.length === 6) {
+        return s.slice(0, 2) + ":" + s.slice(2, 4);
+      }
+      return s;
+    }
+
+    function timeStrToMinutes(hhmm) {
+      if (!hhmm) return null;
+      const parts = hhmm.split(":");
+      if (parts.length !== 2) return null;
+      const h = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      if (Number.isNaN(h) || Number.isNaN(m)) return null;
+      return h * 60 + m;
+    }
+
+    function rttTimeToMinutes(hhmm) {
+      if (!hhmm) return null;
+      const s = String(hhmm);
+      if (s.length !== 4) return null;
+      const h = parseInt(s.slice(0, 2), 10);
+      const m = parseInt(s.slice(2), 10);
+      if (Number.isNaN(h) || Number.isNaN(m)) return null;
+      return h * 60 + m;
+    }
+
+    function serviceInTimeRange(locationDetail) {
+      if (!locationDetail) return false;
+      const tStr =
+        locationDetail.gbttBookedDeparture ||
+        locationDetail.gbttBookedArrival ||
+        locationDetail.realtimeDeparture ||
+        locationDetail.realtimeArrival ||
+        "";
+      const mins = rttTimeToMinutes(tStr);
+      if (mins === null) return false;
+      return mins >= startMinutes && mins <= endMinutes;
+    }
+
+    function serviceAtStationInRange(service) {
+      const ld = service.locationDetail || {};
+      return serviceInTimeRange(ld);
+    }
+
+    function safePairText(pairs) {
+      if (!Array.isArray(pairs) || !pairs[0]) return "";
+      const p = pairs[0];
+      const name = p.description || "";
+      const time = p.publicTime ? padTime(p.publicTime) : "";
+      return name + (time ? " " + time : "");
+    }
+
+    function setStatus(msg) {
+      statusEl.textContent = msg;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      setStatus("");
+      headerRowAB.innerHTML = "";
+      bodyRowsAB.innerHTML = "";
+      headerRowBA.innerHTML = "";
+      bodyRowsBA.innerHTML = "";
+      headingAB.textContent = "";
+      headingBA.textContent = "";
+
+      const from = normaliseCrs(document.getElementById("fromCrs").value);
+      const to = normaliseCrs(document.getElementById("toCrs").value);
+      const dateInput = document.getElementById("serviceDate").value || DEFAULT_DATE;
+      const startInput = document.getElementById("startTime").value || DEFAULT_START_TIME;
+      const endInput = document.getElementById("endTime").value || DEFAULT_END_TIME;
+
+      // Collect via CRS values (non-empty)
+      const viaValues = viaInputs
+        .map((input) => normaliseCrs(input.value))
+        .filter((v) => v);
+
+      currentDate = dateInput;
+      startMinutes = timeStrToMinutes(startInput);
+      endMinutes = timeStrToMinutes(endInput);
+
+      if (!from || !to) {
+        setStatus("Please enter both From and To CRS codes.");
+        return;
+      }
+      if (startMinutes === null || endMinutes === null) {
+        setStatus("Please enter a valid time range.");
+        return;
+      }
+
+      // Corridor stations chain, including vias
+      const corridorStations = [from, ...viaValues, to];
+
+      setStatus(
+        "Step 1/4: Fetching corridor services for " +
+          corridorStations.join(" \u2192 ") +
+          " on " +
+          currentDate +
+          " between " +
+          startInput +
+          " and " +
+          endInput +
+          " ..."
+      );
+
+      // Define legs: A->B, B->C, ..., between consecutive corridor stations
+      const corridorLegs = [];
+      for (let i = 0; i < corridorStations.length - 1; i++) {
+        corridorLegs.push({
+          from: corridorStations[i],
+          to: corridorStations[i + 1]
+        });
+      }
+
+      // Step 1: fetch initial corridor services across all legs, deduplicated
+      const corridorServicesMap = new Map();
+
+      try {
+        const searchPromises = corridorLegs.map(async (leg) => {
+          const url =
+            PROXY_SEARCH +
+            "?crs=" +
+            encodeURIComponent(leg.from) +
+            "&to=" +
+            encodeURIComponent(leg.to) +
+            "&date=" +
+            encodeURIComponent(currentDate);
+          const resp = await fetch(url, { headers: { Accept: "application/json" } });
+          const text = await resp.text();
+          let data;
+          try {
+            data = JSON.parse(text);
+          } catch (e) {
+            console.warn("Failed to parse corridor search JSON for leg", leg, e, text);
+            return;
+          }
+          const services = Array.isArray(data.services) ? data.services : [];
+          services.forEach((svc) => {
+            if (svc.isPassenger === false) return;
+            if (svc.plannedCancel) return;
+            if (!serviceAtStationInRange(svc)) return;
+            const key = (svc.serviceUid || "") + "|" + (svc.runDate || "");
+            if (!corridorServicesMap.has(key)) {
+              corridorServicesMap.set(key, svc);
+            }
+          });
+        });
+
+        await Promise.all(searchPromises);
+      } catch (err) {
+        setStatus("Error fetching initial corridor search results: " + err);
+        return;
+      }
+
+      const corridorServices = Array.from(corridorServicesMap.values());
+
+      if (corridorServices.length === 0) {
+        setStatus(
+          statusEl.textContent +
+            "\nNo passenger services in this time range on corridor."
+        );
+        return;
+      }
+
+      setStatus(
+        statusEl.textContent +
+          "\nStep 2/4: Fetching full details for " +
+          corridorServices.length +
+          " corridor services ..."
+      );
+
+      // Step 2: Get full details for corridor services to derive station union.
+      const corridorDetailPromises = corridorServices.map(async (svc) => {
+        const uid = svc.serviceUid;
+        const date = svc.runDate; // should match currentDate for this corridor
+        const url =
+          PROXY_SERVICE +
+          "?uid=" +
+          encodeURIComponent(uid) +
+          "&date=" +
+          encodeURIComponent(date);
+        const resp = await fetch(url, { headers: { Accept: "application/json" } });
+        const text = await resp.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          console.warn("Failed to parse corridor service JSON for", uid, e, text);
+          data = null;
+        }
+        return { svc, detail: data, status: resp.status, statusText: resp.statusText, seed: true };
+      });
+
+      let corridorDetails;
+      try {
+        corridorDetails = await Promise.all(corridorDetailPromises);
+      } catch (err) {
+        setStatus(statusEl.textContent + "\nError fetching corridor service details: " + err);
+        return;
+      }
+
+      const okCorridorDetails = corridorDetails.filter(
+        (d) => d.detail && Array.isArray(d.detail.locations)
+      );
+      if (okCorridorDetails.length === 0) {
+        setStatus(statusEl.textContent + "\nNo usable corridor service detail responses.");
+        return;
+      }
+
+      // Build station union from all corridor services, over the multi-via chain,
+      // ignoring PASS / CANCELLED_PASS.
+      const stations = buildStationsUnion(corridorStations, okCorridorDetails);
+      if (stations.length === 0) {
+        setStatus(
+          statusEl.textContent +
+            "\nNo stations found between " +
+            from +
+            " and " +
+            to +
+            " (via " +
+            viaValues.join(", ") +
+            ")."
+        );
+        return;
+      }
+      const stationSet = {};
+      stations.forEach((s) => {
+        if (s.crs) stationSet[s.crs] = true;
+      });
+
+      setStatus(statusEl.textContent + "\nStep 3/4: Discovering all services at corridor stations ...");
+
+      // Build a candidate map of all services seen at any corridor station.
+      const candidateMap = new Map(); // key -> { svc, detail, seed }
+
+      function serviceKey(svc) {
+        return (svc.serviceUid || "") + "|" + (svc.runDate || "");
+      }
+
+      // Seed with corridor services + their details.
+      okCorridorDetails.forEach((entry) => {
+        const key = serviceKey(entry.svc);
+        candidateMap.set(key, { svc: entry.svc, detail: entry.detail, seed: true });
+      });
+
+      // For each corridor station, search all services at that station (for the same date),
+      // and filter by time range at that station.
+      const stationSearchPromises = stations.map(async (st) => {
+        const url =
+          PROXY_SEARCH +
+          "?crs=" +
+          encodeURIComponent(st.crs) +
+          "&date=" +
+          encodeURIComponent(currentDate);
+        const resp = await fetch(url, { headers: { Accept: "application/json" } });
+        const text = await resp.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          console.warn("Failed to parse search for station", st.crs, e, text);
+          return;
+        }
+        const services = Array.isArray(data.services) ? data.services : [];
+        services.forEach((svc) => {
+          if (svc.isPassenger === false) return;
+          if (svc.plannedCancel) return;
+          if (!serviceAtStationInRange(svc)) return;
+          const key = serviceKey(svc);
+          if (!key) return;
+          if (!candidateMap.has(key)) {
+            candidateMap.set(key, { svc: svc, detail: null, seed: false });
+          }
+        });
+      });
+
+      try {
+        await Promise.all(stationSearchPromises);
+      } catch (err) {
+        console.warn("Error during station searches:", err);
+      }
+
+      setStatus(
+        statusEl.textContent +
+          "\nStep 3/4: Found " +
+          candidateMap.size +
+          " candidate services; fetching details ..."
+      );
+
+      // Fetch details for candidates that don't already have them.
+      const detailFetchPromises = [];
+      for (const [key, entry] of candidateMap.entries()) {
+        if (entry.detail) continue; // already have
+        const uid = entry.svc.serviceUid;
+        const date = entry.svc.runDate;
+        if (!uid || !date) continue;
+        const url =
+          PROXY_SERVICE +
+          "?uid=" +
+          encodeURIComponent(uid) +
+          "&date=" +
+          encodeURIComponent(date);
+        const p = fetch(url, { headers: { Accept: "application/json" } })
+          .then((resp) =>
+            resp.text().then((text) => {
+              let data = null;
+              try {
+                data = JSON.parse(text);
+              } catch (e) {
+                console.warn("Failed to parse candidate service JSON for", uid, e, text);
+              }
+              entry.detail = data;
+            })
+          )
+          .catch((err) => {
+            console.warn("Error fetching candidate service detail for", uid, err);
+          });
+        detailFetchPromises.push(p);
+      }
+
+      try {
+        await Promise.all(detailFetchPromises);
+      } catch (err) {
+        console.warn("Error during candidate detail fetch:", err);
+      }
+
+      // Filter to services that:
+      //  - have valid detail.locations
+      //  - and either are seed corridor services, or call at >= 2 stations from stationSet.
+      const allDetails = [];
+      for (const [key, entry] of candidateMap.entries()) {
+        const detail = entry.detail;
+        if (!detail || !Array.isArray(detail.locations)) continue;
+        const locs = detail.locations;
+        let count = 0;
+        for (const l of locs) {
+          const crs = l.crs || "";
+          if (stationSet[crs]) {
+            count++;
+            if (count >= 2) break;
+          }
+        }
+        if (entry.seed || count >= 2) {
+          allDetails.push(entry);
+        }
+      }
+
+      if (allDetails.length === 0) {
+        setStatus(
+          statusEl.textContent +
+            "\nNo services found that call at two or more corridor stations in this time range."
+        );
+        return;
+      }
+
+      // Split into A->B vs B->A, based on order of endpoints in the calling pattern.
+      const split = splitByDirection(allDetails, stations);
+      const servicesAB = split.ab;
+      const servicesBA = split.ba;
+
+      setStatus(
+        statusEl.textContent +
+          "\nStep 4/4: Building timetables with " +
+          servicesAB.length +
+          " A→B services and " +
+          servicesBA.length +
+          " B→A services across " +
+          stations.length +
+          " stations ..."
+      );
+
+      // Build A -> B table (stations in forward order)
+      if (servicesAB.length > 0) {
+        headingAB.textContent = from + " \u2192 " + to + " (" + servicesAB.length + " services)";
+        buildTable(stations, stationSet, servicesAB, headerRowAB, bodyRowsAB);
+      } else {
+        headingAB.textContent = from + " \u2192 " + to + ": no through services in this time range";
+      }
+
+      // Build B -> A table (stations in reverse order)
+      if (servicesBA.length > 0) {
+        const stationsRev = stations.slice().reverse();
+        headingBA.textContent = to + " \u2192 " + from + " (" + servicesBA.length + " services)";
+        buildTable(stationsRev, stationSet, servicesBA, headerRowBA, bodyRowsBA);
+      } else {
+        headingBA.textContent = to + " \u2192 " + from + ": no through services in this time range";
+      }
+    });
+
+    // Build station union over a possibly multi-via corridor.
+    // corridorStations is e.g. ["SHR", "VIA1", "VIA2", "WRX"].
+    function buildStationsUnion(corridorStations, servicesWithDetails) {
+      const stationMap = {};
+      const corridorSet = {};
+
+      corridorStations.forEach((crs) => {
+        if (crs) corridorSet[crs] = true;
+      });
+
+     
