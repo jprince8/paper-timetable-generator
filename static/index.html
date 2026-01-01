@@ -122,13 +122,6 @@
   </table>
 
   <script>
-    // === DEFAULTS ===
-    const DEFAULT_FROM = "SHR";
-    const DEFAULT_TO = "WRX";
-    const DEFAULT_DATE = "2025-12-31";
-    const DEFAULT_START_TIME = "14:00";
-    const DEFAULT_END_TIME = "16:00";
-
     const DEBUG_STATIONS = true; // set true to log station selection / dwell details
 
     // === PROXY ENDPOINTS ===
@@ -148,39 +141,108 @@
     // Track dynamically-added via inputs
     const viaInputs = [];
 
-    // Set default input values
-    document.getElementById("fromCrs").value = DEFAULT_FROM;
-    document.getElementById("toCrs").value = DEFAULT_TO;
-    document.getElementById("serviceDate").value = DEFAULT_DATE;
-    document.getElementById("startTime").value = DEFAULT_START_TIME;
-    document.getElementById("endTime").value = DEFAULT_END_TIME;
-
-    let currentDate = DEFAULT_DATE;
-    let startMinutes = timeStrToMinutes(DEFAULT_START_TIME);
-    let endMinutes = timeStrToMinutes(DEFAULT_END_TIME);
+    let currentDate = "";
+    let startMinutes = null;
+    let endMinutes = null;
 
     // === "Add Via" button behaviour ===
-    // Each click inserts a new "Via (CRS)" label+input immediately above the button.
     addViaBtn.addEventListener("click", () => {
+      createViaField("");
+    });
+
+    function createViaField(initialValue = "") {
       const label = document.createElement("label");
       label.textContent = "Via (CRS):";
-
+    
       const input = document.createElement("input");
       input.type = "text";
       input.maxLength = 3;
       input.required = false;
-      input.id = "viaCrs" + (viaInputs.length + 1);
-
+      input.value = initialValue;
+      input.style.marginRight = "0.25rem";
+    
+      // Small "×" button to remove this via
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.textContent = "×";
+      removeBtn.title = "Remove this via";
+      removeBtn.style.marginLeft = "0.25rem";
+    
+      removeBtn.addEventListener("click", () => {
+        // Remove from DOM
+        label.remove();
+        // Remove from tracking array
+        const idx = viaInputs.indexOf(input);
+        if (idx !== -1) {
+          viaInputs.splice(idx, 1);
+        }
+      });
+    
       label.appendChild(input);
-
+      label.appendChild(removeBtn);
+    
       // Insert the new Via label before the Add Via button, so we get:
       // Via
       // Via
       // [Add Via]
       form.insertBefore(label, addViaBtn);
-
+    
       viaInputs.push(input);
-    });
+    }
+
+    function setCookie(name, value, days) {
+      const d = new Date();
+      d.setTime(d.getTime() + days * 24 * 60 * 60 * 1000);
+      const expires = "expires=" + d.toUTCString();
+      document.cookie =
+        name +
+        "=" +
+        encodeURIComponent(value) +
+        ";" +
+        expires +
+        ";path=/;SameSite=Lax";
+    }
+    
+    function getCookie(name) {
+      const decoded = decodeURIComponent(document.cookie || "");
+      const parts = decoded.split(";");
+      const prefix = name + "=";
+      for (let c of parts) {
+        c = c.trim();
+        if (c.indexOf(prefix) === 0) {
+          return c.substring(prefix.length);
+        }
+      }
+      return "";
+    }
+    
+    function loadSavedInputsFromCookies() {
+      const from = getCookie("corridor_fromCrs");
+      const to = getCookie("corridor_toCrs");
+      const date = getCookie("corridor_serviceDate");
+      const start = getCookie("corridor_startTime");
+      const end = getCookie("corridor_endTime");
+      const viasStr = getCookie("corridor_vias");
+    
+      if (from) document.getElementById("fromCrs").value = from;
+      if (to) document.getElementById("toCrs").value = to;
+      if (date) document.getElementById("serviceDate").value = date;
+      if (start) document.getElementById("startTime").value = start;
+      if (end) document.getElementById("endTime").value = end;
+    
+      // Default to NO vias on first run.
+      // On subsequent runs, recreate one via field per saved CRS.
+      if (viasStr) {
+        viasStr
+          .split(",")
+          .map((v) => v.trim())
+          .filter((v) => v)
+          .forEach((v) => createViaField(v));
+      }
+    }
+    
+    // Run once when the script loads
+    loadSavedInputsFromCookies();
 
     function htmlEscape(str) {
       return String(str)
@@ -258,6 +320,12 @@
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+    
+      // Run HTML5 validation for "required" fields, min/max, etc.
+      if (!form.reportValidity()) {
+        return;
+      }
+    
       setStatus("");
       headerRowAB.innerHTML = "";
       bodyRowsAB.innerHTML = "";
@@ -265,18 +333,26 @@
       bodyRowsBA.innerHTML = "";
       headingAB.textContent = "";
       headingBA.textContent = "";
-
+    
       const from = normaliseCrs(document.getElementById("fromCrs").value);
       const to = normaliseCrs(document.getElementById("toCrs").value);
-      const dateInput = document.getElementById("serviceDate").value || DEFAULT_DATE;
-      const startInput = document.getElementById("startTime").value || DEFAULT_START_TIME;
-      const endInput = document.getElementById("endTime").value || DEFAULT_END_TIME;
+      const dateInput = document.getElementById("serviceDate").value;
+      const startInput = document.getElementById("startTime").value;
+      const endInput = document.getElementById("endTime").value;
 
       // Collect via CRS values (non-empty only)
       const viaValues = viaInputs
         .map((input) => normaliseCrs(input.value))
         .filter((v) => v);
 
+      // Persist current form values + vias for next visit
+      setCookie("corridor_fromCrs", from, 365);
+      setCookie("corridor_toCrs", to, 365);
+      setCookie("corridor_serviceDate", dateInput, 365);
+      setCookie("corridor_startTime", startInput, 365);
+      setCookie("corridor_endTime", endInput, 365);
+      setCookie("corridor_vias", viaValues.join(","), 365);
+        
       currentDate = dateInput;
       startMinutes = timeStrToMinutes(startInput);
       endMinutes = timeStrToMinutes(endInput);
