@@ -62,10 +62,11 @@
       z-index: 3;
     }
     td.sticky-left.station-row-label {
-      white-space: normal;
+      white-space: nowrap;
+      width: max-content;
+      min-width: max-content;
       text-align: right;
       padding-right: 0.5rem;
-      min-width: 16ch;
     }
     th.corner {
       z-index: 4;
@@ -96,9 +97,9 @@
     stations), using the <code>/json/service/&lt;uid&gt;/&lt;date&gt;</code> API, and ignoring locations whose
     <code>displayAs</code> is <code>PASS</code> or <code>CANCELLED_PASS</code>.<br>
     Services are split into two tables by direction: A→B (where A occurs before B in the calling pattern) and
-    B→A (where B occurs before A). For services starting/ending outside the corridor, an italic
-    <em>from X</em> or <em>to Y</em> is shown in the same column in the row immediately before/after the first/last
-    timing point, using spare rows at the very top/bottom if needed.
+    B→A (where B occurs before A). For services starting/ending outside the corridor, the origin/destination CRS is shown
+    in dedicated rows at the very top (“Comes from”) and/or very bottom (“Continues to”) if needed.
+    Hover shows the full location name.
   </p>
 
   <form id="form">
@@ -1051,11 +1052,50 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         stationModes[i] = mode;
       }
     
-      // --- Helper: build rowSpecs, optionally with top/bottom spare rows ---
-      function makeRowSpecs(includeTopSpare, includeBottomSpare) {
+      // --- Compute origin/destination meta for services that start/end outside the corridor ---
+      // We store:
+      //  - display: CRS only
+      //  - title: full name only (no "from/to")
+      const originMeta = new Array(numServices).fill(null);
+      const destMeta = new Array(numServices).fill(null);
+    
+      servicesWithDetails.forEach(({ detail }, idx) => {
+        const locs = detail.locations || [];
+        if (locs.length === 0) return;
+    
+        const firstLoc = locs[0];
+        const lastLoc = locs[locs.length - 1];
+    
+        if (firstLoc) {
+          const crs = firstLoc.crs || "";
+          if (!stationSet[crs]) {
+            const name = firstLoc.description || crs || firstLoc.tiploc || "";
+            const crsCode = crs || (firstLoc.tiploc || name);
+            originMeta[idx] = { display: crsCode, title: name };
+          }
+        }
+    
+        if (lastLoc) {
+          const crs = lastLoc.crs || "";
+          if (!stationSet[crs]) {
+            const name = lastLoc.description || crs || lastLoc.tiploc || "";
+            const crsCode = crs || (lastLoc.tiploc || name);
+            destMeta[idx] = { display: crsCode, title: name };
+          }
+        }
+      });
+    
+      // Dedicated extra rows:
+      // - Top row: "Comes from" (only if any originMeta exists in this direction)
+      // - Bottom row: "Continues to" (only if any destMeta exists in this direction)
+      const needTopExtra = originMeta.some((m) => !!m);
+      const needBottomExtra = destMeta.some((m) => !!m);
+    
+      // --- Helper: build rowSpecs, optionally with top/bottom extra rows ---
+      function makeRowSpecs(includeTopExtra, includeBottomExtra) {
         const specs = [];
-        if (includeTopSpare) {
-          specs.push({ kind: "spare", stationIndex: null, mode: "spare-top", arrDepLabel: "" });
+        if (includeTopExtra) {
+          specs.push({ kind: "extra", mode: "comes-from", label: "Comes from", stationIndex: null, arrDepLabel: "" });
         }
     
         for (let i = 0; i < numStations; i++) {
@@ -1068,8 +1108,8 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
           }
         }
     
-        if (includeBottomSpare) {
-          specs.push({ kind: "spare", stationIndex: null, mode: "spare-bottom", arrDepLabel: "" });
+        if (includeBottomExtra) {
+          specs.push({ kind: "extra", mode: "continues-to", label: "Continues to", stationIndex: null, arrDepLabel: "" });
         }
     
         return specs;
@@ -1078,8 +1118,8 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
       // --- Helper: init rows + labels for a given rowSpecs ---
       function makeRowsForSpecs(specs) {
         const rows = specs.map((spec) => ({
-          kind: spec.kind, // "station" / "spare"
-          mode: spec.mode, // "arr"/"dep"/"merged"/"single"/"spare-*"
+          kind: spec.kind, // "station" / "extra"
+          mode: spec.mode, // "arr"/"dep"/"merged"/"single"/"comes-from"/"continues-to"
           labelStation: "",
           labelArrDep: "",
           cells: new Array(numServices).fill("")
@@ -1089,6 +1129,12 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         let lastStationIndexForLabel = null;
         for (let r = 0; r < specs.length; r++) {
           const spec = specs[r];
+    
+          if (spec.kind === "extra") {
+            rows[r].labelStation = spec.label || "";
+            continue;
+          }
+    
           if (spec.kind === "station") {
             const stationIndex = spec.stationIndex;
             const station = displayStations[stationIndex];
@@ -1141,77 +1187,31 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         return { firstRowForService, lastRowForService };
       }
     
-      // --- Compute origin/destination meta for services that start/end outside the corridor ---
-      const originMeta = new Array(numServices).fill(null);
-      const destMeta = new Array(numServices).fill(null);
-    
-      servicesWithDetails.forEach(({ detail }, idx) => {
-        const locs = detail.locations || [];
-        if (locs.length === 0) return;
-    
-        const firstLoc = locs[0];
-        const lastLoc = locs[locs.length - 1];
-    
-        if (firstLoc) {
-          const crs = firstLoc.crs || "";
-          if (!stationSet[crs]) {
-            const name = firstLoc.description || crs || firstLoc.tiploc || "";
-            const crsCode = crs || (firstLoc.tiploc || name);
-            originMeta[idx] = { display: "from " + crsCode, title: "from " + name };
-          }
-        }
-    
-        if (lastLoc) {
-          const crs = lastLoc.crs || "";
-          if (!stationSet[crs]) {
-            const name = lastLoc.description || crs || lastLoc.tiploc || "";
-            const crsCode = crs || (lastLoc.tiploc || name);
-            destMeta[idx] = { display: "to " + crsCode, title: "to " + name };
-          }
-        }
-      });
-    
-      // --- Pass 1: build WITHOUT spares, see if any from/to would overflow ---
-      let rowSpecs = makeRowSpecs(false, false);
+      // --- Build rows with only the extra rows we need (per direction) ---
+      let rowSpecs = makeRowSpecs(needTopExtra, needBottomExtra);
       let rows = makeRowsForSpecs(rowSpecs);
       let { firstRowForService, lastRowForService } = fillTimesIntoRows(rowSpecs, rows);
     
-      // Need a TOP spare only if at least one "from X" would need to go above row 0
-      const needTopSpare = originMeta.some((meta, svcIdx) => meta && firstRowForService[svcIdx] === 0);
-    
-      // Need a BOTTOM spare only if at least one "to Y" would need to go below the last row
-      const needBottomSpare = destMeta.some(
-        (meta, svcIdx) => meta && lastRowForService[svcIdx] === rowSpecs.length - 1
-      );
-    
-      // --- Pass 2: rebuild WITH only the spares we actually need ---
-      if (needTopSpare || needBottomSpare) {
-        rowSpecs = makeRowSpecs(needTopSpare, needBottomSpare);
-        rows = makeRowsForSpecs(rowSpecs);
-        ({ firstRowForService, lastRowForService } = fillTimesIntoRows(rowSpecs, rows));
-      }
-    
       const totalRows = rowSpecs.length;
     
-      // --- Insert italic from/to text in the row immediately before/after first/last timing row ---
+      // --- Put origin/destination CRS into the dedicated extra rows (top/bottom) ---
+      const topExtraRowIdx = needTopExtra ? 0 : null;
+      const bottomExtraRowIdx = needBottomExtra ? (totalRows - 1) : null;
+    
       servicesWithDetails.forEach((entry, svcIndex) => {
         const fromInfo = originMeta[svcIndex];
         const toInfo = destMeta[svcIndex];
-        const firstRow = firstRowForService[svcIndex];
-        const lastRow = lastRowForService[svcIndex];
     
-        if (fromInfo && firstRow !== null) {
-          const targetRow = Math.max(0, firstRow - 1); // top spare if present, else row 0
-          if (!rows[targetRow].cells[svcIndex]) {
-            rows[targetRow].cells[svcIndex] =
+        if (fromInfo && topExtraRowIdx !== null) {
+          if (!rows[topExtraRowIdx].cells[svcIndex]) {
+            rows[topExtraRowIdx].cells[svcIndex] =
               `<i title="${htmlEscape(fromInfo.title)}">${htmlEscape(fromInfo.display)}</i>`;
           }
         }
     
-        if (toInfo && lastRow !== null) {
-          const targetRow = Math.min(totalRows - 1, lastRow + 1); // bottom spare if present, else last row
-          if (!rows[targetRow].cells[svcIndex]) {
-            rows[targetRow].cells[svcIndex] =
+        if (toInfo && bottomExtraRowIdx !== null) {
+          if (!rows[bottomExtraRowIdx].cells[svcIndex]) {
+            rows[bottomExtraRowIdx].cells[svcIndex] =
               `<i title="${htmlEscape(toInfo.title)}">${htmlEscape(toInfo.display)}</i>`;
           }
         }
@@ -1394,6 +1394,18 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         // Keep the border between arr and dep rows of the same station
         if (row.kind === "station" && row.labelArrDep === "dep") {
           tr.classList.add("row-sep-top");
+        }
+
+        // Add a separator line between the extra rows and the station rows
+        // - Between "Comes from" and first station row (top boundary)
+        // - Between last station row and "Continues to" (bottom boundary)
+        const prevRow = rowIdx > 0 ? rows[rowIdx - 1] : null;
+        if (prevRow) {
+          const boundaryExtraToStation = (prevRow.kind === "extra" && row.kind === "station");
+          const boundaryStationToExtra = (prevRow.kind === "station" && row.kind === "extra");
+          if (boundaryExtraToStation || boundaryStationToExtra) {
+            tr.classList.add("row-sep-top");
+          }
         }
 
         let labelText = "";
