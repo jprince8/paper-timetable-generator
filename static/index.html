@@ -436,6 +436,11 @@
         statusEl.textContent = msg;
       }
 
+      function setProgressStatus(label, completed, total) {
+        const percent = total > 0 ? Math.round((completed / total) * 100) : 100;
+        setStatus(`${label} ${percent}%`);
+      }
+
       form.addEventListener("submit", async (e) => {
         e.preventDefault();
 
@@ -492,18 +497,6 @@
 
         // Full corridor chain including vias
         const corridorStations = [from, ...viaValues, to];
-
-        setStatus(
-          "Step 1/4: Fetching corridor services for " +
-            corridorStations.join(" \u2192 ") +
-            " on " +
-            currentDate +
-            " between " +
-            startInput +
-            " and " +
-            endInput +
-            " ...",
-        );
 
         // Legs: A->B, B->C, ..., for each adjacent pair in the corridor chain
         const corridorLegs = [];
@@ -564,19 +557,9 @@
         const corridorServices = Array.from(corridorServicesMap.values());
 
         if (corridorServices.length === 0) {
-          setStatus(
-            statusEl.textContent +
-              "\nNo passenger services in this time range on corridor.",
-          );
+          setStatus("No passenger services in this time range on corridor.");
           return;
         }
-
-        setStatus(
-          statusEl.textContent +
-            "\nStep 2/4: Fetching full details for " +
-            corridorServices.length +
-            " corridor services ...",
-        );
 
         // Step 2: Get full details for corridor services to derive station union.
         const corridorDetailPromises = corridorServices.map(async (svc) => {
@@ -617,11 +600,7 @@
         try {
           corridorDetails = await Promise.all(corridorDetailPromises);
         } catch (err) {
-          setStatus(
-            statusEl.textContent +
-              "\nError fetching corridor service details: " +
-              err,
-          );
+          setStatus("Error fetching corridor service details: " + err);
           return;
         }
 
@@ -629,10 +608,7 @@
           (d) => d.detail && Array.isArray(d.detail.locations),
         );
         if (okCorridorDetails.length === 0) {
-          setStatus(
-            statusEl.textContent +
-              "\nNo usable corridor service detail responses.",
-          );
+          setStatus("No usable corridor service detail responses.");
           return;
         }
 
@@ -644,8 +620,7 @@
         );
         if (stations.length === 0) {
           setStatus(
-            statusEl.textContent +
-              "\nNo stations found between " +
+            "No stations found between " +
               from +
               " and " +
               to +
@@ -659,10 +634,7 @@
           if (s.crs) stationSet[s.crs] = true;
         });
 
-        setStatus(
-          statusEl.textContent +
-            "\nStep 3/4: Discovering all services at corridor stations ...",
-        );
+        setProgressStatus("Finding services...", 0, stations.length);
 
         // Build a candidate map of all services seen at any corridor station.
         const candidateMap = new Map(); // key -> { svc, detail, seed }
@@ -683,35 +655,50 @@
 
         // For each corridor station, search all services at that station (for the same date),
         // and filter by time range at that station.
+        let stationsCompleted = 0;
         const stationSearchPromises = stations.map(async (st) => {
-          const url =
-            PROXY_SEARCH +
-            "?crs=" +
-            encodeURIComponent(st.crs) +
-            "&date=" +
-            encodeURIComponent(currentDate);
-          const resp = await fetch(url, {
-            headers: { Accept: "application/json" },
-          });
-          const text = await resp.text();
-          let data;
           try {
-            data = JSON.parse(text);
-          } catch (e) {
-            console.warn("Failed to parse search for station", st.crs, e, text);
-            return;
-          }
-          const services = Array.isArray(data.services) ? data.services : [];
-          services.forEach((svc) => {
-            if (svc.isPassenger === false) return;
-            if (svc.plannedCancel) return;
-            if (!serviceAtStationInRange(svc)) return;
-            const key = serviceKey(svc);
-            if (!key) return;
-            if (!candidateMap.has(key)) {
-              candidateMap.set(key, { svc: svc, detail: null, seed: false });
+            const url =
+              PROXY_SEARCH +
+              "?crs=" +
+              encodeURIComponent(st.crs) +
+              "&date=" +
+              encodeURIComponent(currentDate);
+            const resp = await fetch(url, {
+              headers: { Accept: "application/json" },
+            });
+            const text = await resp.text();
+            let data;
+            try {
+              data = JSON.parse(text);
+            } catch (e) {
+              console.warn(
+                "Failed to parse search for station",
+                st.crs,
+                e,
+                text,
+              );
+              return;
             }
-          });
+            const services = Array.isArray(data.services) ? data.services : [];
+            services.forEach((svc) => {
+              if (svc.isPassenger === false) return;
+              if (svc.plannedCancel) return;
+              if (!serviceAtStationInRange(svc)) return;
+              const key = serviceKey(svc);
+              if (!key) return;
+              if (!candidateMap.has(key)) {
+                candidateMap.set(key, { svc: svc, detail: null, seed: false });
+              }
+            });
+          } finally {
+            stationsCompleted += 1;
+            setProgressStatus(
+              "Finding services...",
+              stationsCompleted,
+              stations.length,
+            );
+          }
         });
 
         try {
@@ -720,17 +707,15 @@
           console.warn("Error during station searches:", err);
         }
 
-        setStatus(
-          statusEl.textContent +
-            "\nStep 3/4: Found " +
-            candidateMap.size +
-            " candidate services; fetching details ...",
-        );
-
         // Fetch details for candidates that don't already have them.
+        const totalCandidateServices = candidateMap.size;
+        let completedDetailServices = 0;
         const detailFetchPromises = [];
         for (const [key, entry] of candidateMap.entries()) {
-          if (entry.detail) continue; // already have
+          if (entry.detail) {
+            completedDetailServices += 1;
+            continue; // already have
+          }
           const uid = entry.svc.serviceUid;
           const date = entry.svc.runDate;
           if (!uid || !date) continue;
@@ -763,8 +748,24 @@
                 uid,
                 err,
               );
+            })
+            .finally(() => {
+              completedDetailServices += 1;
+              setProgressStatus(
+                "Gathering service details...",
+                completedDetailServices,
+                totalCandidateServices,
+              );
             });
           detailFetchPromises.push(p);
+        }
+
+        if (totalCandidateServices > 0) {
+          setProgressStatus(
+            "Gathering service details...",
+            completedDetailServices,
+            totalCandidateServices,
+          );
         }
 
         try {
@@ -772,6 +773,8 @@
         } catch (err) {
           console.warn("Error during candidate detail fetch:", err);
         }
+
+        setStatus("");
 
         // Filter to services that:
         //  - have valid detail.locations
@@ -803,8 +806,7 @@
 
         if (allDetails.length === 0) {
           setStatus(
-            statusEl.textContent +
-              "\nNo services found that call at two or more corridor stations in this time range.",
+            "No services found that call at two or more corridor stations in this time range.",
           );
           return;
         }
@@ -813,17 +815,6 @@
         const split = splitByDirection(allDetails, stations);
         const servicesAB = split.ab;
         const servicesBA = split.ba;
-
-        setStatus(
-          statusEl.textContent +
-            "\nStep 4/4: Building timetables with " +
-            servicesAB.length +
-            " A→B services and " +
-            servicesBA.length +
-            " B→A services across " +
-            stations.length +
-            " stations ...",
-        );
 
         // Build A -> B table (stations in forward order)
         if (servicesAB.length > 0) {
