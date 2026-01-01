@@ -78,6 +78,11 @@
     .service-header {
       font-weight: 600;
       white-space: nowrap;
+      color: inherit;
+      text-decoration: none;
+    }
+    .service-header:hover {
+      text-decoration: underline;
     }
   </style>
 </head>
@@ -1286,6 +1291,9 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         const originText = safePairText(detail.origin);
         const destText = safePairText(detail.destination);
         const dateText = detail.runDate || svc.runDate || "";
+        const uid = svc.serviceUid || "";
+        const date = svc.runDate || detail.runDate || "";
+        const href = `https://www.realtimetrains.co.uk/service/gb-nr:${encodeURIComponent(uid)}/${encodeURIComponent(date)}`;
     
         const headcode =
           svc.trainIdentity ||
@@ -1313,7 +1321,11 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
           line2 && line1 ? `${line1}\n${line2}` :
           line1 || line2 || visible;
     
-        return { visible, tooltip };
+        return {
+          visible,
+          tooltip,
+          href
+        };
       });
     
       // Assert (in console) that times in each service column never decrease
@@ -1351,9 +1363,22 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         const tooltipEsc = htmlEscape(tooltip);
         const visibleEsc = htmlEscape(visible);
 
-        th.innerHTML = `
-          <span class="service-header" title="${tooltipEsc}">${visibleEsc}</span>
-        `;
+        const href = meta.href || "";
+
+        if (href) {
+          th.innerHTML = `
+            <a class="service-header"
+               href="${href}"
+               target="_blank"
+               rel="noopener noreferrer"
+               title="${tooltipEsc}">${visibleEsc}</a>
+          `;
+        } else {
+          th.innerHTML = `
+            <span class="service-header" title="${tooltipEsc}">${visibleEsc}</span>
+          `;
+        }
+
         th.title = tooltip;
 
         headerRowEl.appendChild(th);
