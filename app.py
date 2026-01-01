@@ -8,16 +8,20 @@ app = Flask(__name__, static_folder="static")
 RTT_USER = os.environ.get("RTT_USER")
 RTT_PASS = os.environ.get("RTT_PASS")
 
+if not RTT_USER or not RTT_PASS:
+    raise RuntimeError("RTT_USER and RTT_PASS must be set as environment variables")
+
 RTT_BASE = "https://api.rtt.io/api/v1"
 
 def rtt_get(path, params=None):
-    resp = requests.get(
-        RTT_BASE + path,
-        auth=(RTT_USER, RTT_PASS),
-        params=params,
-        timeout=15
-    )
-    resp.raise_for_status()
+    url = RTT_BASE + path
+    resp = requests.get(url, auth=(RTT_USER, RTT_PASS), params=params, timeout=15)
+    try:
+        resp.raise_for_status()
+    except requests.HTTPError as e:
+        # Log the body once to see what RTT is actually saying
+        app.logger.error("RTT error %s for %s: %s", resp.status_code, url, resp.text[:500])
+        raise
     return resp.json()
 
 @app.route("/")
@@ -27,22 +31,42 @@ def index():
 @app.route("/rtt/search")
 def api_search():
     crs = request.args.get("crs")
-    date = request.args.get("date")
+    date = request.args.get("date")  # expected YYYY-MM-DD from the HTML form
     to = request.args.get("to")
+
     if not crs or not date:
         return jsonify({"error": "crs and date required"}), 400
-    path = f"/json/search/{crs}/{date}"
-    params = {"to": to} if to else None
-    return jsonify(rtt_get(path, params))
+
+    # Convert YYYY-MM-DD -> YYYY/MM/DD for RTT, and insert /to/<toStation> before the date
+    try:
+        year, month, day = date.split("-")
+    except ValueError:
+        return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+
+    path = f"/json/search/{crs}"
+    if to:
+        path += f"/to/{to}"
+    path += f"/{year}/{month}/{day}"
+
+    data = rtt_get(path)
+    return jsonify(data)
 
 @app.route("/rtt/service")
 def api_service():
     uid = request.args.get("uid")
-    date = request.args.get("date")
+    date = request.args.get("date")  # YYYY-MM-DD from the HTML
+
     if not uid or not date:
         return jsonify({"error": "uid and date required"}), 400
-    path = f"/json/service/{uid}/{date}"
-    return jsonify(rtt_get(path))
+
+    try:
+        year, month, day = date.split("-")
+    except ValueError:
+        return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+
+    path = f"/json/service/{uid}/{year}/{month}/{day}"
+    data = rtt_get(path)
+    return jsonify(data)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
