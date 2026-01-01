@@ -21,10 +21,31 @@
       font-size: 0.85rem;
       margin-bottom: 2rem;
     }
-    th, td {
+    th {
       border: 1px solid #ccc;
       padding: 0.25rem 0.4rem;
       text-align: center;
+    }
+    
+    td {
+      /* keep vertical gridlines */
+      border-left: 1px solid #ccc;
+      border-right: 1px solid #ccc;
+    
+      /* remove horizontal gridlines by default */
+      border-top: none;
+      border-bottom: none;
+    
+      padding: 0.25rem 0.4rem;
+      text-align: center;
+    }
+    
+    /* Add a horizontal line above rows that should have one:
+       - below the header (first body row)
+       - between arr and dep rows of the same station (dep row gets a top border)
+    */
+    tr.row-sep-top > td {
+      border-top: 1px solid #ccc;
     }
     th.sticky-top {
       position: sticky;
@@ -847,444 +868,464 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
       });
     }
 
-function buildTimetableModel(stations, stationSet, servicesWithDetails) {
-  const numServices = servicesWithDetails.length;
-
-  // --- Decide which stations actually get rows ---
-  const displayStations = stations.filter((station) => {
-    return servicesWithDetails.some(({ detail }) => {
-      const locs = detail.locations || [];
-      return locs.some((l) => {
-        if ((l.crs || "") !== station.crs) return false;
-        const disp = (l.displayAs || "").toUpperCase();
-        const isPublic = l.isPublicCall === true;
-        if (disp === "PASS" || disp === "CANCELLED_PASS") return false;
-        return isPublic;
-      });
-    });
-  });
-
-  if (DEBUG_STATIONS) {
-    const hidden = stations
-      .filter((st) => !displayStations.includes(st))
-      .map((st) => ({ crs: st.crs, name: st.name }));
-    console.log("Display stations:", displayStations.map((s) => s.crs + " " + s.name));
-    console.log("Hidden stations (no public calls in any included service):", hidden);
-  }
-
-  const numStations = displayStations.length;
-
-  // --- Precompute per-station, per-service arrival/departure times ---
-  const stationTimes = [];
-  for (let i = 0; i < numStations; i++) {
-    const row = [];
-    for (let s = 0; s < numServices; s++) {
-      row.push({ arrStr: "", arrMins: null, depStr: "", depMins: null });
-    }
-    stationTimes.push(row);
-  }
-
-  servicesWithDetails.forEach(({ detail }, svcIndex) => {
-    const locs = detail.locations || [];
-
-    displayStations.forEach((station, stationIndex) => {
-      const loc = locs.find((l) => (l.crs || "") === station.crs);
-      if (!loc) return;
-
-      const rawArr = loc.gbttBookedArrival || loc.realtimeArrival || "";
-      const rawDep = loc.gbttBookedDeparture || loc.realtimeDeparture || "";
-
-      const arrStr = rawArr ? padTime(rawArr) : "";
-      const depStr = rawDep ? padTime(rawDep) : "";
-
-      const arrMins = arrStr ? timeStrToMinutes(arrStr) : null;
-      const depMins = depStr ? timeStrToMinutes(depStr) : null;
-
-      stationTimes[stationIndex][svcIndex] = { arrStr, arrMins, depStr, depMins };
-    });
-  });
-
-  // --- Decide row mode per station ---
-  const stationModes = [];
-
-  for (let i = 0; i < numStations; i++) {
-    const times = stationTimes[i];
-
-    let hasArr = false;
-    let hasDep = false;
-    let hasAny = false;
-
-    let hasLongDwell = false;
-    const dwellDebugEntries = [];
-
-    for (let s = 0; s < numServices; s++) {
-      const t = times[s];
-      if (!t) continue;
-
-      const svc = servicesWithDetails[s].svc;
-      const trainId =
-        svc.trainIdentity ||
-        svc.runningIdentity ||
-        svc.serviceUid ||
-        ("svc#" + s);
-
-      if (t.arrMins !== null) {
-        hasArr = true;
-        hasAny = true;
-      }
-      if (t.depMins !== null) {
-        hasDep = true;
-        hasAny = true;
-      }
-
-      if (t.arrMins !== null && t.depMins !== null) {
-        const dwellMinutes = Math.abs(t.depMins - t.arrMins);
-
-        if (dwellMinutes > 2) {
-          hasLongDwell = true;
-        }
-
-        if (DEBUG_STATIONS) {
-          dwellDebugEntries.push({
-            svcIndex: s,
-            trainId,
-            arrTimeStr: t.arrStr,
-            depTimeStr: t.depStr,
-            arrMins: t.arrMins,
-            depMins: t.depMins,
-            dwellMinutes
+    function buildTimetableModel(stations, stationSet, servicesWithDetails) {
+      const numServices = servicesWithDetails.length;
+    
+      // --- Decide which stations actually get rows (only those with at least one PUBLIC call) ---
+      const displayStations = stations.filter((station) => {
+        return servicesWithDetails.some(({ detail }) => {
+          const locs = detail.locations || [];
+          return locs.some((locEntry) => {
+            if ((locEntry.crs || "") !== station.crs) return false;
+            const disp = (locEntry.displayAs || "").toUpperCase();
+            const isPublic = locEntry.isPublicCall === true;
+            if (disp === "PASS" || disp === "CANCELLED_PASS") return false;
+            return isPublic;
           });
-        }
-      } else if (DEBUG_STATIONS && (t.arrMins !== null || t.depMins !== null)) {
-        dwellDebugEntries.push({
-          svcIndex: s,
-          trainId,
-          arrTimeStr: t.arrStr,
-          depTimeStr: t.depStr,
-          arrMins: t.arrMins,
-          depMins: t.depMins,
-          dwellMinutes: null
         });
-      }
-    }
-
-    let mode;
-    if (hasArr && hasDep) {
-      if (hasLongDwell) {
-        mode = "two";
-
-        if (DEBUG_STATIONS) {
-          const station = displayStations[i];
-          const offenders = dwellDebugEntries.filter(
-            (e) => e.dwellMinutes !== null && e.dwellMinutes > 2
-          );
-
-          console.groupCollapsed(
-            "[DWELL] Station not merged:",
-            station.crs,
-            station.name,
-            "— at least one service has dwell > 2 mins"
-          );
-          console.log("All services' arr/dep at this station:", dwellDebugEntries);
-          console.log("Offending services (dwell > 2 mins):", offenders);
-          console.groupEnd();
-        }
-      } else {
-        mode = "merged";
-
-        if (DEBUG_STATIONS) {
-          const station = displayStations[i];
-          console.groupCollapsed(
-            "[DWELL] Station merged:",
-            station.crs,
-            station.name,
-            "— all dwells <= 2 mins"
-          );
-          console.log("All services' arr/dep at this station:", dwellDebugEntries);
-          console.groupEnd();
-        }
-      }
-    } else if (hasAny) {
-      mode = "single";
-
+      });
+    
       if (DEBUG_STATIONS) {
-        const station = displayStations[i];
-        console.groupCollapsed(
-          "[DWELL] Station single-row (only arr OR only dep overall):",
-          station.crs,
-          station.name
-        );
-        console.log("All services' arr/dep at this station:", dwellDebugEntries);
-        console.groupEnd();
+        const hidden = stations
+          .filter((st) => !displayStations.includes(st))
+          .map((st) => ({ crs: st.crs, name: st.name }));
+        console.log("Display stations:", displayStations.map((s) => s.crs + " " + s.name));
+        console.log("Hidden stations (no public calls in any included service):", hidden);
       }
-    } else {
-      mode = "single";
-    }
-
-    stationModes[i] = mode;
-  }
-
-  // --- Build row specs ---
-  const rowSpecs = [];
-  rowSpecs.push({ kind: "spare", stationIndex: null, mode: "spare-top", arrDepLabel: "" });
-
-  for (let i = 0; i < numStations; i++) {
-    const mode = stationModes[i];
-    if (mode === "two") {
-      rowSpecs.push({ kind: "station", stationIndex: i, mode: "arr", arrDepLabel: "arr" });
-      rowSpecs.push({ kind: "station", stationIndex: i, mode: "dep", arrDepLabel: "dep" });
-    } else {
-      rowSpecs.push({ kind: "station", stationIndex: i, mode: mode, arrDepLabel: "" });
-    }
-  }
-
-  rowSpecs.push({ kind: "spare", stationIndex: null, mode: "spare-bottom", arrDepLabel: "" });
-
-  const totalRows = rowSpecs.length;
-
-  // --- Prepare row data structure ---
-  const rows = [];
-  for (let r = 0; r < totalRows; r++) {
-    rows.push({
-      labelStation: "",
-      labelArrDep: "",
-      cells: new Array(numServices).fill("")
-    });
-  }
-
-  // Label station + arr/dep col: only show station name on first row for that station
-  let lastStationIndexForLabel = null;
-  for (let r = 0; r < totalRows; r++) {
-    const spec = rowSpecs[r];
-    if (spec.kind === "station") {
-      const stationIndex = spec.stationIndex;
-      const station = displayStations[stationIndex];
-      if (stationIndex !== lastStationIndexForLabel) {
-        rows[r].labelStation = station.name;
-        lastStationIndexForLabel = stationIndex;
-      } else {
-        rows[r].labelStation = "";
-      }
-      rows[r].labelArrDep = spec.arrDepLabel;
-    } else {
-      rows[r].labelStation = "";
-      rows[r].labelArrDep = "";
-    }
-  }
-
-  // Compute origin/destination meta for services that start/end outside the corridor.
-  const originMeta = new Array(numServices).fill(null);
-  const destMeta = new Array(numServices).fill(null);
-
-  servicesWithDetails.forEach(({ detail }, idx) => {
-    const locs = detail.locations || [];
-    if (locs.length === 0) return;
-
-    const firstLoc = locs[0];
-    const lastLoc = locs[locs.length - 1];
-
-    if (firstLoc) {
-      const crs = firstLoc.crs || "";
-      if (!stationSet[crs]) {
-        const name = firstLoc.description || crs || firstLoc.tiploc || "";
-        const crsCode = crs || (firstLoc.tiploc || name);
-        originMeta[idx] = {
-          display: "from " + crsCode,
-          title: "from " + name
-        };
-      }
-    }
-
-    if (lastLoc) {
-      const crs = lastLoc.crs || "";
-      if (!stationSet[crs]) {
-        const name = lastLoc.description || crs || lastLoc.tiploc || "";
-        const crsCode = crs || (lastLoc.tiploc || name);
-        destMeta[idx] = {
-          display: "to " + crsCode,
-          title: "to " + name
-        };
-      }
-    }
-  });
-
-  // Fill times into rows, track first/last timing row index per service
-  const firstRowForService = new Array(numServices).fill(null);
-  const lastRowForService = new Array(numServices).fill(null);
-
-  for (let r = 0; r < totalRows; r++) {
-    const spec = rowSpecs[r];
-    if (spec.kind !== "station") continue;
-
-    const stationIndex = spec.stationIndex;
-    const mode = spec.mode;
-
-    for (let s = 0; s < numServices; s++) {
-      const t = stationTimes[stationIndex][s];
-      if (!t) continue;
-
-      let timeStr = "";
-      if (mode === "arr") {
-        timeStr = t.arrStr;
-      } else if (mode === "dep") {
-        timeStr = t.depStr;
-      } else if (mode === "merged" || mode === "single") {
-        timeStr = t.depStr || t.arrStr;
-      }
-
-      if (timeStr) {
-        rows[r].cells[s] = timeStr;
-        if (firstRowForService[s] === null || r < firstRowForService[s]) {
-          firstRowForService[s] = r;
+    
+      const numStations = displayStations.length;
+    
+      // --- Precompute per-station, per-service arrival/departure times ---
+      // stationTimes[stationIndex][svcIndex] = { arrStr, arrMins, depStr, depMins }
+      const stationTimes = [];
+      for (let i = 0; i < numStations; i++) {
+        const row = [];
+        for (let s = 0; s < numServices; s++) {
+          row.push({ arrStr: "", arrMins: null, depStr: "", depMins: null });
         }
-        if (lastRowForService[s] === null || r > lastRowForService[s]) {
-          lastRowForService[s] = r;
+        stationTimes.push(row);
+      }
+    
+      servicesWithDetails.forEach(({ detail }, svcIndex) => {
+        const locs = detail.locations || [];
+    
+        displayStations.forEach((station, stationIndex) => {
+          const loc = locs.find((locEntry) => (locEntry.crs || "") === station.crs);
+          if (!loc) return;
+    
+          const rawArr = loc.gbttBookedArrival || loc.realtimeArrival || "";
+          const rawDep = loc.gbttBookedDeparture || loc.realtimeDeparture || "";
+    
+          const arrStr = rawArr ? padTime(rawArr) : "";
+          const depStr = rawDep ? padTime(rawDep) : "";
+    
+          const arrMins = arrStr ? timeStrToMinutes(arrStr) : null;
+          const depMins = depStr ? timeStrToMinutes(depStr) : null;
+    
+          stationTimes[stationIndex][svcIndex] = { arrStr, arrMins, depStr, depMins };
+        });
+      });
+    
+      // --- Decide row mode per station (merged vs two rows vs single) ---
+      const stationModes = [];
+    
+      for (let i = 0; i < numStations; i++) {
+        const times = stationTimes[i];
+    
+        let hasArr = false;
+        let hasDep = false;
+        let hasAny = false;
+    
+        let hasLongDwell = false;
+        const dwellDebugEntries = [];
+    
+        for (let s = 0; s < numServices; s++) {
+          const t = times[s];
+          if (!t) continue;
+    
+          const svc = servicesWithDetails[s].svc;
+          const trainId =
+            svc.trainIdentity ||
+            svc.runningIdentity ||
+            svc.serviceUid ||
+            ("svc#" + s);
+    
+          if (t.arrMins !== null) {
+            hasArr = true;
+            hasAny = true;
+          }
+          if (t.depMins !== null) {
+            hasDep = true;
+            hasAny = true;
+          }
+    
+          if (t.arrMins !== null && t.depMins !== null) {
+            const dwellMinutes = Math.abs(t.depMins - t.arrMins);
+    
+            if (dwellMinutes > 2) {
+              hasLongDwell = true;
+            }
+    
+            if (DEBUG_STATIONS) {
+              dwellDebugEntries.push({
+                svcIndex: s,
+                trainId,
+                arrTimeStr: t.arrStr,
+                depTimeStr: t.depStr,
+                arrMins: t.arrMins,
+                depMins: t.depMins,
+                dwellMinutes
+              });
+            }
+          } else if (DEBUG_STATIONS && (t.arrMins !== null || t.depMins !== null)) {
+            dwellDebugEntries.push({
+              svcIndex: s,
+              trainId,
+              arrTimeStr: t.arrStr,
+              depTimeStr: t.depStr,
+              arrMins: t.arrMins,
+              depMins: t.depMins,
+              dwellMinutes: null
+            });
+          }
+        }
+    
+        let mode;
+        if (hasArr && hasDep) {
+          if (hasLongDwell) {
+            mode = "two";
+    
+            if (DEBUG_STATIONS) {
+              const station = displayStations[i];
+              const offenders = dwellDebugEntries.filter(
+                (e) => e.dwellMinutes !== null && e.dwellMinutes > 2
+              );
+    
+              console.groupCollapsed(
+                "[DWELL] Station not merged:",
+                station.crs,
+                station.name,
+                "— at least one service has dwell > 2 mins"
+              );
+              console.log("All services' arr/dep at this station:", dwellDebugEntries);
+              console.log("Offending services (dwell > 2 mins):", offenders);
+              console.groupEnd();
+            }
+          } else {
+            mode = "merged";
+    
+            if (DEBUG_STATIONS) {
+              const station = displayStations[i];
+              console.groupCollapsed(
+                "[DWELL] Station merged:",
+                station.crs,
+                station.name,
+                "— all dwells <= 2 mins"
+              );
+              console.log("All services' arr/dep at this station:", dwellDebugEntries);
+              console.groupEnd();
+            }
+          }
+        } else if (hasAny) {
+          mode = "single";
+    
+          if (DEBUG_STATIONS) {
+            const station = displayStations[i];
+            console.groupCollapsed(
+              "[DWELL] Station single-row (only arr OR only dep overall):",
+              station.crs,
+              station.name
+            );
+            console.log("All services' arr/dep at this station:", dwellDebugEntries);
+            console.groupEnd();
+          }
+        } else {
+          mode = "single";
+        }
+    
+        stationModes[i] = mode;
+      }
+    
+      // --- Helper: build rowSpecs, optionally with top/bottom spare rows ---
+      function makeRowSpecs(includeTopSpare, includeBottomSpare) {
+        const specs = [];
+        if (includeTopSpare) {
+          specs.push({ kind: "spare", stationIndex: null, mode: "spare-top", arrDepLabel: "" });
+        }
+    
+        for (let i = 0; i < numStations; i++) {
+          const mode = stationModes[i];
+          if (mode === "two") {
+            specs.push({ kind: "station", stationIndex: i, mode: "arr", arrDepLabel: "arr" });
+            specs.push({ kind: "station", stationIndex: i, mode: "dep", arrDepLabel: "dep" });
+          } else {
+            specs.push({ kind: "station", stationIndex: i, mode: mode, arrDepLabel: "" });
+          }
+        }
+    
+        if (includeBottomSpare) {
+          specs.push({ kind: "spare", stationIndex: null, mode: "spare-bottom", arrDepLabel: "" });
+        }
+    
+        return specs;
+      }
+    
+      // --- Helper: init rows + labels for a given rowSpecs ---
+      function makeRowsForSpecs(specs) {
+        const rows = specs.map((spec) => ({
+          kind: spec.kind, // "station" / "spare"
+          mode: spec.mode, // "arr"/"dep"/"merged"/"single"/"spare-*"
+          labelStation: "",
+          labelArrDep: "",
+          cells: new Array(numServices).fill("")
+        }));
+    
+        // Label station name only on first row for that station
+        let lastStationIndexForLabel = null;
+        for (let r = 0; r < specs.length; r++) {
+          const spec = specs[r];
+          if (spec.kind === "station") {
+            const stationIndex = spec.stationIndex;
+            const station = displayStations[stationIndex];
+    
+            if (stationIndex !== lastStationIndexForLabel) {
+              rows[r].labelStation = station.name;
+              lastStationIndexForLabel = stationIndex;
+            }
+    
+            rows[r].labelArrDep = spec.arrDepLabel;
+          }
+        }
+    
+        return rows;
+      }
+    
+      // --- Helper: fill times + return first/last timing row per service ---
+      function fillTimesIntoRows(specs, rows) {
+        const firstRowForService = new Array(numServices).fill(null);
+        const lastRowForService = new Array(numServices).fill(null);
+    
+        for (let r = 0; r < specs.length; r++) {
+          const spec = specs[r];
+          if (spec.kind !== "station") continue;
+    
+          const stationIndex = spec.stationIndex;
+          const mode = spec.mode;
+    
+          for (let s = 0; s < numServices; s++) {
+            const t = stationTimes[stationIndex][s];
+            if (!t) continue;
+    
+            let timeStr = "";
+            if (mode === "arr") {
+              timeStr = t.arrStr;
+            } else if (mode === "dep") {
+              timeStr = t.depStr;
+            } else if (mode === "merged" || mode === "single") {
+              timeStr = t.depStr || t.arrStr;
+            }
+    
+            if (timeStr) {
+              rows[r].cells[s] = timeStr;
+              if (firstRowForService[s] === null || r < firstRowForService[s]) firstRowForService[s] = r;
+              if (lastRowForService[s] === null || r > lastRowForService[s]) lastRowForService[s] = r;
+            }
+          }
+        }
+    
+        return { firstRowForService, lastRowForService };
+      }
+    
+      // --- Compute origin/destination meta for services that start/end outside the corridor ---
+      const originMeta = new Array(numServices).fill(null);
+      const destMeta = new Array(numServices).fill(null);
+    
+      servicesWithDetails.forEach(({ detail }, idx) => {
+        const locs = detail.locations || [];
+        if (locs.length === 0) return;
+    
+        const firstLoc = locs[0];
+        const lastLoc = locs[locs.length - 1];
+    
+        if (firstLoc) {
+          const crs = firstLoc.crs || "";
+          if (!stationSet[crs]) {
+            const name = firstLoc.description || crs || firstLoc.tiploc || "";
+            const crsCode = crs || (firstLoc.tiploc || name);
+            originMeta[idx] = { display: "from " + crsCode, title: "from " + name };
+          }
+        }
+    
+        if (lastLoc) {
+          const crs = lastLoc.crs || "";
+          if (!stationSet[crs]) {
+            const name = lastLoc.description || crs || lastLoc.tiploc || "";
+            const crsCode = crs || (lastLoc.tiploc || name);
+            destMeta[idx] = { display: "to " + crsCode, title: "to " + name };
+          }
+        }
+      });
+    
+      // --- Pass 1: build WITHOUT spares, see if any from/to would overflow ---
+      let rowSpecs = makeRowSpecs(false, false);
+      let rows = makeRowsForSpecs(rowSpecs);
+      let { firstRowForService, lastRowForService } = fillTimesIntoRows(rowSpecs, rows);
+    
+      // Need a TOP spare only if at least one "from X" would need to go above row 0
+      const needTopSpare = originMeta.some((meta, svcIdx) => meta && firstRowForService[svcIdx] === 0);
+    
+      // Need a BOTTOM spare only if at least one "to Y" would need to go below the last row
+      const needBottomSpare = destMeta.some(
+        (meta, svcIdx) => meta && lastRowForService[svcIdx] === rowSpecs.length - 1
+      );
+    
+      // --- Pass 2: rebuild WITH only the spares we actually need ---
+      if (needTopSpare || needBottomSpare) {
+        rowSpecs = makeRowSpecs(needTopSpare, needBottomSpare);
+        rows = makeRowsForSpecs(rowSpecs);
+        ({ firstRowForService, lastRowForService } = fillTimesIntoRows(rowSpecs, rows));
+      }
+    
+      const totalRows = rowSpecs.length;
+    
+      // --- Insert italic from/to text in the row immediately before/after first/last timing row ---
+      servicesWithDetails.forEach((entry, svcIndex) => {
+        const fromInfo = originMeta[svcIndex];
+        const toInfo = destMeta[svcIndex];
+        const firstRow = firstRowForService[svcIndex];
+        const lastRow = lastRowForService[svcIndex];
+    
+        if (fromInfo && firstRow !== null) {
+          const targetRow = Math.max(0, firstRow - 1); // top spare if present, else row 0
+          if (!rows[targetRow].cells[svcIndex]) {
+            rows[targetRow].cells[svcIndex] =
+              `<i title="${htmlEscape(fromInfo.title)}">${htmlEscape(fromInfo.display)}</i>`;
+          }
+        }
+    
+        if (toInfo && lastRow !== null) {
+          const targetRow = Math.min(totalRows - 1, lastRow + 1); // bottom spare if present, else last row
+          if (!rows[targetRow].cells[svcIndex]) {
+            rows[targetRow].cells[svcIndex] =
+              `<i title="${htmlEscape(toInfo.title)}">${htmlEscape(toInfo.display)}</i>`;
+          }
+        }
+      });
+    
+      // === Column ordering ===
+      // We insert services row-by-row based on firstRowForService.
+      // When inserting a service that starts on a given row, we compare it against
+      // existing columns using the *time on that same row*, with this preference:
+      //   - use departure time if available
+      //   - otherwise use arrival time
+      //
+      // (If a service has no time on that row at all, it sorts last for that row.)
+      function preferredTimeMinsAtRow(serviceIdx, rowIdx) {
+        const spec = rowSpecs[rowIdx];
+        if (!spec || spec.kind !== "station") return null;
+    
+        const stationIndex = spec.stationIndex;
+        const t = stationTimes[stationIndex][serviceIdx];
+        if (!t) return null;
+    
+        // Prefer dep; otherwise arr (even on "arr" rows).
+        const timeStr = (t.depStr && t.depStr.trim()) ? t.depStr : t.arrStr;
+        if (!timeStr) return null;
+    
+        const mins = timeStrToMinutes(timeStr);
+        return mins === null ? null : mins;
+      }
+    
+      const orderedSvcIndices = [];
+    
+      for (let r = 0; r < totalRows; r++) {
+        // Services whose first corridor timing row is exactly this row.
+        const startingHere = [];
+        for (let s = 0; s < numServices; s++) {
+          if (firstRowForService[s] === r) {
+            startingHere.push({ index: s, timeMins: preferredTimeMinsAtRow(s, r) });
+          }
+        }
+    
+        // Sort those by preferred row-time (nulls last, then by original index)
+        startingHere.sort((a, b) => {
+          if (a.timeMins === null && b.timeMins === null) return a.index - b.index;
+          if (a.timeMins === null) return 1;
+          if (b.timeMins === null) return -1;
+          if (a.timeMins !== b.timeMins) return a.timeMins - b.timeMins;
+          return a.index - b.index;
+        });
+    
+        // Insert into orderedSvcIndices relative to existing services, comparing
+        // against the existing services' preferred time on *this same row*.
+        for (const { index: sIdx, timeMins } of startingHere) {
+          if (orderedSvcIndices.length === 0 || timeMins === null) {
+            orderedSvcIndices.push(sIdx);
+            continue;
+          }
+    
+          let inserted = false;
+          for (let pos = 0; pos < orderedSvcIndices.length; pos++) {
+            const existingIdx = orderedSvcIndices[pos];
+            const existingTime = preferredTimeMinsAtRow(existingIdx, r);
+            if (existingTime === null) continue; // can't compare at this row
+    
+            if (timeMins <= existingTime) {
+              orderedSvcIndices.splice(pos, 0, sIdx);
+              inserted = true;
+              break;
+            }
+          }
+    
+          if (!inserted) orderedSvcIndices.push(sIdx);
         }
       }
+    
+      // --- Service header metadata (for renderer) ---
+      const servicesMeta = servicesWithDetails.map(({ svc, detail }) => {
+        const originText = safePairText(detail.origin);
+        const destText = safePairText(detail.destination);
+        const dateText = detail.runDate || svc.runDate || "";
+    
+        const headcode =
+          svc.trainIdentity ||
+          svc.runningIdentity ||
+          svc.serviceUid ||
+          "";
+    
+        const opCode = svc.atocCode || detail.atocCode || "";
+        const opName = svc.atocName || detail.atocName || opCode;
+    
+        const visible = opCode || headcode || "?";
+    
+        const line1Parts = [];
+        if (opName) line1Parts.push(opName);
+        if (headcode) line1Parts.push(headcode);
+        if (dateText) line1Parts.push(dateText);
+        const line1 = line1Parts.join(" • ");
+    
+        let line2 = "";
+        if (originText || destText) {
+          line2 = `${originText} → ${destText}`;
+        }
+    
+        const tooltip =
+          line2 && line1 ? `${line1}\n${line2}` :
+          line1 || line2 || visible;
+    
+        return { visible, tooltip };
+      });
+    
+      // Assert (in console) that times in each service column never decrease
+      // as you go down the table, allowing for midnight rollovers.
+      checkMonotonicTimes(rows, orderedSvcIndices);
+    
+      return {
+        rows,
+        orderedSvcIndices,
+        servicesMeta
+      };
     }
-  }
-
-  // Insert italic from/to text in the row immediately before/after first/last timing row
-  servicesWithDetails.forEach((entry, svcIndex) => {
-    const fromInfo = originMeta[svcIndex];
-    const toInfo = destMeta[svcIndex];
-    const firstRow = firstRowForService[svcIndex];
-    const lastRow = lastRowForService[svcIndex];
-
-    if (fromInfo && firstRow !== null) {
-      const targetRow = Math.max(0, firstRow - 1); // top spare if needed
-      if (!rows[targetRow].cells[svcIndex]) {
-        rows[targetRow].cells[svcIndex] =
-          `<i title="${htmlEscape(fromInfo.title)}">${htmlEscape(fromInfo.display)}</i>`;
-      }
-    }
-
-    if (toInfo && lastRow !== null) {
-      const targetRow = Math.min(totalRows - 1, lastRow + 1); // bottom spare if needed
-      if (!rows[targetRow].cells[svcIndex]) {
-        rows[targetRow].cells[svcIndex] =
-          `<i title="${htmlEscape(toInfo.title)}">${htmlEscape(toInfo.display)}</i>`;
-      }
-    }
-  });
-// === Column ordering ===
-// We insert services row-by-row based on firstRowForService.
-//
-// When inserting a service that starts on a given row, we compare it against
-// existing columns using the *time on that same row*, with this preference:
-//   - use departure time if available
-//   - otherwise use arrival time
-//
-// (If a service has no time on that row at all, it sorts last for that row.)
-function preferredTimeMinsAtRow(serviceIdx, rowIdx) {
-  const spec = rowSpecs[rowIdx];
-  if (!spec || spec.kind !== "station") return null;
-
-  const stationIndex = spec.stationIndex;
-  const t = stationTimes[stationIndex][serviceIdx];
-  if (!t) return null;
-
-  // Prefer dep; otherwise arr (even on "arr" rows).
-  const timeStr = (t.depStr && t.depStr.trim()) ? t.depStr : t.arrStr;
-  if (!timeStr) return null;
-
-  const mins = timeStrToMinutes(timeStr);
-  return mins === null ? null : mins;
-}
-
-const orderedSvcIndices = [];
-
-for (let r = 0; r < totalRows; r++) {
-  // Services whose first corridor timing row is exactly this row.
-  const startingHere = [];
-  for (let s = 0; s < numServices; s++) {
-    if (firstRowForService[s] === r) {
-      startingHere.push({ index: s, timeMins: preferredTimeMinsAtRow(s, r) });
-    }
-  }
-
-  // Sort those by preferred row-time (nulls last, then by original index)
-  startingHere.sort((a, b) => {
-    if (a.timeMins === null && b.timeMins === null) return a.index - b.index;
-    if (a.timeMins === null) return 1;
-    if (b.timeMins === null) return -1;
-    if (a.timeMins !== b.timeMins) return a.timeMins - b.timeMins;
-    return a.index - b.index;
-  });
-
-  // Insert into orderedSvcIndices relative to existing services, comparing
-  // against the existing services' preferred time on *this same row*.
-  for (const { index: sIdx, timeMins } of startingHere) {
-    if (orderedSvcIndices.length === 0 || timeMins === null) {
-      orderedSvcIndices.push(sIdx);
-      continue;
-    }
-
-    let inserted = false;
-    for (let pos = 0; pos < orderedSvcIndices.length; pos++) {
-      const existingIdx = orderedSvcIndices[pos];
-      const existingTime = preferredTimeMinsAtRow(existingIdx, r);
-      if (existingTime === null) continue; // can't compare at this row
-
-      if (timeMins <= existingTime) {
-        orderedSvcIndices.splice(pos, 0, sIdx);
-        inserted = true;
-        break;
-      }
-    }
-
-    if (!inserted) orderedSvcIndices.push(sIdx);
-  }
-}
-
-// --- Service header metadata (for renderer) ---
-  const servicesMeta = servicesWithDetails.map(({ svc, detail }) => {
-    const originText = safePairText(detail.origin);
-    const destText = safePairText(detail.destination);
-    const dateText = detail.runDate || svc.runDate || "";
-
-    const headcode =
-      svc.trainIdentity ||
-      svc.runningIdentity ||
-      svc.serviceUid ||
-      "";
-
-    const opCode = svc.atocCode || detail.atocCode || "";
-    const opName = svc.atocName || detail.atocName || opCode;
-
-    const visible = opCode || headcode || "?";
-
-    const line1Parts = [];
-    if (opName)   line1Parts.push(opName);
-    if (headcode) line1Parts.push(headcode);
-    if (dateText) line1Parts.push(dateText);
-    const line1 = line1Parts.join(" • ");
-
-    let line2 = "";
-    if (originText || destText) {
-      line2 = `${originText} → ${destText}`;
-    }
-
-    const tooltip =
-      line2 && line1 ? `${line1}\n${line2}` :
-      line1 || line2 || visible;
-
-    return {
-      visible,
-      tooltip
-    };
-  });
-
-  // Assert (in console) that times in each service column never decrease
-  // as you go down the table, allowing for midnight rollovers.
-  checkMonotonicTimes(rows, orderedSvcIndices);
-
-  return {
-    rows,
-    orderedSvcIndices,
-    servicesMeta
-  };
-}
     
     // === Rendering: turn model into DOM ===
     function renderTimetable(model, headerRowEl, bodyRowsEl) {
@@ -1319,8 +1360,16 @@ for (let r = 0; r < totalRows; r++) {
       });
 
       // --- Render body rows ---
-      rows.forEach((row) => {
+      rows.forEach((row, rowIdx) => {
         const tr = document.createElement("tr");
+
+        // Keep border below header (first body row), but no other horizontals unless we opt-in
+        if (rowIdx === 0) tr.classList.add("row-sep-top");
+        
+        // Keep the border between arr and dep rows of the same station
+        if (row.kind === "station" && row.labelArrDep === "dep") {
+          tr.classList.add("row-sep-top");
+        }
 
         let labelText = "";
         if (row.labelStation && row.labelArrDep) {
