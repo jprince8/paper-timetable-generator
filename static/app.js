@@ -120,6 +120,15 @@ function setupStationPicker(field) {
     results = [];
   }
 
+  function positionSuggestBox() {
+    const rect = textInput.getBoundingClientRect();
+    const left = Math.round(rect.left);
+    const top = Math.round(rect.bottom + 6);
+    suggestBox.style.left = `${left}px`;
+    suggestBox.style.top = `${top}px`;
+    suggestBox.style.minWidth = `${Math.round(rect.width)}px`;
+  }
+
   function setActiveIndex(index) {
     activeIndex = index;
     const items = Array.from(
@@ -155,6 +164,7 @@ function setupStationPicker(field) {
       }
       suggestBox.appendChild(option);
     });
+    positionSuggestBox();
     suggestBox.style.display = list.length ? "block" : "none";
   }
 
