@@ -114,6 +114,7 @@ def build_timetable_pdf(tables, meta=None):
     )
     styles = getSampleStyleSheet()
     doc_title_style = styles["Heading2"]
+    doc_title_style.fontSize = doc_title_style.fontSize * 1.5
     doc_subtitle_style = styles["Normal"]
     title_style = styles["Heading3"]
     title_style.fontName = "Helvetica-Bold"

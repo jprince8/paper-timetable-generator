@@ -162,6 +162,17 @@
         align-items: flex-start;
       }
 
+      .label-spacer {
+        display: block;
+        font-weight: 700;
+        line-height: 1.2;
+        min-height: 1.2em;
+      }
+
+      .via-label {
+        align-items: stretch;
+      }
+
       label input {
         font-family: inherit;
       }
@@ -532,13 +543,16 @@
                 <input type="text" id="fromCrs" maxlength="3" required />
               </label>
               <div class="via-scroll" id="viaScroll">
-                <button
-                  type="button"
-                  class="btn btn-secondary"
-                  id="addViaBtn"
-                >
-                  Add via stop
-                </button>
+                <label class="via-label">
+                  <span class="label-spacer" aria-hidden="true">&nbsp;</span>
+                  <button
+                    type="button"
+                    class="btn btn-secondary"
+                    id="addViaBtn"
+                  >
+                    Add via stop
+                  </button>
+                </label>
               </div>
               <label>
                 To (CRS)
@@ -614,10 +628,7 @@
     </div>
 
     <div class="cookie-banner" id="cookieBanner" role="dialog" aria-live="polite">
-      <span>
-        We use cookies to remember your timetable preferences and improve your
-        experience.
-      </span>
+      <span>This site uses cookies to remember your inputs.</span>
       <button class="btn btn-secondary" id="cookieAcceptBtn">Accept</button>
     </div>
 
