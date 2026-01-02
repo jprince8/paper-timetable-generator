@@ -1288,12 +1288,18 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
     const numStations = displayStations.length;
 
   // --- Precompute per-station, per-service arrival/departure times ---
-  // stationTimes[stationIndex][svcIndex] = { arrStr, arrMins, depStr, depMins }
+  // stationTimes[stationIndex][svcIndex] = { arrStr, arrMins, depStr, depMins, isPublicCall }
   const stationTimes = [];
   for (let i = 0; i < numStations; i++) {
     const row = [];
     for (let s = 0; s < numServices; s++) {
-      row.push({ arrStr: "", arrMins: null, depStr: "", depMins: null });
+      row.push({
+        arrStr: "",
+        arrMins: null,
+        depStr: "",
+        depMins: null,
+        isPublicCall: false,
+      });
     }
     stationTimes.push(row);
   }
@@ -1316,15 +1322,67 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
 
       const arrMins = arrStr ? timeStrToMinutes(arrStr) : null;
       const depMins = depStr ? timeStrToMinutes(depStr) : null;
+      const disp = (loc.displayAs || "").toUpperCase();
+      const isPublicCall =
+        loc.isPublicCall === true &&
+        disp !== "PASS" &&
+        disp !== "CANCELLED_PASS";
 
       stationTimes[stationIndex][svcIndex] = {
         arrStr,
         arrMins,
         depStr,
         depMins,
+        isPublicCall,
       };
     });
   });
+
+  function stationHasAnyTime(t) {
+    return !!(t && (t.arrStr || t.depStr));
+  }
+
+  // --- Determine bracketed pass locations just outside each service's public calls ---
+  const bracketStationsByService = new Array(numServices)
+    .fill(null)
+    .map(() => new Set());
+
+  for (let s = 0; s < numServices; s++) {
+    let firstPublic = -1;
+    let lastPublic = -1;
+
+    for (let stIdx = 0; stIdx < numStations; stIdx++) {
+      const t = stationTimes[stIdx][s];
+      if (t && t.isPublicCall && stationHasAnyTime(t)) {
+        firstPublic = stIdx;
+        break;
+      }
+    }
+
+    if (firstPublic === -1) continue;
+
+    for (let stIdx = numStations - 1; stIdx >= 0; stIdx--) {
+      const t = stationTimes[stIdx][s];
+      if (t && t.isPublicCall && stationHasAnyTime(t)) {
+        lastPublic = stIdx;
+        break;
+      }
+    }
+
+    if (firstPublic > 0) {
+      const t = stationTimes[firstPublic - 1][s];
+      if (t && !t.isPublicCall && stationHasAnyTime(t)) {
+        bracketStationsByService[s].add(firstPublic - 1);
+      }
+    }
+
+    if (lastPublic >= 0 && lastPublic < numStations - 1) {
+      const t = stationTimes[lastPublic + 1][s];
+      if (t && !t.isPublicCall && stationHasAnyTime(t)) {
+        bracketStationsByService[s].add(lastPublic + 1);
+      }
+    }
+  }
 
   // --- Decide row mode per station (merged vs two rows vs single) ---
   const stationModes = [];
@@ -1599,6 +1657,11 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
       for (let s = 0; s < numServices; s++) {
         const t = stationTimes[stationIndex][s];
         if (!t) continue;
+        const hasTime = stationHasAnyTime(t);
+        if (!hasTime) continue;
+
+        const allowBracket = bracketStationsByService[s].has(stationIndex);
+        if (!t.isPublicCall && !allowBracket) continue;
 
         let timeStr = "";
         if (mode === "arr") {
@@ -1610,11 +1673,16 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
         }
 
         if (timeStr) {
+          if (!t.isPublicCall && allowBracket) {
+            timeStr = "(" + timeStr + ")";
+          }
           rows[r].cells[s] = timeStr;
-          if (firstRowForService[s] === null || r < firstRowForService[s])
-            firstRowForService[s] = r;
-          if (lastRowForService[s] === null || r > lastRowForService[s])
-            lastRowForService[s] = r;
+          if (t.isPublicCall) {
+            if (firstRowForService[s] === null || r < firstRowForService[s])
+              firstRowForService[s] = r;
+            if (lastRowForService[s] === null || r > lastRowForService[s])
+              lastRowForService[s] = r;
+          }
         }
       }
     }
@@ -1668,15 +1736,11 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
   for (let s = 0; s < numServices; s++) {
     const called = new Array(numStations).fill(false);
 
-    // A station is "called" if ANY row in its group has a real time string for this service.
+    // A station is "called" if it has a PUBLIC call time for this service.
     for (let stIdx = 0; stIdx < numStations; stIdx++) {
-      const groupRows = stationRowGroups[stIdx];
-      for (const r of groupRows) {
-        const v = rows[r].cells[s];
-        if (!v) continue;
-        if (typeof v === "string" && v.startsWith("<i")) continue; // ignore Comes/Continues rows if ever present
+      const t = stationTimes[stIdx][s];
+      if (t && t.isPublicCall && stationHasAnyTime(t)) {
         called[stIdx] = true;
-        break;
       }
     }
 
