@@ -1650,6 +1650,14 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
     HX: "HEx",
     WR: "WCR",
     CH: "CR",
+    LS: "LS",
+    LS: "LS",
+    MV: "VR",
+    SJ: "SST",
+    SO: "RA",
+    SP: "Swanage",
+    TY: "VT",
+    YG: "Other",
     ZZ: "Other",
   }
 
