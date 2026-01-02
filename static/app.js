@@ -1955,12 +1955,14 @@ function renderTimetable(
   function busSvg() {
     return `
 <span class="bus-icon" title="Bus service" aria-label="Bus service">
-  <svg viewBox="0 0 24 24" role="img" focusable="false" aria-hidden="true">
-    <rect x="3.5" y="4" width="17" height="16" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2"/>
-    <path d="M7 6h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-    <rect x="7" y="7.5" width="10" height="6.5" rx="1" ry="1" fill="none" stroke="currentColor" stroke-width="1.8"/>
-    <circle cx="8.5" cy="16.5" r="1" fill="currentColor"/>
-    <circle cx="15.5" cy="16.5" r="1" fill="currentColor"/>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Bus icon">
+    <rect x="92" y="72" width="328" height="336" rx="72" ry="72" fill="currentColor"/>
+    <rect x="184" y="104" width="144" height="34" rx="8" ry="8" fill="#fff"/>
+    <path d="M152 178 Q152 158 172 158 H340 Q360 158 360 178 V292 Q256 336 152 292 Z" fill="#fff"/>
+    <rect x="154" y="332" width="74" height="34" rx="8" ry="8" fill="#fff"/>
+    <rect x="284" y="332" width="74" height="34" rx="8" ry="8" fill="#fff"/>
+    <rect x="110" y="380" width="72" height="70" rx="14" ry="14" fill="currentColor"/>
+    <rect x="330" y="380" width="72" height="70" rx="14" ry="14" fill="currentColor"/>
   </svg>
 </span>
     `;

@@ -1,7 +1,25 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-  <rect x="2" y="2.5" width="12" height="11" rx="1.5" ry="1.5" fill="none" stroke="black" stroke-width="1.5"/>
-  <line x1="4" y1="5" x2="12" y2="5" stroke="black" stroke-width="1.2" stroke-linecap="round"/>
-  <rect x="4" y="6" width="8" height="4.5" rx="0.8" ry="0.8" fill="none" stroke="black" stroke-width="1.2"/>
-  <circle cx="5.5" cy="11.5" r="0.7" fill="black"/>
-  <circle cx="10.5" cy="11.5" r="0.7" fill="black"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Bus icon">
+  <!-- Bus body -->
+  <rect x="92" y="72" width="328" height="336" rx="72" ry="72" fill="#000"/>
+
+  <!-- Destination sign (raised slightly) -->
+  <rect x="184" y="104" width="144" height="34" rx="8" ry="8" fill="#fff"/>
+
+  <!-- Windshield -->
+  <path d="
+    M152 178
+    Q152 158 172 158
+    H340
+    Q360 158 360 178
+    V292
+    Q256 336 152 292
+    Z" fill="#fff"/>
+
+  <!-- Headlights -->
+  <rect x="154" y="332" width="74" height="34" rx="8" ry="8" fill="#fff"/>
+  <rect x="284" y="332" width="74" height="34" rx="8" ry="8" fill="#fff"/>
+
+  <!-- Wheels -->
+  <rect x="110" y="380" width="72" height="70" rx="14" ry="14" fill="#000"/>
+  <rect x="330" y="380" width="72" height="70" rx="14" ry="14" fill="#000"/>
 </svg>
