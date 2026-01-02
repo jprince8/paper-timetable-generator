@@ -3,130 +3,321 @@
   <head>
     <meta charset="UTF-8" />
     <title>Paper Timetable Generator</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Serif+4:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
     <style>
+      :root {
+        color-scheme: light;
+        --paper: #f6f1e7;
+        --paper-dark: #ede4d3;
+        --ink: #3a2f24;
+        --ink-soft: #6c5c4a;
+        --accent: #a15f2b;
+        --accent-soft: #c98b4a;
+        --line: #c6b7a2;
+        --shadow: rgba(58, 47, 36, 0.15);
+        --radius: 16px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
       body {
-        font-family: system-ui, sans-serif;
-        margin: 2rem;
-        line-height: 1.4;
+        margin: 0;
+        font-family: "Source Serif 4", "Iowan Old Style", "Times New Roman", serif;
+        color: var(--ink);
+        background: radial-gradient(
+            circle at top,
+            rgba(255, 255, 255, 0.7),
+            transparent 60%
+          ),
+          linear-gradient(180deg, var(--paper), var(--paper-dark));
       }
-      h1 {
-        font-size: 1.6rem;
-        margin-bottom: 0.25rem;
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.4;
+        background-image: linear-gradient(
+            90deg,
+            rgba(122, 98, 77, 0.05) 0,
+            rgba(122, 98, 77, 0.05) 1px,
+            transparent 1px,
+            transparent 12px
+          ),
+          linear-gradient(
+            0deg,
+            rgba(122, 98, 77, 0.04) 0,
+            rgba(122, 98, 77, 0.04) 1px,
+            transparent 1px,
+            transparent 10px
+          );
       }
-      h2 {
-        margin-top: 1.5rem;
+
+      .page {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 2.5rem 1.5rem 4rem;
+        position: relative;
       }
+
+      header.hero {
+        display: grid;
+        gap: 1rem;
+        padding: 2rem 2.5rem;
+        border-radius: var(--radius);
+        background: rgba(255, 255, 255, 0.65);
+        box-shadow: 0 18px 50px var(--shadow);
+        border: 1px solid rgba(198, 183, 162, 0.65);
+      }
+
+      header.hero h1 {
+        font-family: "Fraunces", "Georgia", serif;
+        font-size: clamp(2rem, 3vw, 2.8rem);
+        margin: 0;
+        letter-spacing: 0.02em;
+      }
+
+      header.hero p {
+        margin: 0;
+        max-width: 60rem;
+        color: var(--ink-soft);
+        font-size: 1.05rem;
+      }
+
+      main {
+        margin-top: 2rem;
+        display: grid;
+        gap: 2.5rem;
+      }
+
+      .panel {
+        background: rgba(255, 255, 255, 0.82);
+        border-radius: var(--radius);
+        padding: 2rem;
+        box-shadow: 0 16px 40px var(--shadow);
+        border: 1px solid rgba(198, 183, 162, 0.6);
+      }
+
+      .panel h2 {
+        font-family: "Fraunces", "Georgia", serif;
+        margin: 0 0 1rem;
+        font-size: clamp(1.4rem, 2vw, 1.75rem);
+        color: var(--ink);
+      }
+
+      form#form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem 1.25rem;
+        align-items: flex-end;
+      }
+
       label {
-        display: inline-block;
-        margin-right: 1rem;
-        margin-top: 0.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        font-weight: 600;
+        color: var(--ink);
       }
+
+      label input {
+        font-family: inherit;
+      }
+
       input {
-        padding: 0.25rem 0.4rem;
+        padding: 0.55rem 0.65rem;
         font-size: 1rem;
-        margin-left: 0.25rem;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.8);
+        color: var(--ink);
       }
+
+      input:focus {
+        outline: 2px solid rgba(161, 95, 43, 0.35);
+        border-color: var(--accent-soft);
+      }
+
       input[type="text"] {
-        width: 4rem;
+        width: 6rem;
         text-transform: uppercase;
       }
+
       input[type="date"] {
-        width: 11rem;
+        width: 12.5rem;
       }
+
       input[type="time"] {
-        width: 7rem;
+        width: 8rem;
       }
+
       button {
-        margin-top: 0.75rem;
-        padding: 0.4rem 0.8rem;
-        font-size: 1rem;
+        border: none;
         cursor: pointer;
+        font-family: "Source Serif 4", serif;
       }
+
+      .btn {
+        padding: 0.6rem 1.1rem;
+        border-radius: 999px;
+        font-weight: 600;
+        font-size: 1rem;
+        letter-spacing: 0.02em;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+
+      .btn-primary {
+        background: var(--accent);
+        color: #fff7ea;
+        box-shadow: 0 10px 20px rgba(161, 95, 43, 0.3);
+      }
+
+      .btn-secondary {
+        background: transparent;
+        color: var(--accent);
+        border: 1px solid var(--accent);
+      }
+
+      .btn:active {
+        transform: translateY(1px);
+      }
+
+      .btn:hover {
+        box-shadow: 0 12px 20px rgba(58, 47, 36, 0.2);
+      }
+
+      #addViaBtn {
+        align-self: center;
+      }
+
+      form label button {
+        margin-top: 0.35rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.7);
+        font-weight: 600;
+        color: var(--ink-soft);
+      }
+
       #status {
-        margin-top: 1rem;
-        font-family: monospace;
+        flex: 1;
+        min-width: 16rem;
+        padding: 0.9rem 1rem;
+        border-radius: 12px;
+        background: rgba(250, 244, 232, 0.8);
+        border: 1px dashed rgba(161, 95, 43, 0.25);
+        font-family: "Source Serif 4", serif;
         white-space: pre-wrap;
+        color: var(--ink-soft);
       }
+
+      .results {
+        display: grid;
+        gap: 2rem;
+      }
+
+      .table-card {
+        background: rgba(255, 255, 255, 0.86);
+        border-radius: var(--radius);
+        padding: 1.5rem;
+        border: 1px solid rgba(198, 183, 162, 0.6);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+      }
+
+      .table-scroll {
+        overflow-x: auto;
+      }
+
       table {
         border-collapse: collapse;
         width: 100%;
-        min-width: 40rem;
-        font-size: 0.85rem;
-        margin-bottom: 2rem;
+        min-width: 44rem;
+        font-size: 0.9rem;
+        color: var(--ink);
       }
-      th {
-        border: 1px solid #ccc;
-        padding: 0.25rem 0.4rem;
+
+      th,
+      td {
+        padding: 0.35rem 0.5rem;
         text-align: center;
+      }
+
+      th {
+        border: 1px solid var(--line);
+        background: rgba(240, 232, 219, 0.9);
+        font-weight: 600;
       }
 
       td {
-        /* keep vertical gridlines */
-        border-left: 1px solid #ccc;
-        border-right: 1px solid #ccc;
-
-        /* remove horizontal gridlines by default */
+        border-left: 1px solid var(--line);
+        border-right: 1px solid var(--line);
         border-top: none;
         border-bottom: none;
-
-        padding: 0.25rem 0.4rem;
-        text-align: center;
       }
 
-      /* Add a horizontal line above rows that should have one:
-       - below the header (first body row)
-       - between arr and dep rows of the same station (dep row gets a top border)
-    */
+      tbody tr:nth-child(even) td {
+        background: rgba(250, 246, 239, 0.6);
+      }
+
       tr.row-sep-top > td {
-        border-top: 1px solid #ccc;
+        border-top: 1px solid var(--line);
       }
+
       th.sticky-top {
         position: sticky;
         top: 0;
-        background: #f0f0f0;
+        background: rgba(240, 232, 219, 0.98);
         z-index: 2;
       }
+
       th.sticky-left,
       td.sticky-left {
         position: sticky;
         left: 0;
-        background: #f9f9f9;
+        background: rgba(248, 244, 235, 0.98);
         text-align: right;
         z-index: 3;
       }
+
       td.sticky-left.station-row-label {
         white-space: nowrap;
         width: max-content;
         min-width: max-content;
         text-align: right;
         padding-right: 0.5rem;
+        font-weight: 600;
       }
+
       th.corner {
         z-index: 4;
       }
-      .station-row-label {
-        font-weight: 600;
-      }
-      .small {
-        font-size: 0.9rem;
-        color: #555;
-        margin-top: 0.5rem;
-        max-width: 60rem;
-      }
+
       .time-empty {
-        color: #ccc;
+        color: rgba(58, 47, 36, 0.2);
       }
+
       .service-header {
         font-weight: 600;
         white-space: nowrap;
         color: inherit;
         text-decoration: none;
       }
+
       .service-header:hover {
         text-decoration: underline;
+        color: var(--accent);
       }
 
-      /* --- icon header row --- */
       th.icon-row {
         font-weight: 600;
         padding: 0.15rem 0.4rem;
@@ -143,7 +334,7 @@
         display: inline-flex;
         width: 1.2rem;
         height: 1.2rem;
-        border: 1px solid #666;
+        border: 1px solid #6f5a44;
         border-radius: 999px;
         align-items: center;
         justify-content: center;
@@ -164,68 +355,130 @@
         height: 1.1rem;
         display: block;
       }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        align-items: center;
+        margin-top: 1.25rem;
+      }
+
+      @media (max-width: 900px) {
+        header.hero {
+          padding: 1.5rem;
+        }
+
+        .panel {
+          padding: 1.5rem;
+        }
+
+        form#form {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        input[type="text"],
+        input[type="date"],
+        input[type="time"] {
+          width: 100%;
+        }
+
+        #addViaBtn {
+          align-self: flex-start;
+        }
+      }
     </style>
   </head>
   <body>
-    <h1>Paper Timetable Generator</h1>
-    <p class="small">
-      Create clean, printable timetable tables for train services between the
-      stations you choose, filtered to your selected date and time window.
-      Enter your stops (including any optional via points) and the generator
-      will lay out services in easy-to-read tables by direction. Data is
-      provided via the Realtime Trains API.
-    </p>
+    <div class="page">
+      <header class="hero">
+        <h1>Paper Timetable Generator</h1>
+        <p>
+          Create clean, printable timetable tables for train services between the
+          stations you choose, filtered to your selected date and time window.
+          Enter your stops (including any optional via points) and the generator
+          will lay out services in easy-to-read tables by direction. Data is
+          provided via the Realtime Trains API.
+        </p>
+      </header>
 
-    <form id="form">
-      <label>
-        From (CRS):
-        <input type="text" id="fromCrs" maxlength="3" required />
-      </label>
+      <main>
+        <section class="panel">
+          <h2>Build your corridor</h2>
+          <form id="form">
+            <label>
+              From (CRS)
+              <input type="text" id="fromCrs" maxlength="3" required />
+            </label>
 
-      <!-- "Add Via" button lives between From and To; Via labels are inserted above it -->
-      <button type="button" id="addViaBtn">Add Via</button>
+            <button type="button" class="btn btn-secondary" id="addViaBtn">
+              Add via stop
+            </button>
 
-      <label>
-        To (CRS):
-        <input type="text" id="toCrs" maxlength="3" required />
-      </label>
-      <label>
-        Date:
-        <input type="date" id="serviceDate" required />
-      </label>
-      <label>
-        Start time:
-        <input type="time" id="startTime" required />
-      </label>
-      <label>
-        End time:
-        <input type="time" id="endTime" required />
-      </label>
-      <button type="submit">Build timetable</button>
-    </form>
+            <label>
+              To (CRS)
+              <input type="text" id="toCrs" maxlength="3" required />
+            </label>
+            <label>
+              Date
+              <input type="date" id="serviceDate" required />
+            </label>
+            <label>
+              Start time
+              <input type="time" id="startTime" required />
+            </label>
+            <label>
+              End time
+              <input type="time" id="endTime" required />
+            </label>
+            <button type="submit" class="btn btn-primary">
+              Build timetable
+            </button>
+          </form>
 
-    <div id="status"></div>
-    <button type="button" id="downloadPdfBtn" style="display: none;">
-      Download PDF
-    </button>
+          <div class="actions">
+            <div id="status"></div>
+            <button
+              type="button"
+              class="btn btn-secondary"
+              id="downloadPdfBtn"
+              style="display: none;"
+            >
+              Download PDF
+            </button>
+          </div>
+        </section>
 
-    <h2 id="headingAB"></h2>
-    <table>
-      <thead>
-        <tr id="header-row-ab"></tr>
-        <tr id="header-icons-row-ab"></tr>
-      </thead>
-      <tbody id="body-rows-ab"></tbody>
-    </table>
+        <section class="results">
+          <div class="table-card">
+            <h2 id="headingAB"></h2>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr id="header-row-ab"></tr>
+                  <tr id="header-icons-row-ab"></tr>
+                </thead>
+                <tbody id="body-rows-ab"></tbody>
+              </table>
+            </div>
+          </div>
 
-    <h2 id="headingBA"></h2>
-    <table>
-      <thead>
-        <tr id="header-row-ba"></tr>
-        <tr id="header-icons-row-ba"></tr>
-      </thead>
-      <tbody id="body-rows-ba"></tbody>
-    </table>
+          <div class="table-card">
+            <h2 id="headingBA"></h2>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr id="header-row-ba"></tr>
+                  <tr id="header-icons-row-ba"></tr>
+                </thead>
+                <tbody id="body-rows-ba"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
 
     <script src="/static/app.js"></script>
   </body>
