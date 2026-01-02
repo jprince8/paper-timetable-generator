@@ -58,7 +58,6 @@ if (cookieAcceptBtn && cookieBanner) {
 
 function createViaField(initialValue = "") {
   const label = document.createElement("label");
-  label.textContent = "Via (CRS):";
 
   const input = document.createElement("input");
   input.type = "text";
