@@ -527,6 +527,25 @@
         max-width: 60rem;
       }
 
+      .settings-panel {
+        margin-top: 0.75rem;
+        padding: 0.75rem 1rem;
+        border-radius: 0.75rem;
+        border: 1px solid #e0e0e0;
+        background: #fafafa;
+      }
+
+      .settings-panel[hidden] {
+        display: none;
+      }
+
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 600;
+      }
+
       @media (max-width: 900px) {
         header.hero {
           padding: 1.5rem;
@@ -629,6 +648,21 @@
               >
                 Share
               </button>
+              <button
+                type="button"
+                class="btn btn-secondary"
+                id="settingsBtn"
+                aria-expanded="false"
+                aria-controls="settingsPanel"
+              >
+                Settings
+              </button>
+            </div>
+            <div class="settings-panel" id="settingsPanel" hidden>
+              <label class="toggle-row">
+                <input type="checkbox" id="showPassTimesToggle" />
+                Show passing points (bracketed)
+              </label>
             </div>
             <div id="status" hidden>
               <span class="status-bar" aria-hidden="true"></span>

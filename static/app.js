@@ -1,6 +1,5 @@
 // === Configuration ===
 const DEBUG_STATIONS = false; // set true to log station selection / dwell details
-const DEBUG_PASS_TIMES = true; // log bracketed pass-time placement for specific services
 // If true: the “must call at >=2 stops” rule is applied *after* hiding stations
 // that have no public calls (and iterated to a stable result).
 const APPLY_MIN_STOP_FILTER_AFTER_PUBLIC_HIDE = true;
@@ -31,6 +30,9 @@ const shareBtn = document.getElementById("shareBtn");
 const cookieBanner = document.getElementById("cookieBanner");
 const cookieAcceptBtn = document.getElementById("cookieAcceptBtn");
 const nowBtn = document.getElementById("nowBtn");
+const settingsBtn = document.getElementById("settingsBtn");
+const settingsPanel = document.getElementById("settingsPanel");
+const showPassTimesToggle = document.getElementById("showPassTimesToggle");
 
 // === Mutable state ===
 const viaInputs = [];
@@ -39,6 +41,8 @@ let currentDate = "";
 let startMinutes = null;
 let endMinutes = null;
 let lastPdfPayload = null;
+let lastBuildContext = null;
+let showPassTimes = false;
 
 // === Form helpers ===
 addViaBtn.addEventListener("click", () => {
@@ -71,6 +75,46 @@ if (nowBtn) {
     document.getElementById("startTime").value = formatTimeInput(start);
     document.getElementById("endTime").value = formatTimeInput(end);
   });
+}
+
+function setShowPassTimes(value, { persist = true } = {}) {
+  showPassTimes = Boolean(value);
+  if (showPassTimesToggle) {
+    showPassTimesToggle.checked = showPassTimes;
+  }
+  if (persist) {
+    localStorage.setItem("showPassTimes", showPassTimes ? "true" : "false");
+  }
+}
+
+if (settingsBtn && settingsPanel) {
+  settingsBtn.addEventListener("click", () => {
+    const nextHidden = !settingsPanel.hidden;
+    settingsPanel.hidden = nextHidden;
+    settingsBtn.setAttribute(
+      "aria-expanded",
+      nextHidden ? "false" : "true",
+    );
+  });
+}
+
+if (showPassTimesToggle) {
+  showPassTimesToggle.addEventListener("change", (event) => {
+    const target = event.target;
+    if (target instanceof HTMLInputElement) {
+      setShowPassTimes(target.checked);
+      if (lastBuildContext) {
+        renderTablesFromContext(lastBuildContext);
+      }
+    }
+  });
+}
+
+const savedShowPassTimes = localStorage.getItem("showPassTimes");
+if (savedShowPassTimes !== null) {
+  setShowPassTimes(savedShowPassTimes === "true", { persist: false });
+} else {
+  setShowPassTimes(false, { persist: false });
 }
 
 function createViaField(initialValue = "") {
@@ -345,6 +389,83 @@ function resetOutputs() {
   downloadPdfBtn.disabled = true;
   shareBtn.disabled = true;
   lastPdfPayload = null;
+}
+
+function renderTablesFromContext(context) {
+  if (!context) return;
+  resetOutputs();
+
+  const {
+    stations,
+    stationSet,
+    servicesAB,
+    servicesBA,
+    fromName,
+    toName,
+    viaNamesForward,
+    forwardStopsLabel,
+    reverseStopsLabel,
+    corridorLabel,
+    dateLabel,
+  } = context;
+
+  const pdfTables = [];
+  if (servicesAB.length > 0) {
+    const modelAB = buildTimetableModel(stations, stationSet, servicesAB);
+    headingAB.textContent =
+      forwardStopsLabel +
+      " (" +
+      modelAB.orderedSvcIndices.length +
+      " services)";
+    renderTimetable(modelAB, headerRowAB, headerIconsRowAB, bodyRowsAB);
+    const tableDataAB = buildPdfTableData(modelAB);
+    pdfTables.push({
+      title: `${fromName} → ${toName}`,
+      dateLabel,
+      serviceTimes: tableDataAB.serviceTimes,
+      ...tableDataAB,
+    });
+    tableCardAB?.classList.add("has-data");
+  } else {
+    headingAB.textContent =
+      forwardStopsLabel + ": no through services in this time range";
+  }
+
+  if (servicesBA.length > 0) {
+    const stationsRev = stations.slice().reverse();
+    const modelBA = buildTimetableModel(stationsRev, stationSet, servicesBA);
+    headingBA.textContent =
+      reverseStopsLabel +
+      " (" +
+      modelBA.orderedSvcIndices.length +
+      " services)";
+    renderTimetable(modelBA, headerRowBA, headerIconsRowBA, bodyRowsBA);
+    const tableDataBA = buildPdfTableData(modelBA);
+    pdfTables.push({
+      title: `${toName} → ${fromName}`,
+      dateLabel,
+      serviceTimes: tableDataBA.serviceTimes,
+      ...tableDataBA,
+    });
+    tableCardBA?.classList.add("has-data");
+  } else {
+    headingBA.textContent =
+      reverseStopsLabel + ": no through services in this time range";
+  }
+
+  if (pdfTables.length > 0) {
+    const title = corridorLabel || `${fromName} ↔ ${toName}`;
+    const subtitle = `Generated on ${formatGeneratedTimestamp()}`;
+    lastPdfPayload = {
+      meta: {
+        title,
+        subtitle,
+      },
+      tables: pdfTables,
+    };
+    downloadPdfBtn.disabled = false;
+    shareBtn.disabled = false;
+  }
 }
 
 function stripHtmlToText(value) {
@@ -942,8 +1063,6 @@ form.addEventListener("submit", async (e) => {
   const servicesAB = split.ab;
   const servicesBA = split.ba;
 
-  // Build A -> B table (stations in forward order)
-  const pdfTables = [];
   const fromName = findStationNameByCrs(stations, from);
   const toName = findStationNameByCrs(stations, to);
   const viaNames = viaValues.map((crs) => findStationNameByCrs(stations, crs));
@@ -960,67 +1079,21 @@ form.addEventListener("submit", async (e) => {
     .join(" → ");
   const corridorLabel = [fromName, ...viaNamesForward, toName].join(" ↔ ");
   const dateLabel = formatDateDisplay(currentDate);
-  if (servicesAB.length > 0) {
-    const modelAB = buildTimetableModel(stations, stationSet, servicesAB);
-    headingAB.textContent =
-      forwardStopsLabel +
-      " (" +
-      modelAB.orderedSvcIndices.length +
-      " services)";
-    renderTimetable(modelAB, headerRowAB, headerIconsRowAB, bodyRowsAB);
-    const tableDataAB = buildPdfTableData(modelAB);
-    pdfTables.push({
-      title: `${fromName} → ${toName}`,
-      dateLabel,
-      serviceTimes: tableDataAB.serviceTimes,
-      ...tableDataAB,
-    });
-    tableCardAB?.classList.add("has-data");
-  } else {
-    headingAB.textContent =
-      forwardStopsLabel + ": no through services in this time range";
-  }
 
-  // Build B -> A table (stations in reverse order)
-  if (servicesBA.length > 0) {
-    const stationsRev = stations.slice().reverse();
-    const modelBA = buildTimetableModel(
-      stationsRev,
-      stationSet,
-      servicesBA,
-    );
-    headingBA.textContent =
-      reverseStopsLabel +
-      " (" +
-      modelBA.orderedSvcIndices.length +
-      " services)";
-    renderTimetable(modelBA, headerRowBA, headerIconsRowBA, bodyRowsBA);
-    const tableDataBA = buildPdfTableData(modelBA);
-    pdfTables.push({
-      title: `${toName} → ${fromName}`,
-      dateLabel,
-      serviceTimes: tableDataBA.serviceTimes,
-      ...tableDataBA,
-    });
-    tableCardBA?.classList.add("has-data");
-  } else {
-    headingBA.textContent =
-      reverseStopsLabel + ": no through services in this time range";
-  }
-
-  if (pdfTables.length > 0) {
-    const title = corridorLabel || `${fromName} ↔ ${toName}`;
-    const subtitle = `Generated on ${formatGeneratedTimestamp()}`;
-    lastPdfPayload = {
-      meta: {
-        title,
-        subtitle,
-      },
-      tables: pdfTables,
-    };
-    downloadPdfBtn.disabled = false;
-    shareBtn.disabled = false;
-  }
+  lastBuildContext = {
+    stations,
+    stationSet,
+    servicesAB,
+    servicesBA,
+    fromName,
+    toName,
+    viaNamesForward,
+    forwardStopsLabel,
+    reverseStopsLabel,
+    corridorLabel,
+    dateLabel,
+  };
+  renderTablesFromContext(lastBuildContext);
   hideStatus();
 });
 
@@ -1324,6 +1397,16 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
 
       const arrMins = arrStr ? timeStrToMinutes(arrStr) : null;
       const depMins = depStr ? timeStrToMinutes(depStr) : null;
+
+      if (!showPassTimes) {
+        stationTimes[stationIndex][svcIndex] = {
+          arrStr,
+          arrMins,
+          depStr,
+          depMins,
+        };
+        return;
+      }
 
       if (isPublic && disp !== "PASS" && disp !== "CANCELLED_PASS") {
         stationTimes[stationIndex][svcIndex] = {
@@ -1749,70 +1832,37 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
   }
 
   // === Add bracketed pass times for non-call stations before/after the service window ===
-  for (let s = 0; s < numServices; s++) {
-    const firstIdx = firstCalledStationIndex[s];
-    const lastIdx = lastCalledStationIndex[s];
-    if (firstIdx === null || lastIdx === null) continue;
+  if (showPassTimes) {
+    for (let s = 0; s < numServices; s++) {
+      const firstIdx = firstCalledStationIndex[s];
+      const lastIdx = lastCalledStationIndex[s];
+      if (firstIdx === null || lastIdx === null) continue;
 
-    if (firstIdx > 0) {
-      for (let stIdx = 0; stIdx < firstIdx; stIdx++) {
-        const passStr = passTimes[stIdx][s];
-        if (!passStr) continue;
-        const groupRows = stationRowGroups[stIdx];
-        const targetRow =
-          groupRows.find((r) => rows[r].cells[s] === "") ||
-          groupRows[0];
-        if (targetRow !== undefined) {
-          rows[targetRow].cells[s] = `(${passStr})`;
+      if (firstIdx > 0) {
+        for (let stIdx = 0; stIdx < firstIdx; stIdx++) {
+          const passStr = passTimes[stIdx][s];
+          if (!passStr) continue;
+          const groupRows = stationRowGroups[stIdx];
+          const targetRow =
+            groupRows.find((r) => rows[r].cells[s] === "") ||
+            groupRows[0];
+          if (targetRow !== undefined) {
+            rows[targetRow].cells[s] = `(${passStr})`;
+          }
         }
       }
-    }
 
-    if (lastIdx < numStations - 1) {
-      for (let stIdx = lastIdx + 1; stIdx < numStations; stIdx++) {
-        const passStr = passTimes[stIdx][s];
-        if (!passStr) continue;
-        const groupRows = stationRowGroups[stIdx];
-        const targetRow =
-          groupRows.find((r) => rows[r].cells[s] === "") ||
-          groupRows[0];
-        if (targetRow !== undefined) {
-          rows[targetRow].cells[s] = `(${passStr})`;
-        }
-      }
-    }
-  }
-
-  if (DEBUG_PASS_TIMES) {
-    const targetUid = "W58531";
-    const targetCrs = "RYS";
-    const svcIndex = servicesWithDetails.findIndex(
-      ({ svc }) => (svc.serviceUid || "") === targetUid,
-    );
-    if (svcIndex === -1) {
-      console.log(`[PASS] Service ${targetUid} not in timetable.`);
-    } else {
-      const stationIndex = displayStations.findIndex(
-        (st) => (st.crs || "") === targetCrs,
-      );
-      if (stationIndex === -1) {
-        console.log(`[PASS] Station ${targetCrs} not in timetable.`);
-      } else {
-        const groupRows = stationRowGroups[stationIndex];
-        const cellValues = groupRows.map((r) => rows[r].cells[svcIndex]);
-        const passValue = passTimes[stationIndex][svcIndex] || "";
-        const expected = passValue ? `(${passValue})` : "";
-        const hasExpected = expected
-          ? cellValues.some((v) => v === expected)
-          : false;
-        console.log(
-          `[PASS] ${targetUid} ${targetCrs} pass=${passValue || "n/a"}`,
-          cellValues,
-        );
-        if (expected && !hasExpected) {
-          console.warn(
-            `[PASS] Missing bracketed pass time for ${targetUid} at ${targetCrs}.`,
-          );
+      if (lastIdx < numStations - 1) {
+        for (let stIdx = lastIdx + 1; stIdx < numStations; stIdx++) {
+          const passStr = passTimes[stIdx][s];
+          if (!passStr) continue;
+          const groupRows = stationRowGroups[stIdx];
+          const targetRow =
+            groupRows.find((r) => rows[r].cells[s] === "") ||
+            groupRows[0];
+          if (targetRow !== undefined) {
+            rows[targetRow].cells[s] = `(${passStr})`;
+          }
         }
       }
     }
