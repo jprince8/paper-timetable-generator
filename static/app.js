@@ -112,21 +112,42 @@ function setupStationPicker(field) {
   let debounceTimer = null;
   let results = [];
   let activeIndex = -1;
+  let isOpen = false;
+  let scrollListenerAttached = false;
+
+  if (suggestBox.parentElement !== document.body) {
+    document.body.appendChild(suggestBox);
+  }
 
   function clearSuggestions() {
     suggestBox.innerHTML = "";
     suggestBox.style.display = "none";
     activeIndex = -1;
     results = [];
+    isOpen = false;
+    if (scrollListenerAttached) {
+      window.removeEventListener("scroll", positionSuggestBox, true);
+      window.removeEventListener("resize", positionSuggestBox);
+      scrollListenerAttached = false;
+    }
   }
 
   function positionSuggestBox() {
     const rect = textInput.getBoundingClientRect();
-    const left = Math.round(rect.left);
-    const top = Math.round(rect.bottom + 6);
+    const left = Math.round(rect.left + window.scrollX);
+    const top = Math.round(rect.bottom + window.scrollY + 6);
     suggestBox.style.left = `${left}px`;
     suggestBox.style.top = `${top}px`;
     suggestBox.style.minWidth = `${Math.round(rect.width)}px`;
+  }
+
+  function ensurePositioning() {
+    if (!scrollListenerAttached) {
+      window.addEventListener("scroll", positionSuggestBox, true);
+      window.addEventListener("resize", positionSuggestBox);
+      scrollListenerAttached = true;
+    }
+    positionSuggestBox();
   }
 
   function setActiveIndex(index) {
@@ -147,6 +168,25 @@ function setupStationPicker(field) {
     clearSuggestions();
   }
 
+  function findExactMatch(query, list) {
+    const normalized = query.trim().toLowerCase();
+    return (
+      list.find(
+        (item) =>
+          item.stationName.toLowerCase() === normalized ||
+          item.crsCode.toLowerCase() === normalized,
+      ) || null
+    );
+  }
+
+  async function resolveExactMatch(query) {
+    if (!query || query.length < STATION_MIN_QUERY) {
+      return null;
+    }
+    const matches = results.length ? results : await fetchStationMatches(query);
+    return findExactMatch(query, matches);
+  }
+
   function renderSuggestions(list) {
     suggestBox.innerHTML = "";
     list.forEach((result, index) => {
@@ -164,7 +204,8 @@ function setupStationPicker(field) {
       }
       suggestBox.appendChild(option);
     });
-    positionSuggestBox();
+    ensurePositioning();
+    isOpen = true;
     suggestBox.style.display = list.length ? "block" : "none";
   }
 
@@ -183,6 +224,11 @@ function setupStationPicker(field) {
         return;
       }
       results = matches;
+      const exactMatch = findExactMatch(q, matches);
+      if (exactMatch) {
+        selectResult(exactMatch);
+        return;
+      }
       activeIndex = -1;
       renderSuggestions(results);
     }, STATION_DEBOUNCE_MS);
@@ -203,12 +249,24 @@ function setupStationPicker(field) {
     } else if (event.key === "Enter" && activeIndex >= 0) {
       event.preventDefault();
       selectResult(results[activeIndex]);
+    } else if (event.key === "Enter") {
+      const exactMatch = findExactMatch(textInput.value, results);
+      if (exactMatch) {
+        event.preventDefault();
+        selectResult(exactMatch);
+      }
     } else if (event.key === "Escape") {
       clearSuggestions();
     }
   });
 
-  textInput.addEventListener("blur", () => {
+  textInput.addEventListener("blur", async () => {
+    if (!crsInput.value) {
+      const exactMatch = await resolveExactMatch(textInput.value);
+      if (exactMatch) {
+        selectResult(exactMatch);
+      }
+    }
     updateStationValidity(field);
     setTimeout(clearSuggestions, 120);
   });
