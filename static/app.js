@@ -1,8 +1,7 @@
 // === Configuration ===
 const DEBUG_STATIONS = false; // set true to log station selection / dwell details
-// If true: the “must call at >=2 stops” rule is applied *after* hiding stations
-// that have no public calls (and iterated to a stable result).
-const APPLY_MIN_STOP_FILTER_AFTER_PUBLIC_HIDE = true;
+// Apply the “must call at >=2 stops” rule *after* hiding stations
+// that have no public calls (and iterate to a stable result).
 
 // === Proxy endpoints ===
 const PROXY_SEARCH = "/rtt/search";
@@ -1235,34 +1234,28 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
       return false;
     }
 
-    // Optionally apply the >=2-stops filter AFTER public-station hiding (iterated to stability)
+    // Apply the >=2-stops filter AFTER public-station hiding (iterated to stability)
     let workingServices = servicesWithDetails.slice();
     let displayStations = [];
 
-    if (APPLY_MIN_STOP_FILTER_AFTER_PUBLIC_HIDE) {
-      let prevKey = "";
-      for (let iter = 0; iter < 5; iter++) {
-        displayStations = computeDisplayStations(stations, workingServices);
-        const displaySet = new Set(displayStations.map((s) => s.crs).filter(Boolean));
-
-        // Filter services based on what would actually be visible (post-hide)
-        const filtered = workingServices.filter(({ detail }) =>
-          serviceCallsAtLeastTwoInSet(detail, displaySet),
-        );
-
-        const key =
-          displayStations.map((s) => s.crs).join(",") + "|" + filtered.length;
-
-        if (key === prevKey) {
-          workingServices = filtered;
-          break; // stable
-        }
-        prevKey = key;
-        workingServices = filtered;
-      }
-    } else {
-      // Original behaviour: hide stations using all incoming services (no extra filtering here)
+    let prevKey = "";
+    for (let iter = 0; iter < 5; iter++) {
       displayStations = computeDisplayStations(stations, workingServices);
+      const displaySet = new Set(displayStations.map((s) => s.crs).filter(Boolean));
+
+      // Filter services based on what would actually be visible (post-hide)
+      const filtered = workingServices.filter(({ detail }) =>
+        serviceCallsAtLeastTwoInSet(detail, displaySet),
+      );
+
+      const key = displayStations.map((s) => s.crs).join(",") + "|" + filtered.length;
+
+      if (key === prevKey) {
+        workingServices = filtered;
+        break; // stable
+      }
+      prevKey = key;
+      workingServices = filtered;
     }
 
     // From here on, use workingServices everywhere
