@@ -1288,7 +1288,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
     const numStations = displayStations.length;
 
   // --- Precompute per-station, per-service arrival/departure times ---
-  // stationTimes[stationIndex][svcIndex] = { arrStr, arrMins, depStr, depMins, isPublicCall }
+  // stationTimes[stationIndex][svcIndex] = { arrStr, arrMins, depStr, depMins, passStr, passMins, isPublicCall }
   const stationTimes = [];
   for (let i = 0; i < numStations; i++) {
     const row = [];
@@ -1298,6 +1298,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
         arrMins: null,
         depStr: "",
         depMins: null,
+        passStr: "",
+        passMins: null,
         isPublicCall: false,
       });
     }
@@ -1316,12 +1318,15 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
       const rawArr = loc.gbttBookedArrival || loc.realtimeArrival || "";
       const rawDep =
         loc.gbttBookedDeparture || loc.realtimeDeparture || "";
+      const rawPass = loc.gbttBookedPass || loc.realtimePass || "";
 
       const arrStr = rawArr ? padTime(rawArr) : "";
       const depStr = rawDep ? padTime(rawDep) : "";
+      const passStr = rawPass ? padTime(rawPass) : "";
 
       const arrMins = arrStr ? timeStrToMinutes(arrStr) : null;
       const depMins = depStr ? timeStrToMinutes(depStr) : null;
+      const passMins = passStr ? timeStrToMinutes(passStr) : null;
       const disp = (loc.displayAs || "").toUpperCase();
       const isPublicCall =
         loc.isPublicCall === true &&
@@ -1333,13 +1338,15 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
         arrMins,
         depStr,
         depMins,
+        passStr,
+        passMins,
         isPublicCall,
       };
     });
   });
 
   function stationHasAnyTime(t) {
-    return !!(t && (t.arrStr || t.depStr));
+    return !!(t && (t.arrStr || t.depStr || t.passStr));
   }
 
   // --- Determine bracketed pass locations just outside each service's public calls ---
@@ -1664,7 +1671,11 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
         if (!t.isPublicCall && !allowBracket) continue;
 
         let timeStr = "";
-        if (mode === "arr") {
+        if (!t.isPublicCall && t.passStr) {
+          if (mode !== "dep") {
+            timeStr = t.passStr;
+          }
+        } else if (mode === "arr") {
           timeStr = t.arrStr;
         } else if (mode === "dep") {
           timeStr = t.depStr;
