@@ -168,6 +168,14 @@ function setupStationPicker(field) {
     clearSuggestions();
   }
 
+  async function resolveExactMatch(query) {
+    if (!query || query.length < STATION_MIN_QUERY) {
+      return null;
+    }
+    const matches = results.length ? results : await fetchStationMatches(query);
+    return findExactMatch(query, matches);
+  }
+
   function findExactMatch(query, list) {
     const normalized = query.trim().toLowerCase();
     return (
@@ -177,14 +185,6 @@ function setupStationPicker(field) {
           item.crsCode.toLowerCase() === normalized,
       ) || null
     );
-  }
-
-  async function resolveExactMatch(query) {
-    if (!query || query.length < STATION_MIN_QUERY) {
-      return null;
-    }
-    const matches = results.length ? results : await fetchStationMatches(query);
-    return findExactMatch(query, matches);
   }
 
   function renderSuggestions(list) {
@@ -224,11 +224,6 @@ function setupStationPicker(field) {
         return;
       }
       results = matches;
-      const exactMatch = findExactMatch(q, matches);
-      if (exactMatch) {
-        selectResult(exactMatch);
-        return;
-      }
       activeIndex = -1;
       renderSuggestions(results);
     }, STATION_DEBOUNCE_MS);
@@ -260,16 +255,12 @@ function setupStationPicker(field) {
     }
   });
 
-  textInput.addEventListener("blur", async () => {
-    if (!crsInput.value) {
-      const exactMatch = await resolveExactMatch(textInput.value);
-      if (exactMatch) {
-        selectResult(exactMatch);
-      }
-    }
+  textInput.addEventListener("blur", () => {
     updateStationValidity(field);
     setTimeout(clearSuggestions, 120);
   });
+
+  field.resolveExactMatch = resolveExactMatch;
 }
 
 function registerStationField(field) {
@@ -807,6 +798,21 @@ form.addEventListener("submit", async (e) => {
   e.preventDefault();
 
   // Run HTML5 validation for "required" fields, min/max, etc.
+  const resolvePromises = stationFields.map(async (field) => {
+    if (field.crsInput.value) {
+      return;
+    }
+    const query = field.textInput.value.trim();
+    if (!query || !field.resolveExactMatch) {
+      return;
+    }
+    const match = await field.resolveExactMatch(query);
+    if (match) {
+      field.textInput.value = match.stationName;
+      field.crsInput.value = match.crsCode;
+    }
+  });
+  await Promise.all(resolvePromises);
   stationFields.forEach((field) => updateStationValidity(field));
   if (!form.reportValidity()) {
     return;
