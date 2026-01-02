@@ -249,6 +249,16 @@ function buildPdfTableData(model) {
     "Station",
     ...orderedSvcIndices.map((svcIndex) => servicesMeta[svcIndex].visible),
   ];
+  const facilitiesRow = [
+    "Facilities",
+    ...orderedSvcIndices.map((svcIndex) => {
+      const meta = servicesMeta[svcIndex];
+      const icons = [];
+      if (meta.firstClassAvailable) icons.push("①");
+      if (meta.isSleeper) icons.push("🛏️");
+      return icons.join(" ");
+    }),
+  ];
   const tableRows = rows.map((row) => {
     const label = rowLabelText(row);
     const cells = orderedSvcIndices.map((svcIndex) =>
@@ -256,7 +266,7 @@ function buildPdfTableData(model) {
     );
     return [label, ...cells];
   });
-  return { headers, rows: tableRows };
+  return { headers, rows: [facilitiesRow, ...tableRows] };
 }
 
 function findStationNameByCrs(stations, crs) {
