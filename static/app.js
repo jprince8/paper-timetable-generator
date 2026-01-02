@@ -11,8 +11,12 @@ const PROXY_SERVICE = "/rtt/service";
 // === DOM references ===
 const form = document.getElementById("form");
 const statusEl = document.getElementById("status");
+const statusTextEl = document.getElementById("statusText");
+const statusBarEl = statusEl ? statusEl.querySelector(".status-bar") : null;
 const headingAB = document.getElementById("headingAB");
 const headingBA = document.getElementById("headingBA");
+const tableCardAB = document.getElementById("table-card-ab");
+const tableCardBA = document.getElementById("table-card-ba");
 const headerRowAB = document.getElementById("header-row-ab");
 const headerIconsRowAB = document.getElementById("header-icons-row-ab");
 const bodyRowsAB = document.getElementById("body-rows-ab");
@@ -20,7 +24,10 @@ const headerRowBA = document.getElementById("header-row-ba");
 const headerIconsRowBA = document.getElementById("header-icons-row-ba");
 const bodyRowsBA = document.getElementById("body-rows-ba");
 const addViaBtn = document.getElementById("addViaBtn");
+const viaScroll = document.getElementById("viaScroll");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
+const cookieBanner = document.getElementById("cookieBanner");
+const cookieAcceptBtn = document.getElementById("cookieAcceptBtn");
 
 // === Mutable state ===
 const viaInputs = [];
@@ -34,6 +41,20 @@ let lastPdfPayload = null;
 addViaBtn.addEventListener("click", () => {
   createViaField("");
 });
+
+if (cookieAcceptBtn && cookieBanner) {
+  const cookieKey = "cookieConsentAccepted";
+  const isAccepted = localStorage.getItem(cookieKey) === "true";
+  if (!isAccepted) {
+    cookieBanner.hidden = false;
+  } else {
+    cookieBanner.hidden = true;
+  }
+  cookieAcceptBtn.addEventListener("click", () => {
+    localStorage.setItem(cookieKey, "true");
+    cookieBanner.hidden = true;
+  });
+}
 
 function createViaField(initialValue = "") {
   const label = document.createElement("label");
@@ -66,11 +87,12 @@ function createViaField(initialValue = "") {
   label.appendChild(input);
   label.appendChild(removeBtn);
 
-  // Insert the new Via label before the Add Via button, so we get:
-  // Via
-  // Via
-  // [Add Via]
-  form.insertBefore(label, addViaBtn);
+  // Insert the new Via label before the Add Via button so vias scroll horizontally.
+  if (viaScroll && addViaBtn) {
+    viaScroll.insertBefore(label, addViaBtn);
+  } else {
+    form.insertBefore(label, addViaBtn);
+  }
 
   viaInputs.push(input);
 }
@@ -202,27 +224,53 @@ function safePairText(pairs) {
 }
 
 // === Status helpers ===
-function setStatus(msg) {
-  statusEl.textContent = msg;
+function showStatus() {
+  if (!statusEl) return;
+  statusEl.hidden = false;
+}
+
+function hideStatus() {
+  if (!statusEl) return;
+  statusEl.hidden = true;
+  statusEl.classList.remove("is-error");
+  if (statusTextEl) statusTextEl.textContent = "";
+  if (statusBarEl) statusBarEl.style.width = "0%";
+}
+
+function setStatus(msg, options = {}) {
+  if (!statusEl || !statusTextEl) return;
+  const { isError = false, progress = null } = options;
+  if (!msg) {
+    hideStatus();
+    return;
+  }
+  showStatus();
+  statusTextEl.textContent = msg;
+  statusEl.classList.toggle("is-error", isError);
+  if (statusBarEl) {
+    statusBarEl.style.width =
+      typeof progress === "number" ? `${progress}%` : "0%";
+  }
 }
 
 function setProgressStatus(label, completed, total) {
   const percent = total > 0 ? Math.round((completed / total) * 100) : 100;
-  setStatus(`${label} ${percent}%`);
+  setStatus(`${label}`, { progress: percent });
 }
 
 function resetOutputs() {
-  setStatus("");
+  hideStatus();
   headingAB.textContent = "";
   headingBA.textContent = "";
+  tableCardAB?.classList.remove("has-data");
+  tableCardBA?.classList.remove("has-data");
   headerRowAB.innerHTML = "";
   headerIconsRowAB.innerHTML = "";
   bodyRowsAB.innerHTML = "";
   headerRowBA.innerHTML = "";
   headerIconsRowBA.innerHTML = "";
   bodyRowsBA.innerHTML = "";
-  downloadPdfBtn.style.display = "none";
-  downloadPdfBtn.disabled = false;
+  downloadPdfBtn.disabled = true;
   lastPdfPayload = null;
 }
 
@@ -241,6 +289,12 @@ function rowLabelText(row) {
   if (row.labelStation) return row.labelStation;
   if (!row.labelStation && row.labelArrDep) return `(${row.labelArrDep})`;
   return "";
+}
+
+function extractFirstTime(value) {
+  if (!value) return "";
+  const match = String(value).match(/\b\d{2}:\d{2}\b/);
+  return match ? match[0] : "";
 }
 
 function buildPdfTableData(model) {
@@ -266,12 +320,42 @@ function buildPdfTableData(model) {
     );
     return [label, ...cells];
   });
-  return { headers, rows: [facilitiesRow, ...tableRows] };
+  const serviceTimes = orderedSvcIndices.map((svcIndex) => {
+    for (const row of rows) {
+      const value = stripHtmlToText(row.cells[svcIndex]);
+      const time = extractFirstTime(value);
+      if (time) return time;
+    }
+    return "";
+  });
+  return { headers, rows: [facilitiesRow, ...tableRows], serviceTimes };
 }
 
 function findStationNameByCrs(stations, crs) {
   const match = stations.find((st) => st.crs === crs);
   return match ? match.name : crs;
+}
+
+function formatDateDisplay(dateStr) {
+  if (!dateStr || !dateStr.includes("-")) return dateStr;
+  const [year, month, day] = dateStr.split("-");
+  if (!year || !month || !day) return dateStr;
+  return `${day}/${month}/${year}`;
+}
+
+function formatGeneratedTimestamp(dateObj = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(dateObj);
+  const lookup = Object.fromEntries(
+    parts.map((part) => [part.type, part.value]),
+  );
+  return `${lookup.day}/${lookup.month}/${lookup.year} ${lookup.hour}:${lookup.minute}`;
 }
 
 downloadPdfBtn.addEventListener("click", async () => {
@@ -302,7 +386,7 @@ downloadPdfBtn.addEventListener("click", async () => {
     URL.revokeObjectURL(url);
     setStatus("");
   } catch (err) {
-    setStatus("Error building PDF: " + err.message);
+    setStatus("Error building PDF: " + err.message, { isError: true });
   } finally {
     downloadPdfBtn.disabled = false;
   }
@@ -343,11 +427,11 @@ form.addEventListener("submit", async (e) => {
   endMinutes = timeStrToMinutes(endInput);
 
   if (!from || !to) {
-    setStatus("Please enter both From and To CRS codes.");
+    setStatus("Please enter both From and To CRS codes.", { isError: true });
     return;
   }
   if (startMinutes === null || endMinutes === null) {
-    setStatus("Please enter a valid time range.");
+    setStatus("Please enter a valid time range.", { isError: true });
     return;
   }
 
@@ -406,7 +490,9 @@ form.addEventListener("submit", async (e) => {
 
     await Promise.all(searchPromises);
   } catch (err) {
-    setStatus("Error fetching initial service search results: " + err);
+    setStatus("Error fetching initial service search results: " + err, {
+      isError: true,
+    });
     return;
   }
 
@@ -458,7 +544,7 @@ form.addEventListener("submit", async (e) => {
   try {
     corridorDetails = await Promise.all(corridorDetailPromises);
   } catch (err) {
-    setStatus("Error fetching service details: " + err);
+    setStatus("Error fetching service details: " + err, { isError: true });
     return;
   }
 
@@ -632,7 +718,7 @@ form.addEventListener("submit", async (e) => {
     console.warn("Error during candidate detail fetch:", err);
   }
 
-  setStatus("");
+  setStatus("Building timetable...");
 
   // Filter to services that:
   //  - have valid detail.locations
@@ -679,6 +765,10 @@ form.addEventListener("submit", async (e) => {
   const fromName = findStationNameByCrs(stations, from);
   const toName = findStationNameByCrs(stations, to);
   const viaNames = viaValues.map((crs) => findStationNameByCrs(stations, crs));
+  const corridorLabel = [fromName, ...viaNames.filter(Boolean), toName].join(
+    " ↔ ",
+  );
+  const dateLabel = formatDateDisplay(currentDate);
   if (servicesAB.length > 0) {
     const modelAB = buildTimetableModel(stations, stationSet, servicesAB);
     headingAB.textContent =
@@ -689,10 +779,14 @@ form.addEventListener("submit", async (e) => {
       modelAB.orderedSvcIndices.length +
       " services)";
     renderTimetable(modelAB, headerRowAB, headerIconsRowAB, bodyRowsAB);
+    const tableDataAB = buildPdfTableData(modelAB);
     pdfTables.push({
-      title: `${fromName} \u2192 ${toName}`,
-      ...buildPdfTableData(modelAB),
+      title: `${fromName} → ${toName}`,
+      dateLabel,
+      serviceTimes: tableDataAB.serviceTimes,
+      ...tableDataAB,
     });
+    tableCardAB?.classList.add("has-data");
   } else {
     headingAB.textContent =
       fromName + " \u2192 " + toName + ": no through services in this time range";
@@ -714,31 +808,32 @@ form.addEventListener("submit", async (e) => {
       modelBA.orderedSvcIndices.length +
       " services)";
     renderTimetable(modelBA, headerRowBA, headerIconsRowBA, bodyRowsBA);
+    const tableDataBA = buildPdfTableData(modelBA);
     pdfTables.push({
-      title: `${toName} \u2192 ${fromName}`,
-      ...buildPdfTableData(modelBA),
+      title: `${toName} → ${fromName}`,
+      dateLabel,
+      serviceTimes: tableDataBA.serviceTimes,
+      ...tableDataBA,
     });
+    tableCardBA?.classList.add("has-data");
   } else {
     headingBA.textContent =
       toName + " \u2192 " + fromName + ": no through services in this time range";
   }
 
   if (pdfTables.length > 0) {
-    const title = `${fromName} \u2192 ${toName}`;
-    const viaText = viaNames.length ? `Via ${viaNames.join(", ")}` : "";
-    const dateText = currentDate ? `Date ${currentDate}` : "";
-    const timeText =
-      startInput && endInput ? `Times ${startInput}\u2013${endInput}` : "";
-    const subtitle = [viaText, dateText, timeText].filter(Boolean).join(" \u2022 ");
+    const title = corridorLabel || `${fromName} ↔ ${toName}`;
+    const subtitle = `Generated on ${formatGeneratedTimestamp()}`;
     lastPdfPayload = {
       meta: {
-        title: `Timetable: ${title}`,
+        title,
         subtitle,
       },
       tables: pdfTables,
     };
-    downloadPdfBtn.style.display = "inline-block";
+    downloadPdfBtn.disabled = false;
   }
+  hideStatus();
 });
 
 // Build station union over a possibly multi-via corridor.

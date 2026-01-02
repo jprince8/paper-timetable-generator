@@ -114,8 +114,10 @@ def build_timetable_pdf(tables, meta=None):
     )
     styles = getSampleStyleSheet()
     doc_title_style = styles["Heading2"]
+    doc_title_style.fontSize = doc_title_style.fontSize * 1.5
     doc_subtitle_style = styles["Normal"]
     title_style = styles["Heading3"]
+    title_style.fontName = "Helvetica-Bold"
     title_style.spaceAfter = 6
 
     elements = []
@@ -149,7 +151,9 @@ def build_timetable_pdf(tables, meta=None):
     }
 
     for table in tables:
-        title = _cell_text(table.get("title", "")).strip()
+        base_title = _cell_text(table.get("title", "")).strip()
+        date_label = _cell_text(table.get("dateLabel", "")).strip()
+        service_times = table.get("serviceTimes", [])
         headers = table.get("headers", [])
         rows = table.get("rows", [])
 
@@ -160,6 +164,24 @@ def build_timetable_pdf(tables, meta=None):
         chunk_indices = _split_columns(col_widths, doc.width)
 
         for chunk in chunk_indices:
+            chunk_times = [
+                service_times[i - 1]
+                for i in chunk
+                if i > 0 and i - 1 < len(service_times)
+            ]
+            chunk_times = [t for t in chunk_times if t]
+            time_range = ""
+            if chunk_times:
+                time_start = chunk_times[0]
+                time_end = chunk_times[-1]
+                time_range = (
+                    f"{time_start} to {time_end}"
+                    if time_start != time_end
+                    else time_start
+                )
+
+            title_parts = [p for p in [base_title, date_label, time_range] if p]
+            title = " \u2022 ".join(title_parts)
             chunk_headers = [headers[i] for i in chunk]
             chunk_rows = [[row[i] if i < len(row) else "" for i in chunk] for row in rows]
             data = [chunk_headers] + [
@@ -186,7 +208,7 @@ def build_timetable_pdf(tables, meta=None):
                         ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
                         ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
                         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                        ("ALIGN", (1, 1), (-1, -1), "CENTER"),
+                        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                         ("ALIGN", (0, 0), (0, -1), "RIGHT"),
                     ]
                 )
