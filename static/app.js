@@ -89,12 +89,10 @@ function setShowPassTimes(value, { persist = true } = {}) {
 
 if (settingsBtn && settingsPanel) {
   settingsBtn.addEventListener("click", () => {
-    const nextHidden = !settingsPanel.hidden;
-    settingsPanel.hidden = nextHidden;
-    settingsBtn.setAttribute(
-      "aria-expanded",
-      nextHidden ? "false" : "true",
-    );
+    const isOpen = settingsPanel.classList.toggle("is-open");
+    settingsPanel.setAttribute("aria-hidden", isOpen ? "false" : "true");
+    settingsBtn.classList.toggle("is-open", isOpen);
+    settingsBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
   });
 }
 

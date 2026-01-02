@@ -527,23 +527,102 @@
         max-width: 60rem;
       }
 
-      .settings-panel {
-        margin-top: 0.75rem;
-        padding: 0.75rem 1rem;
-        border-radius: 0.75rem;
-        border: 1px solid #e0e0e0;
-        background: #fafafa;
+      .settings-wrap {
+        display: flex;
+        justify-content: flex-end;
       }
 
-      .settings-panel[hidden] {
-        display: none;
+      .settings-panel {
+        margin: 0.5rem 0 0.25rem;
+        padding: 0.75rem 1rem;
+        border-radius: 0.9rem;
+        border: 1px solid #e0e0e0;
+        background: #fafafa;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+        max-height: 0;
+        opacity: 0;
+        transform: translateY(-6px);
+        overflow: hidden;
+        transition:
+          max-height 220ms ease,
+          opacity 200ms ease,
+          transform 200ms ease;
+      }
+
+      .settings-panel.is-open {
+        max-height: 200px;
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .settings-toggle-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+
+      .settings-toggle-btn .caret {
+        font-size: 0.9rem;
+        transition: transform 200ms ease;
+      }
+
+      .settings-toggle-btn.is-open {
+        background: #0f172a;
+        color: #fff;
+      }
+
+      .settings-toggle-btn.is-open .caret {
+        transform: rotate(180deg);
       }
 
       .toggle-row {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        justify-content: space-between;
+        gap: 1rem;
         font-weight: 600;
+      }
+
+      .switch {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+      }
+
+      .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+        position: absolute;
+      }
+
+      .switch-track {
+        width: 46px;
+        height: 26px;
+        background: #cbd5f5;
+        border-radius: 999px;
+        position: relative;
+        transition: background 200ms ease;
+      }
+
+      .switch-thumb {
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 20px;
+        height: 20px;
+        border-radius: 999px;
+        background: #fff;
+        box-shadow: 0 3px 8px rgba(15, 23, 42, 0.2);
+        transition: transform 200ms ease;
+      }
+
+      .switch input:checked + .switch-track {
+        background: #3b82f6;
+      }
+
+      .switch input:checked + .switch-track .switch-thumb {
+        transform: translateX(20px);
       }
 
       @media (max-width: 900px) {
@@ -623,9 +702,32 @@
                 <button type="button" class="btn btn-secondary btn-now" id="nowBtn">
                   Now
                 </button>
+                <button
+                  type="button"
+                  class="btn btn-secondary settings-toggle-btn"
+                  id="settingsBtn"
+                  aria-expanded="false"
+                  aria-controls="settingsPanel"
+                >
+                  Settings <span class="caret">▾</span>
+                </button>
               </div>
             </div>
           </form>
+
+          <div class="settings-wrap">
+            <div class="settings-panel" id="settingsPanel" aria-hidden="true">
+              <div class="toggle-row">
+                <span>Show passing points</span>
+                <label class="switch">
+                  <input type="checkbox" id="showPassTimesToggle" />
+                  <span class="switch-track">
+                    <span class="switch-thumb"></span>
+                  </span>
+                </label>
+              </div>
+            </div>
+          </div>
 
             <div class="actions">
             <div class="action-buttons">
@@ -648,21 +750,6 @@
               >
                 Share
               </button>
-              <button
-                type="button"
-                class="btn btn-secondary"
-                id="settingsBtn"
-                aria-expanded="false"
-                aria-controls="settingsPanel"
-              >
-                Settings
-              </button>
-            </div>
-            <div class="settings-panel" id="settingsPanel" hidden>
-              <label class="toggle-row">
-                <input type="checkbox" id="showPassTimesToggle" />
-                Show passing points (bracketed)
-              </label>
             </div>
             <div id="status" hidden>
               <span class="status-bar" aria-hidden="true"></span>
