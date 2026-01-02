@@ -10,6 +10,11 @@
       href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&family=Special+Elite&display=swap"
       rel="stylesheet"
     />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/timetable.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/favicon-180x180.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
     <style>
       :root {
         color-scheme: light;
@@ -162,16 +167,6 @@
         align-items: flex-start;
       }
 
-      .label-spacer {
-        display: block;
-        font-weight: 700;
-        line-height: 1.2;
-        min-height: 1.2em;
-      }
-
-      .via-label {
-        align-items: stretch;
-      }
 
       label input {
         font-family: inherit;
@@ -248,6 +243,7 @@
 
       #addViaBtn {
         align-self: center;
+        transform: translateY(-6px);
       }
 
       form label button {
@@ -543,16 +539,13 @@
                 <input type="text" id="fromCrs" maxlength="3" required />
               </label>
               <div class="via-scroll" id="viaScroll">
-                <label class="via-label">
-                  <span class="label-spacer" aria-hidden="true">&nbsp;</span>
-                  <button
-                    type="button"
-                    class="btn btn-secondary"
-                    id="addViaBtn"
-                  >
-                    Add via stop
-                  </button>
-                </label>
+                <button
+                  type="button"
+                  class="btn btn-secondary"
+                  id="addViaBtn"
+                >
+                  Add via stop
+                </button>
               </div>
               <label>
                 To (CRS)
