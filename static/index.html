@@ -211,9 +211,56 @@
         border-color: var(--accent-soft);
       }
 
-      input[type="text"] {
-        width: 5.5ch;
-        text-transform: uppercase;
+      .station-field {
+        position: relative;
+        min-width: 16ch;
+      }
+
+      .station-input {
+        width: 18ch;
+        min-width: 16ch;
+        text-transform: none;
+      }
+
+      .station-field-row {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+      }
+
+      .station-suggest {
+        position: absolute;
+        top: calc(100% + 0.35rem);
+        left: 0;
+        right: 0;
+        background: rgba(255, 255, 255, 0.98);
+        border: 1px solid var(--line);
+        box-shadow: 0 16px 32px var(--shadow);
+        max-height: 220px;
+        overflow: auto;
+        display: none;
+        z-index: 5;
+      }
+
+      .station-suggest-item {
+        padding: 0.55rem 0.75rem;
+        cursor: pointer;
+        font-weight: 400;
+      }
+
+      .station-suggest-item:hover,
+      .station-suggest-item.is-active {
+        background: rgba(201, 139, 74, 0.2);
+      }
+
+      .via-remove {
+        padding: 0.3rem 0.55rem;
+        border-radius: var(--radius);
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.7);
+        font-weight: 700;
+        color: var(--ink-soft);
+        line-height: 1;
       }
 
       input[type="date"] {
@@ -579,12 +626,20 @@
           <h2>Create Your Timetable</h2>
           <form id="form">
             <div class="form-row form-row-stations">
-              <label>
-                From (CRS)
-                <input type="text" id="fromCrs" maxlength="3" required />
+              <label class="station-field">
+                <span>From</span>
+                <input
+                  type="text"
+                  id="fromStation"
+                  class="station-input"
+                  autocomplete="off"
+                  required
+                />
+                <input type="hidden" id="fromCrs" />
+                <div class="station-suggest" id="fromSuggest" role="listbox"></div>
               </label>
               <div class="via-group">
-                <span class="via-group-label">Via (CRS)</span>
+                <span class="via-group-label">Via</span>
                 <div class="via-scroll" id="viaScroll">
                   <button
                     type="button"
@@ -595,9 +650,17 @@
                   </button>
                 </div>
               </div>
-              <label>
-                To (CRS)
-                <input type="text" id="toCrs" maxlength="3" required />
+              <label class="station-field">
+                <span>To</span>
+                <input
+                  type="text"
+                  id="toStation"
+                  class="station-input"
+                  autocomplete="off"
+                  required
+                />
+                <input type="hidden" id="toCrs" />
+                <div class="station-suggest" id="toSuggest" role="listbox"></div>
               </label>
             </div>
 

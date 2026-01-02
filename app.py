@@ -1,6 +1,8 @@
 from flask import Flask, send_from_directory, request, jsonify, send_file
 import io
+import json
 import os
+import re
 import requests
 
 from pdf_utils import build_timetable_pdf
@@ -15,6 +17,32 @@ if not RTT_USER or not RTT_PASS:
     raise RuntimeError("RTT_USER and RTT_PASS must be set as environment variables")
 
 RTT_BASE = "https://api.rtt.io/api/v1"
+
+DATA_PATH = os.path.join(os.path.dirname(__file__), "data", "stations.json")
+
+
+def norm_station_query(value):
+    value = (value or "").lower()
+    value = value.replace("&", "and")
+    value = re.sub(r"[^a-z0-9 ]+", " ", value)
+    value = re.sub(r"\s+", " ", value).strip()
+    return value
+
+
+with open(DATA_PATH, "r", encoding="utf-8") as f:
+    STATIONS = json.load(f)
+
+STATIONS_N = [
+    {
+        "stationName": st["stationName"],
+        "crsCode": st["crsCode"],
+        "_n": norm_station_query(st["stationName"])
+        + " "
+        + st["crsCode"].lower(),
+    }
+    for st in STATIONS
+    if st.get("crsCode")
+]
 
 def rtt_get(path, params=None):
     url = RTT_BASE + path
@@ -90,6 +118,25 @@ def api_service():
             filtered_locations.append(cleaned)
         data["locations"] = filtered_locations
     return jsonify(data)
+
+
+@app.get("/api/stations")
+def api_stations():
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify([])
+
+    qn = norm_station_query(q)
+    results = []
+    for st in STATIONS_N:
+        if qn in st["_n"]:
+            results.append(
+                {"stationName": st["stationName"], "crsCode": st["crsCode"]}
+            )
+            if len(results) >= 20:
+                break
+    return jsonify(results)
+
 
 @app.route("/timetable/pdf", methods=["POST"])
 def timetable_pdf():
