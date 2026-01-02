@@ -26,6 +26,8 @@ const bodyRowsBA = document.getElementById("body-rows-ba");
 const addViaBtn = document.getElementById("addViaBtn");
 const viaScroll = document.getElementById("viaScroll");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
+const cookieBanner = document.getElementById("cookieBanner");
+const cookieAcceptBtn = document.getElementById("cookieAcceptBtn");
 
 // === Mutable state ===
 const viaInputs = [];
@@ -39,6 +41,20 @@ let lastPdfPayload = null;
 addViaBtn.addEventListener("click", () => {
   createViaField("");
 });
+
+if (cookieAcceptBtn && cookieBanner) {
+  const cookieKey = "cookieConsentAccepted";
+  const isAccepted = localStorage.getItem(cookieKey) === "true";
+  if (!isAccepted) {
+    cookieBanner.hidden = false;
+  } else {
+    cookieBanner.hidden = true;
+  }
+  cookieAcceptBtn.addEventListener("click", () => {
+    localStorage.setItem(cookieKey, "true");
+    cookieBanner.hidden = true;
+  });
+}
 
 function createViaField(initialValue = "") {
   const label = document.createElement("label");
@@ -765,7 +781,7 @@ form.addEventListener("submit", async (e) => {
     renderTimetable(modelAB, headerRowAB, headerIconsRowAB, bodyRowsAB);
     const tableDataAB = buildPdfTableData(modelAB);
     pdfTables.push({
-      title: `${fromName} -> ${toName}`,
+      title: `${fromName} → ${toName}`,
       dateLabel,
       serviceTimes: tableDataAB.serviceTimes,
       ...tableDataAB,
@@ -794,7 +810,7 @@ form.addEventListener("submit", async (e) => {
     renderTimetable(modelBA, headerRowBA, headerIconsRowBA, bodyRowsBA);
     const tableDataBA = buildPdfTableData(modelBA);
     pdfTables.push({
-      title: `${toName} -> ${fromName}`,
+      title: `${toName} → ${fromName}`,
       dateLabel,
       serviceTimes: tableDataBA.serviceTimes,
       ...tableDataBA,
@@ -807,7 +823,7 @@ form.addEventListener("submit", async (e) => {
 
   if (pdfTables.length > 0) {
     const title = corridorLabel || `${fromName} ↔ ${toName}`;
-    const subtitle = formatGeneratedTimestamp();
+    const subtitle = `Generated on ${formatGeneratedTimestamp()}`;
     lastPdfPayload = {
       meta: {
         title,

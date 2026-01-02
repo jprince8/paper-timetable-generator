@@ -116,6 +116,7 @@ def build_timetable_pdf(tables, meta=None):
     doc_title_style = styles["Heading2"]
     doc_subtitle_style = styles["Normal"]
     title_style = styles["Heading3"]
+    title_style.fontName = "Helvetica-Bold"
     title_style.spaceAfter = 6
 
     elements = []
@@ -206,7 +207,7 @@ def build_timetable_pdf(tables, meta=None):
                         ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
                         ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
                         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                        ("ALIGN", (1, 1), (-1, -1), "CENTER"),
+                        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                         ("ALIGN", (0, 0), (0, -1), "RIGHT"),
                     ]
                 )
