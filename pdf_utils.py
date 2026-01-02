@@ -205,7 +205,7 @@ def build_timetable_pdf(tables, meta=None):
             pdf_table = Table(data, colWidths=chunk_widths, repeatRows=1, hAlign="LEFT")
             line_color = colors.grey
             line_width = 0.5
-            row_shade = colors.Color(250 / 255, 246 / 255, 239 / 255, alpha=0.6)
+            row_shade = colors.Color(250 / 255, 246 / 255, 239 / 255)
             table_style = [
                 ("FONT", (0, 0), (-1, -1), font_name, font_size),
                 ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
