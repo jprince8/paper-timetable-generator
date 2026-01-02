@@ -1,4 +1,6 @@
+import copy
 import io
+import os
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
@@ -11,6 +13,8 @@ from reportlab.platypus import (
     Spacer,
     CondPageBreak,
 )
+from reportlab.graphics.shapes import Drawing
+from svglib.svglib import svg2rlg
 
 
 def _cell_text(value):
@@ -26,12 +30,52 @@ def _calc_col_widths(headers, rows, font_name, font_size, padding=6):
         for row in rows:
             if col_idx < len(row):
                 entries.append(row[col_idx])
-        max_width = max(
-            pdfmetrics.stringWidth(_cell_text(val), font_name, font_size)
-            for val in entries
-        )
+        max_width = 0
+        for val in entries:
+            if hasattr(val, "width"):
+                max_width = max(max_width, val.width)
+            else:
+                max_width = max(
+                    max_width,
+                    pdfmetrics.stringWidth(
+                        _cell_text(val), font_name, font_size
+                    ),
+                )
         widths.append(max_width + padding)
     return widths
+
+
+def _load_svg_icon(path, size):
+    drawing = svg2rlg(path)
+    if drawing is None:
+        return None
+    if not drawing.width or not drawing.height:
+        return drawing
+    scale = size / max(drawing.width, drawing.height)
+    drawing.scale(scale, scale)
+    return drawing
+
+
+def _build_facilities_cell(value, icon_map, size, gap=2):
+    if not isinstance(value, str):
+        return value
+    tokens = [t for t in value.split() if t]
+    if not tokens:
+        return ""
+    icons = [icon_map.get(token) for token in tokens if token in icon_map]
+    icons = [icon for icon in icons if icon is not None]
+    if not icons:
+        return value
+
+    width = len(icons) * size + max(0, len(icons) - 1) * gap
+    drawing = Drawing(width, size)
+    x_offset = 0
+    for icon in icons:
+        icon_copy = copy.deepcopy(icon)
+        icon_copy.translate(x_offset, 0)
+        drawing.add(icon_copy)
+        x_offset += size + gap
+    return drawing
 
 
 def _split_columns(widths, available_width):
@@ -97,6 +141,13 @@ def build_timetable_pdf(tables, meta=None):
         elements.append(Paragraph(doc_subtitle, doc_subtitle_style))
         elements.append(Spacer(1, 10))
 
+    assets_dir = os.path.join(os.path.dirname(__file__), "static", "icons")
+    icon_size = 10
+    icon_map = {
+        "FC": _load_svg_icon(os.path.join(assets_dir, "first-class.svg"), icon_size),
+        "SL": _load_svg_icon(os.path.join(assets_dir, "bed.svg"), icon_size),
+    }
+
     for table in tables:
         title = _cell_text(table.get("title", "")).strip()
         headers = table.get("headers", [])
@@ -111,7 +162,13 @@ def build_timetable_pdf(tables, meta=None):
         for chunk in chunk_indices:
             chunk_headers = [headers[i] for i in chunk]
             chunk_rows = [[row[i] if i < len(row) else "" for i in chunk] for row in rows]
-            data = [chunk_headers] + chunk_rows
+            data = [chunk_headers] + [
+                [
+                    _build_facilities_cell(cell, icon_map, icon_size)
+                    for cell in row
+                ]
+                for row in chunk_rows
+            ]
             chunk_widths = [col_widths[i] for i in chunk]
 
             if title:

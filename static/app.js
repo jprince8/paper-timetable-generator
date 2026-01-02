@@ -254,8 +254,8 @@ function buildPdfTableData(model) {
     ...orderedSvcIndices.map((svcIndex) => {
       const meta = servicesMeta[svcIndex];
       const icons = [];
-      if (meta.firstClassAvailable) icons.push("①");
-      if (meta.isSleeper) icons.push("🛏️");
+      if (meta.firstClassAvailable) icons.push("FC");
+      if (meta.isSleeper) icons.push("SL");
       return icons.join(" ");
     }),
   ];
