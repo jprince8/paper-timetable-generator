@@ -69,6 +69,26 @@ def api_service():
 
     path = f"/json/service/{uid}/{year}/{month}/{day}"
     data = rtt_get(path)
+    locations = data.get("locations")
+    if isinstance(locations, list):
+        filtered_locations = []
+        for location in locations:
+            if not isinstance(location, dict):
+                continue
+            has_departure_or_arrival = any(
+                isinstance(key, str)
+                and ("departure" in key.lower() or "arrival" in key.lower())
+                for key in location.keys()
+            )
+            if not has_departure_or_arrival:
+                continue
+            cleaned = {
+                key: value
+                for key, value in location.items()
+                if key not in {"origin", "destination"}
+            }
+            filtered_locations.append(cleaned)
+        data["locations"] = filtered_locations
     return jsonify(data)
 
 @app.route("/timetable/pdf", methods=["POST"])

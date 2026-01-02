@@ -1,8 +1,7 @@
 // === Configuration ===
 const DEBUG_STATIONS = false; // set true to log station selection / dwell details
-// If true: the “must call at >=2 stops” rule is applied *after* hiding stations
-// that have no public calls (and iterated to a stable result).
-const APPLY_MIN_STOP_FILTER_AFTER_PUBLIC_HIDE = true;
+// Apply the “must call at >=2 stops” rule *after* hiding stations
+// that have no public calls (and iterate to a stable result).
 
 // === Proxy endpoints ===
 const PROXY_SEARCH = "/rtt/search";
@@ -26,6 +25,7 @@ const bodyRowsBA = document.getElementById("body-rows-ba");
 const addViaBtn = document.getElementById("addViaBtn");
 const viaScroll = document.getElementById("viaScroll");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
+const shareBtn = document.getElementById("shareBtn");
 const cookieBanner = document.getElementById("cookieBanner");
 const cookieAcceptBtn = document.getElementById("cookieAcceptBtn");
 const nowBtn = document.getElementById("nowBtn");
@@ -111,6 +111,13 @@ function createViaField(initialValue = "") {
   viaInputs.push(input);
 }
 
+function clearViaFields() {
+  viaInputs.forEach((input) => {
+    input.closest("label")?.remove();
+  });
+  viaInputs.length = 0;
+}
+
 // === Cookie helpers ===
 function setCookie(name, value, days) {
   const d = new Date();
@@ -165,6 +172,42 @@ function loadSavedInputsFromCookies() {
 
 // Run once when the script loads
 loadSavedInputsFromCookies();
+
+function loadInputsFromQuery() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.size === 0) return false;
+
+  const from = normaliseCrs(params.get("from"));
+  const to = normaliseCrs(params.get("to"));
+  const date = params.get("date");
+  const start = padTime(params.get("start"));
+  const end = padTime(params.get("end"));
+  const viasRaw = params.get("vias");
+
+  if (from) document.getElementById("fromCrs").value = from;
+  if (to) document.getElementById("toCrs").value = to;
+  if (date) document.getElementById("serviceDate").value = date;
+  if (start) document.getElementById("startTime").value = start;
+  if (end) document.getElementById("endTime").value = end;
+
+  if (viasRaw !== null) {
+    clearViaFields();
+    viasRaw
+      .split(",")
+      .map((v) => v.trim())
+      .filter((v) => v)
+      .forEach((v) => createViaField(normaliseCrs(v)));
+  }
+
+  return Boolean(from && to && date && start && end);
+}
+
+const shouldAutoSubmit = loadInputsFromQuery();
+if (shouldAutoSubmit) {
+  setTimeout(() => {
+    form.requestSubmit();
+  }, 0);
+}
 
 // === Formatting utilities ===
 function formatDateInput(date) {
@@ -298,6 +341,7 @@ function resetOutputs() {
   headerIconsRowBA.innerHTML = "";
   bodyRowsBA.innerHTML = "";
   downloadPdfBtn.disabled = true;
+  shareBtn.disabled = true;
   lastPdfPayload = null;
 }
 
@@ -419,6 +463,57 @@ downloadPdfBtn.addEventListener("click", async () => {
   }
 });
 
+function buildShareUrl() {
+  const url = new URL(window.location.href);
+  const from = normaliseCrs(document.getElementById("fromCrs").value);
+  const to = normaliseCrs(document.getElementById("toCrs").value);
+  const date = document.getElementById("serviceDate").value;
+  const start = document.getElementById("startTime").value;
+  const end = document.getElementById("endTime").value;
+  const viaValues = viaInputs
+    .map((input) => normaliseCrs(input.value))
+    .filter((v) => v);
+
+  url.searchParams.set("from", from);
+  url.searchParams.set("to", to);
+  url.searchParams.set("date", date);
+  url.searchParams.set("start", start);
+  url.searchParams.set("end", end);
+  if (viaValues.length > 0) {
+    url.searchParams.set("vias", viaValues.join(","));
+  } else {
+    url.searchParams.delete("vias");
+  }
+
+  return url.toString();
+}
+
+async function copyToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const tempInput = document.createElement("input");
+  tempInput.value = text;
+  document.body.appendChild(tempInput);
+  tempInput.select();
+  tempInput.setSelectionRange(0, text.length);
+  document.execCommand("copy");
+  tempInput.remove();
+}
+
+shareBtn.addEventListener("click", async () => {
+  if (shareBtn.disabled) return;
+  const url = buildShareUrl();
+  try {
+    await copyToClipboard(url);
+    setStatus("Share link copied to clipboard.");
+  } catch (err) {
+    setStatus("Unable to copy share link.", { isError: true });
+  }
+});
+
 // === Main form submit ===
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -476,6 +571,9 @@ form.addEventListener("submit", async (e) => {
 
   // Step 1: fetch all corridor services across all legs, deduplicated by serviceUid|runDate
   const corridorServicesMap = new Map();
+  const stationNameByCrs = {};
+  let noServicesLeg = null;
+  let invalidInputsDetected = false;
 
   try {
     const searchPromises = corridorLegs.map(async (leg) => {
@@ -503,11 +601,42 @@ form.addEventListener("submit", async (e) => {
         );
         return;
       }
+      if (data && data.error === "unknown error occurred") {
+        invalidInputsDetected = true;
+        return;
+      }
+      const fromNameCandidate =
+        data.location?.name || data.location?.description || null;
+      if (fromNameCandidate) {
+        stationNameByCrs[leg.from] = fromNameCandidate;
+      }
+      const toNameCandidate =
+        data.filter?.destination?.name ||
+        data.filter?.destination?.description ||
+        data.filter?.location?.name ||
+        data.filter?.location?.description ||
+        null;
+      if (toNameCandidate) {
+        stationNameByCrs[leg.to] = toNameCandidate;
+      }
       const services = Array.isArray(data.services) ? data.services : [];
-      services.forEach((svc) => {
+      const eligibleServices = services.filter((svc) => {
         if (svc.isPassenger === false) return;
         if (svc.plannedCancel) return;
         if (!serviceAtStationInRange(svc)) return;
+        return true;
+      });
+      if (eligibleServices.length === 0 && !noServicesLeg) {
+        const fromName = stationNameByCrs[leg.from] || leg.from;
+        const toName = stationNameByCrs[leg.to] || leg.to;
+        noServicesLeg = {
+          from: leg.from,
+          to: leg.to,
+          fromName,
+          toName,
+        };
+      }
+      eligibleServices.forEach((svc) => {
         const key = (svc.serviceUid || "") + "|" + (svc.runDate || "");
         if (!corridorServicesMap.has(key)) {
           corridorServicesMap.set(key, svc);
@@ -523,11 +652,35 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
+  if (invalidInputsDetected) {
+    setStatus("Invalid inputs.", { isError: true });
+    return;
+  }
+
+  if (noServicesLeg) {
+    setStatus(
+      "No passenger services in this time range between " +
+        noServicesLeg.fromName +
+        " and " +
+        noServicesLeg.toName +
+        ".",
+      { isError: true },
+    );
+    return;
+  }
+
   const corridorServices = Array.from(corridorServicesMap.values());
 
   if (corridorServices.length === 0) {
+    const fromLabel = stationNameByCrs[from] || from;
+    const toLabel = stationNameByCrs[to] || to;
     setStatus(
-      "No passenger services in this time range between selected stations.",
+      "No passenger services in this time range between " +
+        fromLabel +
+        " and " +
+        toLabel +
+        ".",
+      { isError: true },
     );
     return;
   }
@@ -792,16 +945,23 @@ form.addEventListener("submit", async (e) => {
   const fromName = findStationNameByCrs(stations, from);
   const toName = findStationNameByCrs(stations, to);
   const viaNames = viaValues.map((crs) => findStationNameByCrs(stations, crs));
-  const corridorLabel = [fromName, ...viaNames.filter(Boolean), toName].join(
-    " ↔ ",
-  );
+  const viaNamesForward = viaNames.filter(Boolean);
+  const forwardStopsLabel = [fromName, ...viaNamesForward, toName]
+    .filter(Boolean)
+    .join(" → ");
+  const reverseStopsLabel = [
+    toName,
+    ...viaNamesForward.slice().reverse(),
+    fromName,
+  ]
+    .filter(Boolean)
+    .join(" → ");
+  const corridorLabel = [fromName, ...viaNamesForward, toName].join(" ↔ ");
   const dateLabel = formatDateDisplay(currentDate);
   if (servicesAB.length > 0) {
     const modelAB = buildTimetableModel(stations, stationSet, servicesAB);
     headingAB.textContent =
-      fromName +
-      " \u2192 " +
-      toName +
+      forwardStopsLabel +
       " (" +
       modelAB.orderedSvcIndices.length +
       " services)";
@@ -816,7 +976,7 @@ form.addEventListener("submit", async (e) => {
     tableCardAB?.classList.add("has-data");
   } else {
     headingAB.textContent =
-      fromName + " \u2192 " + toName + ": no through services in this time range";
+      forwardStopsLabel + ": no through services in this time range";
   }
 
   // Build B -> A table (stations in reverse order)
@@ -828,9 +988,7 @@ form.addEventListener("submit", async (e) => {
       servicesBA,
     );
     headingBA.textContent =
-      toName +
-      " \u2192 " +
-      fromName +
+      reverseStopsLabel +
       " (" +
       modelBA.orderedSvcIndices.length +
       " services)";
@@ -845,7 +1003,7 @@ form.addEventListener("submit", async (e) => {
     tableCardBA?.classList.add("has-data");
   } else {
     headingBA.textContent =
-      toName + " \u2192 " + fromName + ": no through services in this time range";
+      reverseStopsLabel + ": no through services in this time range";
   }
 
   if (pdfTables.length > 0) {
@@ -859,6 +1017,7 @@ form.addEventListener("submit", async (e) => {
       tables: pdfTables,
     };
     downloadPdfBtn.disabled = false;
+    shareBtn.disabled = false;
   }
   hideStatus();
 });
@@ -1075,34 +1234,28 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
       return false;
     }
 
-    // Optionally apply the >=2-stops filter AFTER public-station hiding (iterated to stability)
+    // Apply the >=2-stops filter AFTER public-station hiding (iterated to stability)
     let workingServices = servicesWithDetails.slice();
     let displayStations = [];
 
-    if (APPLY_MIN_STOP_FILTER_AFTER_PUBLIC_HIDE) {
-      let prevKey = "";
-      for (let iter = 0; iter < 5; iter++) {
-        displayStations = computeDisplayStations(stations, workingServices);
-        const displaySet = new Set(displayStations.map((s) => s.crs).filter(Boolean));
-
-        // Filter services based on what would actually be visible (post-hide)
-        const filtered = workingServices.filter(({ detail }) =>
-          serviceCallsAtLeastTwoInSet(detail, displaySet),
-        );
-
-        const key =
-          displayStations.map((s) => s.crs).join(",") + "|" + filtered.length;
-
-        if (key === prevKey) {
-          workingServices = filtered;
-          break; // stable
-        }
-        prevKey = key;
-        workingServices = filtered;
-      }
-    } else {
-      // Original behaviour: hide stations using all incoming services (no extra filtering here)
+    let prevKey = "";
+    for (let iter = 0; iter < 5; iter++) {
       displayStations = computeDisplayStations(stations, workingServices);
+      const displaySet = new Set(displayStations.map((s) => s.crs).filter(Boolean));
+
+      // Filter services based on what would actually be visible (post-hide)
+      const filtered = workingServices.filter(({ detail }) =>
+        serviceCallsAtLeastTwoInSet(detail, displaySet),
+      );
+
+      const key = displayStations.map((s) => s.crs).join(",") + "|" + filtered.length;
+
+      if (key === prevKey) {
+        workingServices = filtered;
+        break; // stable
+      }
+      prevKey = key;
+      workingServices = filtered;
     }
 
     // From here on, use workingServices everywhere

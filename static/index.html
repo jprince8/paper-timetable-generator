@@ -212,16 +212,16 @@
       }
 
       input[type="text"] {
-        width: 6rem;
+        width: 5.5ch;
         text-transform: uppercase;
       }
 
       input[type="date"] {
-        width: 12.5rem;
+        width: 15.5ch;
       }
 
       input[type="time"] {
-        width: 8rem;
+        width: 11ch;
       }
 
       button {
@@ -541,12 +541,6 @@
           align-items: stretch;
         }
 
-        input[type="text"],
-        input[type="date"],
-        input[type="time"] {
-          width: 100%;
-        }
-
         .form-row-stations {
           flex-wrap: nowrap;
         }
@@ -614,7 +608,7 @@
             </div>
           </form>
 
-          <div class="actions">
+            <div class="actions">
             <div class="action-buttons">
               <button type="submit" class="btn btn-primary" form="form">
                 Build Timetable
@@ -626,6 +620,14 @@
                 disabled
               >
                 Download PDF
+              </button>
+              <button
+                type="button"
+                class="btn btn-primary"
+                id="shareBtn"
+                disabled
+              >
+                Share
               </button>
             </div>
             <div id="status" hidden>
