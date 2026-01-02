@@ -11,6 +11,8 @@ const PROXY_SERVICE = "/rtt/service";
 // === DOM references ===
 const form = document.getElementById("form");
 const statusEl = document.getElementById("status");
+const statusTextEl = document.getElementById("statusText");
+const statusBarEl = statusEl ? statusEl.querySelector(".status-bar") : null;
 const headingAB = document.getElementById("headingAB");
 const headingBA = document.getElementById("headingBA");
 const headerRowAB = document.getElementById("header-row-ab");
@@ -20,6 +22,7 @@ const headerRowBA = document.getElementById("header-row-ba");
 const headerIconsRowBA = document.getElementById("header-icons-row-ba");
 const bodyRowsBA = document.getElementById("body-rows-ba");
 const addViaBtn = document.getElementById("addViaBtn");
+const viaScroll = document.getElementById("viaScroll");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 
 // === Mutable state ===
@@ -66,11 +69,12 @@ function createViaField(initialValue = "") {
   label.appendChild(input);
   label.appendChild(removeBtn);
 
-  // Insert the new Via label before the Add Via button, so we get:
-  // Via
-  // Via
-  // [Add Via]
-  form.insertBefore(label, addViaBtn);
+  // Insert the new Via label before the Add Via button so vias scroll horizontally.
+  if (viaScroll && addViaBtn) {
+    viaScroll.insertBefore(label, addViaBtn);
+  } else {
+    form.insertBefore(label, addViaBtn);
+  }
 
   viaInputs.push(input);
 }
@@ -202,17 +206,42 @@ function safePairText(pairs) {
 }
 
 // === Status helpers ===
-function setStatus(msg) {
-  statusEl.textContent = msg;
+function showStatus() {
+  if (!statusEl) return;
+  statusEl.hidden = false;
+}
+
+function hideStatus() {
+  if (!statusEl) return;
+  statusEl.hidden = true;
+  statusEl.classList.remove("is-error");
+  if (statusTextEl) statusTextEl.textContent = "";
+  if (statusBarEl) statusBarEl.style.width = "0%";
+}
+
+function setStatus(msg, options = {}) {
+  if (!statusEl || !statusTextEl) return;
+  const { isError = false, progress = null } = options;
+  if (!msg) {
+    hideStatus();
+    return;
+  }
+  showStatus();
+  statusTextEl.textContent = msg;
+  statusEl.classList.toggle("is-error", isError);
+  if (statusBarEl) {
+    statusBarEl.style.width =
+      typeof progress === "number" ? `${progress}%` : "0%";
+  }
 }
 
 function setProgressStatus(label, completed, total) {
   const percent = total > 0 ? Math.round((completed / total) * 100) : 100;
-  setStatus(`${label} ${percent}%`);
+  setStatus(`${label}`, { progress: percent });
 }
 
 function resetOutputs() {
-  setStatus("");
+  hideStatus();
   headingAB.textContent = "";
   headingBA.textContent = "";
   headerRowAB.innerHTML = "";
@@ -221,8 +250,7 @@ function resetOutputs() {
   headerRowBA.innerHTML = "";
   headerIconsRowBA.innerHTML = "";
   bodyRowsBA.innerHTML = "";
-  downloadPdfBtn.style.display = "none";
-  downloadPdfBtn.disabled = false;
+  downloadPdfBtn.disabled = true;
   lastPdfPayload = null;
 }
 
@@ -302,7 +330,7 @@ downloadPdfBtn.addEventListener("click", async () => {
     URL.revokeObjectURL(url);
     setStatus("");
   } catch (err) {
-    setStatus("Error building PDF: " + err.message);
+    setStatus("Error building PDF: " + err.message, { isError: true });
   } finally {
     downloadPdfBtn.disabled = false;
   }
@@ -343,11 +371,11 @@ form.addEventListener("submit", async (e) => {
   endMinutes = timeStrToMinutes(endInput);
 
   if (!from || !to) {
-    setStatus("Please enter both From and To CRS codes.");
+    setStatus("Please enter both From and To CRS codes.", { isError: true });
     return;
   }
   if (startMinutes === null || endMinutes === null) {
-    setStatus("Please enter a valid time range.");
+    setStatus("Please enter a valid time range.", { isError: true });
     return;
   }
 
@@ -406,7 +434,9 @@ form.addEventListener("submit", async (e) => {
 
     await Promise.all(searchPromises);
   } catch (err) {
-    setStatus("Error fetching initial service search results: " + err);
+    setStatus("Error fetching initial service search results: " + err, {
+      isError: true,
+    });
     return;
   }
 
@@ -458,7 +488,7 @@ form.addEventListener("submit", async (e) => {
   try {
     corridorDetails = await Promise.all(corridorDetailPromises);
   } catch (err) {
-    setStatus("Error fetching service details: " + err);
+    setStatus("Error fetching service details: " + err, { isError: true });
     return;
   }
 
@@ -632,7 +662,7 @@ form.addEventListener("submit", async (e) => {
     console.warn("Error during candidate detail fetch:", err);
   }
 
-  setStatus("");
+  setStatus("Building timetable...");
 
   // Filter to services that:
   //  - have valid detail.locations
@@ -737,8 +767,9 @@ form.addEventListener("submit", async (e) => {
       },
       tables: pdfTables,
     };
-    downloadPdfBtn.style.display = "inline-block";
+    downloadPdfBtn.disabled = false;
   }
+  hideStatus();
 });
 
 // Build station union over a possibly multi-via corridor.

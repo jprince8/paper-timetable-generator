@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Serif+4:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&family=Special+Elite&display=swap"
       rel="stylesheet"
     />
     <style>
@@ -22,6 +22,8 @@
         --line: #c6b7a2;
         --shadow: rgba(58, 47, 36, 0.15);
         --radius: 16px;
+        --danger: #a33b32;
+        --danger-soft: rgba(163, 59, 50, 0.12);
       }
 
       * {
@@ -30,7 +32,7 @@
 
       body {
         margin: 0;
-        font-family: "Source Serif 4", "Iowan Old Style", "Times New Roman", serif;
+        font-family: "Courier Prime", "Courier New", monospace;
         color: var(--ink);
         background: radial-gradient(
             circle at top,
@@ -80,17 +82,17 @@
       }
 
       header.hero h1 {
-        font-family: "Fraunces", "Georgia", serif;
+        font-family: "Special Elite", "Courier Prime", monospace;
         font-size: clamp(2rem, 3vw, 2.8rem);
         margin: 0;
-        letter-spacing: 0.02em;
+        letter-spacing: 0.04em;
       }
 
       header.hero p {
         margin: 0;
         max-width: 60rem;
         color: var(--ink-soft);
-        font-size: 1.05rem;
+        font-size: 1rem;
       }
 
       main {
@@ -108,25 +110,51 @@
       }
 
       .panel h2 {
-        font-family: "Fraunces", "Georgia", serif;
+        font-family: "Special Elite", "Courier Prime", monospace;
         margin: 0 0 1rem;
         font-size: clamp(1.4rem, 2vw, 1.75rem);
         color: var(--ink);
       }
 
       form#form {
+        display: grid;
+        gap: 1.25rem;
+      }
+
+      .form-row {
         display: flex;
-        flex-wrap: wrap;
-        gap: 1rem 1.25rem;
+        gap: 1rem;
         align-items: flex-end;
+      }
+
+      .form-row-meta {
+        flex-wrap: wrap;
+      }
+
+      .form-row-stations {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        padding-bottom: 0.25rem;
+      }
+
+      .via-scroll {
+        display: inline-flex;
+        gap: 1rem;
+        align-items: flex-end;
+        flex-wrap: nowrap;
+        flex: 1;
+        min-width: 8rem;
+        overflow-x: auto;
+        padding-bottom: 0.25rem;
       }
 
       label {
         display: flex;
         flex-direction: column;
         gap: 0.4rem;
-        font-weight: 600;
+        font-weight: 700;
         color: var(--ink);
+        white-space: nowrap;
       }
 
       label input {
@@ -163,13 +191,13 @@
       button {
         border: none;
         cursor: pointer;
-        font-family: "Source Serif 4", serif;
+        font-family: "Courier Prime", monospace;
       }
 
       .btn {
         padding: 0.6rem 1.1rem;
         border-radius: 999px;
-        font-weight: 600;
+        font-weight: 700;
         font-size: 1rem;
         letter-spacing: 0.02em;
         transition: transform 0.15s ease, box-shadow 0.15s ease;
@@ -195,6 +223,13 @@
         box-shadow: 0 12px 20px rgba(58, 47, 36, 0.2);
       }
 
+      .btn[disabled] {
+        background: #c7bcab;
+        color: #6f5e4e;
+        cursor: not-allowed;
+        box-shadow: none;
+      }
+
       #addViaBtn {
         align-self: center;
       }
@@ -205,20 +240,47 @@
         border-radius: 999px;
         border: 1px solid var(--line);
         background: rgba(255, 255, 255, 0.7);
-        font-weight: 600;
+        font-weight: 700;
         color: var(--ink-soft);
       }
 
       #status {
-        flex: 1;
-        min-width: 16rem;
+        position: relative;
+        overflow: hidden;
         padding: 0.9rem 1rem;
         border-radius: 12px;
         background: rgba(250, 244, 232, 0.8);
         border: 1px dashed rgba(161, 95, 43, 0.25);
-        font-family: "Source Serif 4", serif;
+        font-family: "Courier Prime", monospace;
         white-space: pre-wrap;
         color: var(--ink-soft);
+      }
+
+      #status[hidden] {
+        display: none;
+      }
+
+      #status.is-error {
+        background: var(--danger-soft);
+        border-color: rgba(163, 59, 50, 0.4);
+        color: var(--danger);
+      }
+
+      .status-bar {
+        position: absolute;
+        inset: 0;
+        width: 0;
+        background: rgba(161, 95, 43, 0.22);
+        transition: width 0.2s ease;
+      }
+
+      #status.is-error .status-bar {
+        background: rgba(163, 59, 50, 0.2);
+      }
+
+      .status-text {
+        position: relative;
+        z-index: 1;
       }
 
       .results {
@@ -236,6 +298,7 @@
 
       .table-scroll {
         overflow-x: auto;
+        position: relative;
       }
 
       table {
@@ -255,7 +318,7 @@
       th {
         border: 1px solid var(--line);
         background: rgba(240, 232, 219, 0.9);
-        font-weight: 600;
+        font-weight: 700;
       }
 
       td {
@@ -295,7 +358,7 @@
         min-width: max-content;
         text-align: right;
         padding-right: 0.5rem;
-        font-weight: 600;
+        font-weight: 700;
       }
 
       th.corner {
@@ -307,7 +370,7 @@
       }
 
       .service-header {
-        font-weight: 600;
+        font-weight: 700;
         white-space: nowrap;
         color: inherit;
         text-decoration: none;
@@ -319,7 +382,7 @@
       }
 
       th.icon-row {
-        font-weight: 600;
+        font-weight: 700;
         padding: 0.15rem 0.4rem;
       }
 
@@ -357,11 +420,10 @@
       }
 
       .actions {
-        display: flex;
-        flex-wrap: wrap;
+        display: grid;
         gap: 1rem;
-        align-items: center;
         margin-top: 1.25rem;
+        max-width: 28rem;
       }
 
       @media (max-width: 900px) {
@@ -373,7 +435,7 @@
           padding: 1.5rem;
         }
 
-        form#form {
+        .form-row-meta {
           flex-direction: column;
           align-items: stretch;
         }
@@ -384,8 +446,8 @@
           width: 100%;
         }
 
-        #addViaBtn {
-          align-self: flex-start;
+        .form-row-stations {
+          flex-wrap: nowrap;
         }
       }
     </style>
@@ -407,43 +469,55 @@
         <section class="panel">
           <h2>Build your corridor</h2>
           <form id="form">
-            <label>
-              From (CRS)
-              <input type="text" id="fromCrs" maxlength="3" required />
-            </label>
+            <div class="form-row form-row-stations">
+              <label>
+                From (CRS)
+                <input type="text" id="fromCrs" maxlength="3" required />
+              </label>
+              <div class="via-scroll" id="viaScroll">
+                <button
+                  type="button"
+                  class="btn btn-secondary"
+                  id="addViaBtn"
+                >
+                  Add via stop
+                </button>
+              </div>
+              <label>
+                To (CRS)
+                <input type="text" id="toCrs" maxlength="3" required />
+              </label>
+            </div>
 
-            <button type="button" class="btn btn-secondary" id="addViaBtn">
-              Add via stop
-            </button>
-
-            <label>
-              To (CRS)
-              <input type="text" id="toCrs" maxlength="3" required />
-            </label>
-            <label>
-              Date
-              <input type="date" id="serviceDate" required />
-            </label>
-            <label>
-              Start time
-              <input type="time" id="startTime" required />
-            </label>
-            <label>
-              End time
-              <input type="time" id="endTime" required />
-            </label>
-            <button type="submit" class="btn btn-primary">
-              Build timetable
-            </button>
+            <div class="form-row form-row-meta">
+              <label>
+                Date
+                <input type="date" id="serviceDate" required />
+              </label>
+              <label>
+                Start time
+                <input type="time" id="startTime" required />
+              </label>
+              <label>
+                End time
+                <input type="time" id="endTime" required />
+              </label>
+              <button type="submit" class="btn btn-primary">
+                Build timetable
+              </button>
+            </div>
           </form>
 
           <div class="actions">
-            <div id="status"></div>
+            <div id="status" hidden>
+              <span class="status-bar" aria-hidden="true"></span>
+              <span class="status-text" id="statusText"></span>
+            </div>
             <button
               type="button"
-              class="btn btn-secondary"
+              class="btn btn-primary"
               id="downloadPdfBtn"
-              style="display: none;"
+              disabled
             >
               Download PDF
             </button>
