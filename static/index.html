@@ -529,7 +529,7 @@
 
       .settings-wrap {
         display: flex;
-        justify-content: flex-end;
+        justify-content: flex-start;
       }
 
       .settings-panel {
@@ -561,18 +561,9 @@
         gap: 0.4rem;
       }
 
-      .settings-toggle-btn .caret {
-        font-size: 0.9rem;
-        transition: transform 200ms ease;
-      }
-
       .settings-toggle-btn.is-open {
-        background: #0f172a;
+        background: #a3531c;
         color: #fff;
-      }
-
-      .settings-toggle-btn.is-open .caret {
-        transform: rotate(180deg);
       }
 
       .toggle-row {
@@ -709,7 +700,7 @@
                   aria-expanded="false"
                   aria-controls="settingsPanel"
                 >
-                  Settings <span class="caret">▾</span>
+                  Settings
                 </button>
               </div>
             </div>
