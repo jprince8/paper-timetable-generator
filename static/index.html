@@ -136,6 +136,21 @@
         align-items: flex-start;
       }
 
+      .time-now-group {
+        display: flex;
+        gap: 0.75rem;
+        align-items: flex-end;
+      }
+
+      .btn-now {
+        padding: 0.55rem 0.85rem;
+        border-radius: var(--radius);
+        border: 1px solid var(--accent);
+        background: transparent;
+        color: var(--accent);
+        font-weight: 700;
+      }
+
       .form-row-meta {
         flex-wrap: wrap;
       }
@@ -587,10 +602,15 @@
                 Start Time
                 <input type="time" id="startTime" required />
               </label>
-              <label>
-                End Time
-                <input type="time" id="endTime" required />
-              </label>
+              <div class="time-now-group">
+                <label>
+                  End Time
+                  <input type="time" id="endTime" required />
+                </label>
+                <button type="button" class="btn btn-secondary btn-now" id="nowBtn">
+                  Now
+                </button>
+              </div>
             </div>
           </form>
 
