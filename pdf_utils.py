@@ -139,9 +139,11 @@ def build_timetable_pdf(tables, meta=None):
     doc_subtitle = _cell_text(meta.get("subtitle", "")).strip()
     if doc_title:
         elements.append(Paragraph(doc_title, doc_title_style))
+    if doc_title and doc_subtitle:
+        elements.append(Spacer(1, 8))
     if doc_subtitle:
         elements.append(Paragraph(doc_subtitle, doc_subtitle_style))
-        elements.append(Spacer(1, 10))
+        elements.append(Spacer(1, 6))
 
     assets_dir = os.path.join(os.path.dirname(__file__), "static", "icons")
     icon_size = 10
@@ -203,6 +205,7 @@ def build_timetable_pdf(tables, meta=None):
             pdf_table = Table(data, colWidths=chunk_widths, repeatRows=1, hAlign="LEFT")
             line_color = colors.grey
             line_width = 0.5
+            row_shade = colors.Color(250 / 255, 246 / 255, 239 / 255, alpha=0.6)
             table_style = [
                 ("FONT", (0, 0), (-1, -1), font_name, font_size),
                 ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
@@ -222,6 +225,10 @@ def build_timetable_pdf(tables, meta=None):
             for row_idx, row in enumerate(rows):
                 label = _cell_text(row[0]).strip() if row else ""
                 data_row_idx = row_idx + 1
+                if row_idx >= 1 and (row_idx - 1) % 2 == 1:
+                    table_style.append(
+                        ("BACKGROUND", (0, data_row_idx), (-1, data_row_idx), row_shade)
+                    )
                 if label == "Comes from":
                     table_style.append(
                         (
