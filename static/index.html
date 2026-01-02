@@ -95,6 +95,10 @@
         font-size: 1rem;
       }
 
+      header.hero p + p {
+        margin-top: 0.75rem;
+      }
+
       main {
         margin-top: 2rem;
         display: grid;
@@ -124,7 +128,7 @@
       .form-row {
         display: flex;
         gap: 1rem;
-        align-items: flex-end;
+        align-items: flex-start;
       }
 
       .form-row-meta {
@@ -140,10 +144,10 @@
       .via-scroll {
         display: inline-flex;
         gap: 1rem;
-        align-items: flex-end;
+        align-items: flex-start;
         flex-wrap: nowrap;
-        flex: 1;
-        min-width: 8rem;
+        flex: 0 1 auto;
+        min-width: 0;
         overflow-x: auto;
         padding-bottom: 0.25rem;
       }
@@ -155,6 +159,7 @@
         font-weight: 700;
         color: var(--ink);
         white-space: nowrap;
+        align-items: flex-start;
       }
 
       label input {
@@ -246,6 +251,8 @@
 
       #status {
         position: relative;
+        width: 100%;
+        min-height: 3.4rem;
         overflow: hidden;
         padding: 0.9rem 1rem;
         border-radius: 12px;
@@ -254,6 +261,10 @@
         font-family: "Courier Prime", monospace;
         white-space: pre-wrap;
         color: var(--ink-soft);
+        text-align: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
       }
 
       #status[hidden] {
@@ -281,6 +292,8 @@
       .status-text {
         position: relative;
         z-index: 1;
+        width: 100%;
+        text-align: center;
       }
 
       .results {
@@ -294,17 +307,19 @@
         padding: 1.5rem;
         border: 1px solid rgba(198, 183, 162, 0.6);
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+        overflow: hidden;
       }
 
       .table-scroll {
         overflow-x: auto;
         position: relative;
+        max-width: 100%;
       }
 
       table {
         border-collapse: collapse;
-        width: 100%;
-        min-width: 44rem;
+        width: max-content;
+        min-width: 100%;
         font-size: 0.9rem;
         color: var(--ink);
       }
@@ -423,7 +438,7 @@
         display: grid;
         gap: 1rem;
         margin-top: 1.25rem;
-        max-width: 28rem;
+        max-width: 40rem;
       }
 
       @media (max-width: 900px) {
@@ -460,14 +475,14 @@
           Create clean, printable timetable tables for train services between the
           stations you choose, filtered to your selected date and time window.
           Enter your stops (including any optional via points) and the generator
-          will lay out services in easy-to-read tables by direction. Data is
-          provided via the Realtime Trains API.
+          will lay out services in easy-to-read tables by direction.
         </p>
+        <p>Data is provided via the Realtime Trains API.</p>
       </header>
 
       <main>
         <section class="panel">
-          <h2>Build your corridor</h2>
+          <h2>Create Your Timetable</h2>
           <form id="form">
             <div class="form-row form-row-stations">
               <label>
