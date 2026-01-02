@@ -476,6 +476,9 @@ form.addEventListener("submit", async (e) => {
 
   // Step 1: fetch all corridor services across all legs, deduplicated by serviceUid|runDate
   const corridorServicesMap = new Map();
+  const stationNameByCrs = {};
+  let noServicesLeg = null;
+  let invalidInputsDetected = false;
 
   try {
     const searchPromises = corridorLegs.map(async (leg) => {
@@ -503,11 +506,42 @@ form.addEventListener("submit", async (e) => {
         );
         return;
       }
+      if (data && data.error === "unknown error occurred") {
+        invalidInputsDetected = true;
+        return;
+      }
+      const fromNameCandidate =
+        data.location?.name || data.location?.description || null;
+      if (fromNameCandidate) {
+        stationNameByCrs[leg.from] = fromNameCandidate;
+      }
+      const toNameCandidate =
+        data.filter?.destination?.name ||
+        data.filter?.destination?.description ||
+        data.filter?.location?.name ||
+        data.filter?.location?.description ||
+        null;
+      if (toNameCandidate) {
+        stationNameByCrs[leg.to] = toNameCandidate;
+      }
       const services = Array.isArray(data.services) ? data.services : [];
-      services.forEach((svc) => {
+      const eligibleServices = services.filter((svc) => {
         if (svc.isPassenger === false) return;
         if (svc.plannedCancel) return;
         if (!serviceAtStationInRange(svc)) return;
+        return true;
+      });
+      if (eligibleServices.length === 0 && !noServicesLeg) {
+        const fromName = stationNameByCrs[leg.from] || leg.from;
+        const toName = stationNameByCrs[leg.to] || leg.to;
+        noServicesLeg = {
+          from: leg.from,
+          to: leg.to,
+          fromName,
+          toName,
+        };
+      }
+      eligibleServices.forEach((svc) => {
         const key = (svc.serviceUid || "") + "|" + (svc.runDate || "");
         if (!corridorServicesMap.has(key)) {
           corridorServicesMap.set(key, svc);
@@ -523,11 +557,35 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
+  if (invalidInputsDetected) {
+    setStatus("Invalid inputs.", { isError: true });
+    return;
+  }
+
+  if (noServicesLeg) {
+    setStatus(
+      "No passenger services in this time range between " +
+        noServicesLeg.fromName +
+        " and " +
+        noServicesLeg.toName +
+        ".",
+      { isError: true },
+    );
+    return;
+  }
+
   const corridorServices = Array.from(corridorServicesMap.values());
 
   if (corridorServices.length === 0) {
+    const fromLabel = stationNameByCrs[from] || from;
+    const toLabel = stationNameByCrs[to] || to;
     setStatus(
-      "No passenger services in this time range between selected stations.",
+      "No passenger services in this time range between " +
+        fromLabel +
+        " and " +
+        toLabel +
+        ".",
+      { isError: true },
     );
     return;
   }
@@ -792,16 +850,23 @@ form.addEventListener("submit", async (e) => {
   const fromName = findStationNameByCrs(stations, from);
   const toName = findStationNameByCrs(stations, to);
   const viaNames = viaValues.map((crs) => findStationNameByCrs(stations, crs));
-  const corridorLabel = [fromName, ...viaNames.filter(Boolean), toName].join(
-    " ↔ ",
-  );
+  const viaNamesForward = viaNames.filter(Boolean);
+  const forwardStopsLabel = [fromName, ...viaNamesForward, toName]
+    .filter(Boolean)
+    .join(" → ");
+  const reverseStopsLabel = [
+    toName,
+    ...viaNamesForward.slice().reverse(),
+    fromName,
+  ]
+    .filter(Boolean)
+    .join(" → ");
+  const corridorLabel = [fromName, ...viaNamesForward, toName].join(" ↔ ");
   const dateLabel = formatDateDisplay(currentDate);
   if (servicesAB.length > 0) {
     const modelAB = buildTimetableModel(stations, stationSet, servicesAB);
     headingAB.textContent =
-      fromName +
-      " \u2192 " +
-      toName +
+      forwardStopsLabel +
       " (" +
       modelAB.orderedSvcIndices.length +
       " services)";
@@ -816,7 +881,7 @@ form.addEventListener("submit", async (e) => {
     tableCardAB?.classList.add("has-data");
   } else {
     headingAB.textContent =
-      fromName + " \u2192 " + toName + ": no through services in this time range";
+      forwardStopsLabel + ": no through services in this time range";
   }
 
   // Build B -> A table (stations in reverse order)
@@ -828,9 +893,7 @@ form.addEventListener("submit", async (e) => {
       servicesBA,
     );
     headingBA.textContent =
-      toName +
-      " \u2192 " +
-      fromName +
+      reverseStopsLabel +
       " (" +
       modelBA.orderedSvcIndices.length +
       " services)";
@@ -845,7 +908,7 @@ form.addEventListener("submit", async (e) => {
     tableCardBA?.classList.add("has-data");
   } else {
     headingBA.textContent =
-      toName + " \u2192 " + fromName + ": no through services in this time range";
+      reverseStopsLabel + ": no through services in this time range";
   }
 
   if (pdfTables.length > 0) {
