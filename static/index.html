@@ -606,7 +606,18 @@
         }
 
         .form-row-stations {
-          flex-wrap: nowrap;
+          flex-wrap: wrap;
+          align-items: stretch;
+          gap: 1rem;
+        }
+
+        .form-row-stations > label,
+        .form-row-stations .via-group {
+          flex: 1 1 100%;
+        }
+
+        .via-scroll {
+          width: 100%;
         }
       }
     </style>
