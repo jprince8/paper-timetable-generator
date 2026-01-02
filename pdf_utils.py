@@ -62,7 +62,11 @@ def _build_facilities_cell(value, icon_map, size, gap=2):
     tokens = [t for t in value.split() if t]
     if not tokens:
         return ""
-    icons = [icon_map.get(token) for token in tokens if token in icon_map]
+    icons = []
+    for token in tokens:
+        token_key = token.upper()
+        if token_key in icon_map:
+            icons.append(icon_map.get(token_key))
     icons = [icon for icon in icons if icon is not None]
     if not icons:
         return value
@@ -150,6 +154,7 @@ def build_timetable_pdf(tables, meta=None):
     icon_map = {
         "FC": _load_svg_icon(os.path.join(assets_dir, "first-class.svg"), icon_size),
         "SL": _load_svg_icon(os.path.join(assets_dir, "bed.svg"), icon_size),
+        "BUS": _load_svg_icon(os.path.join(assets_dir, "bus.svg"), icon_size),
     }
 
     for table in tables:

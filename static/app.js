@@ -381,6 +381,7 @@ function buildPdfTableData(model) {
       const icons = [];
       if (meta.firstClassAvailable) icons.push("FC");
       if (meta.isSleeper) icons.push("SL");
+      if (meta.isBus) icons.push("BUS");
       return icons.join(" ");
     }),
   ];
@@ -1855,12 +1856,17 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
     const sl = (detail.sleepers || "").trim();
     const isSleeper = sl !== "";
 
+    const serviceType = (detail.serviceType || svc.serviceType || "").trim();
+    const isBus = serviceType.toLowerCase() === "bus";
+    const busFirstClassAvailable = isBus ? false : firstClassAvailable;
+
     return {
       visible,
       tooltip,
       href,
-      firstClassAvailable,
+      firstClassAvailable: busFirstClassAvailable,
       isSleeper,
+      isBus,
     };
   });
 
@@ -1948,6 +1954,22 @@ function renderTimetable(
     `;
   }
 
+  function busSvg() {
+    return `
+<span class="bus-icon" title="Bus service" aria-label="Bus service">
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Bus icon">
+    <rect x="92" y="72" width="328" height="336" rx="72" ry="72" fill="currentColor"/>
+    <rect x="184" y="104" width="144" height="34" rx="8" ry="8" fill="#fff"/>
+    <path d="M152 178 Q152 158 172 158 H340 Q360 158 360 178 V292 Q256 336 152 292 Z" fill="#fff"/>
+    <rect x="154" y="332" width="74" height="34" rx="8" ry="8" fill="#fff"/>
+    <rect x="284" y="332" width="74" height="34" rx="8" ry="8" fill="#fff"/>
+    <rect x="110" y="380" width="72" height="70" rx="14" ry="14" fill="currentColor"/>
+    <rect x="330" y="380" width="72" height="70" rx="14" ry="14" fill="currentColor"/>
+  </svg>
+</span>
+    `;
+  }
+
   orderedSvcIndices.forEach((svcIndex) => {
     const meta = servicesMeta[svcIndex];
 
@@ -1962,6 +1984,9 @@ function renderTimetable(
     }
     if (meta.isSleeper) {
       icons.push(bedSvg());
+    }
+    if (meta.isBus) {
+      icons.push(busSvg());
     }
 
     th.innerHTML = icons.length
