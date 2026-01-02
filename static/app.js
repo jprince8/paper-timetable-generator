@@ -524,6 +524,7 @@ form.addEventListener("submit", async (e) => {
   }
 
   resetOutputs();
+  setStatus("Initialising timetable...", { progress: 0 });
 
   const from = normaliseCrs(document.getElementById("fromCrs").value);
   const to = normaliseCrs(document.getElementById("toCrs").value);
