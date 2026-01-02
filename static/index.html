@@ -361,6 +361,14 @@
         font-weight: 700;
       }
 
+      thead tr:first-child th {
+        border-bottom: none;
+      }
+
+      thead tr:nth-child(2) th {
+        border-top: none;
+      }
+
       td {
         border-left: 1px solid var(--line);
         border-right: 1px solid var(--line);
@@ -390,6 +398,10 @@
         background: rgba(248, 244, 235, 0.98);
         text-align: right;
         z-index: 3;
+      }
+
+      th.sticky-left {
+        background: rgba(240, 232, 219, 0.98);
       }
 
       td.sticky-left.station-row-label {

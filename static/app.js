@@ -299,7 +299,7 @@ function extractFirstTime(value) {
 function buildPdfTableData(model) {
   const { rows, orderedSvcIndices, servicesMeta } = model;
   const headers = [
-    "Station",
+    "Operator",
     ...orderedSvcIndices.map((svcIndex) => servicesMeta[svcIndex].visible),
   ];
   const facilitiesRow = [
@@ -1702,7 +1702,7 @@ function renderTimetable(
   // --- Build headers row (existing) ---
   const thStation = document.createElement("th");
   thStation.classList.add("sticky-top", "sticky-left", "corner");
-  thStation.textContent = "Station";
+  thStation.textContent = "Operator";
   headerRowEl.appendChild(thStation);
 
   orderedSvcIndices.forEach((svcIndex) => {
