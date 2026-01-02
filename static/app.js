@@ -1290,12 +1290,16 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
   // --- Precompute per-station, per-service arrival/departure times ---
   // stationTimes[stationIndex][svcIndex] = { arrStr, arrMins, depStr, depMins }
   const stationTimes = [];
+  const passTimes = [];
   for (let i = 0; i < numStations; i++) {
     const row = [];
+    const passRow = [];
     for (let s = 0; s < numServices; s++) {
       row.push({ arrStr: "", arrMins: null, depStr: "", depMins: null });
+      passRow.push("");
     }
     stationTimes.push(row);
+    passTimes.push(passRow);
   }
 
   servicesWithDetails.forEach(({ detail }, svcIndex) => {
@@ -1307,6 +1311,9 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
       );
       if (!loc) return;
 
+      const disp = (loc.displayAs || "").toUpperCase();
+      const isPublic = loc.isPublicCall === true;
+
       const rawArr = loc.gbttBookedArrival || loc.realtimeArrival || "";
       const rawDep =
         loc.gbttBookedDeparture || loc.realtimeDeparture || "";
@@ -1317,14 +1324,42 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
       const arrMins = arrStr ? timeStrToMinutes(arrStr) : null;
       const depMins = depStr ? timeStrToMinutes(depStr) : null;
 
-      stationTimes[stationIndex][svcIndex] = {
-        arrStr,
-        arrMins,
-        depStr,
-        depMins,
-      };
+      if (isPublic && disp !== "PASS" && disp !== "CANCELLED_PASS") {
+        stationTimes[stationIndex][svcIndex] = {
+          arrStr,
+          arrMins,
+          depStr,
+          depMins,
+        };
+        return;
+      }
+
+      const rawPassTime =
+        loc.gbttBookedDeparture ||
+        loc.gbttBookedArrival ||
+        loc.realtimeDeparture ||
+        loc.realtimeArrival ||
+        loc.publicTime ||
+        "";
+      const passStr = rawPassTime ? padTime(rawPassTime) : "";
+      if (passStr) passTimes[stationIndex][svcIndex] = passStr;
     });
   });
+
+  const firstCalledStationIndex = new Array(numServices).fill(null);
+  const lastCalledStationIndex = new Array(numServices).fill(null);
+
+  for (let s = 0; s < numServices; s++) {
+    for (let stIdx = 0; stIdx < numStations; stIdx++) {
+      const t = stationTimes[stIdx][s];
+      if (!t) continue;
+      if (t.arrStr || t.depStr) {
+        if (firstCalledStationIndex[s] === null)
+          firstCalledStationIndex[s] = stIdx;
+        lastCalledStationIndex[s] = stIdx;
+      }
+    }
+  }
 
   // --- Decide row mode per station (merged vs two rows vs single) ---
   const stationModes = [];
@@ -1697,6 +1732,41 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
       for (const r of stationRowGroups[stIdx]) {
         if (rows[r].cells[s] === "") {
           rows[r].cells[s] = "|";
+        }
+      }
+    }
+  }
+
+  // === Add bracketed pass times for non-call stations before/after the service window ===
+  for (let s = 0; s < numServices; s++) {
+    const firstIdx = firstCalledStationIndex[s];
+    const lastIdx = lastCalledStationIndex[s];
+    if (firstIdx === null || lastIdx === null) continue;
+
+    if (firstIdx > 0) {
+      for (let stIdx = 0; stIdx < firstIdx; stIdx++) {
+        const passStr = passTimes[stIdx][s];
+        if (!passStr) continue;
+        const groupRows = stationRowGroups[stIdx];
+        const targetRow =
+          groupRows.find((r) => rows[r].cells[s] === "") ||
+          groupRows[0];
+        if (targetRow !== undefined) {
+          rows[targetRow].cells[s] = `(${passStr})`;
+        }
+      }
+    }
+
+    if (lastIdx < numStations - 1) {
+      for (let stIdx = lastIdx + 1; stIdx < numStations; stIdx++) {
+        const passStr = passTimes[stIdx][s];
+        if (!passStr) continue;
+        const groupRows = stationRowGroups[stIdx];
+        const targetRow =
+          groupRows.find((r) => rows[r].cells[s] === "") ||
+          groupRows[0];
+        if (targetRow !== undefined) {
+          rows[targetRow].cells[s] = `(${passStr})`;
         }
       }
     }
