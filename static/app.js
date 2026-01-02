@@ -671,7 +671,12 @@ form.addEventListener("submit", async (e) => {
   if (servicesAB.length > 0) {
     const modelAB = buildTimetableModel(stations, stationSet, servicesAB);
     headingAB.textContent =
-      from + " \u2192 " + to + " (" + modelAB.orderedSvcIndices.length + " services)";
+      fromName +
+      " \u2192 " +
+      toName +
+      " (" +
+      modelAB.orderedSvcIndices.length +
+      " services)";
     renderTimetable(modelAB, headerRowAB, headerIconsRowAB, bodyRowsAB);
     pdfTables.push({
       title: `${fromName} \u2192 ${toName}`,
@@ -679,7 +684,7 @@ form.addEventListener("submit", async (e) => {
     });
   } else {
     headingAB.textContent =
-      from + " \u2192 " + to + ": no through services in this time range";
+      fromName + " \u2192 " + toName + ": no through services in this time range";
   }
 
   // Build B -> A table (stations in reverse order)
@@ -691,7 +696,12 @@ form.addEventListener("submit", async (e) => {
       servicesBA,
     );
     headingBA.textContent =
-      to + " \u2192 " + from + " (" + modelBA.orderedSvcIndices.length + " services)";
+      toName +
+      " \u2192 " +
+      fromName +
+      " (" +
+      modelBA.orderedSvcIndices.length +
+      " services)";
     renderTimetable(modelBA, headerRowBA, headerIconsRowBA, bodyRowsBA);
     pdfTables.push({
       title: `${toName} \u2192 ${fromName}`,
@@ -699,7 +709,7 @@ form.addEventListener("submit", async (e) => {
     });
   } else {
     headingBA.textContent =
-      to + " \u2192 " + from + ": no through services in this time range";
+      toName + " \u2192 " + fromName + ": no through services in this time range";
   }
 
   if (pdfTables.length > 0) {

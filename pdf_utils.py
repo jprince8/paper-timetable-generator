@@ -3,7 +3,14 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.pdfbase import pdfmetrics
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Table,
+    TableStyle,
+    Paragraph,
+    Spacer,
+    CondPageBreak,
+)
 
 
 def _cell_text(value):
@@ -87,9 +94,18 @@ def build_timetable_pdf(tables):
             chunk_widths = [col_widths[i] for i in chunk]
 
             if title:
-                elements.append(Paragraph(title, title_style))
+                title_para = Paragraph(title, title_style)
+                title_height = title_para.wrap(doc.width, doc.height)[1]
+            else:
+                title_para = None
+                title_height = 0
 
-            pdf_table = Table(data, colWidths=chunk_widths, repeatRows=1)
+            pdf_table = Table(
+                data,
+                colWidths=chunk_widths,
+                repeatRows=1,
+                hAlign="RIGHT",
+            )
             pdf_table.setStyle(
                 TableStyle(
                     [
@@ -102,8 +118,15 @@ def build_timetable_pdf(tables):
                     ]
                 )
             )
+            table_height = pdf_table.wrap(doc.width, doc.height)[1]
+            spacer_height = 14
+            elements.append(
+                CondPageBreak(title_height + table_height + spacer_height)
+            )
+            if title_para:
+                elements.append(title_para)
             elements.append(pdf_table)
-            elements.append(Spacer(1, 14))
+            elements.append(Spacer(1, spacer_height))
 
     if not elements:
         elements.append(Paragraph("No timetable data provided.", styles["Normal"]))
