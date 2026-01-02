@@ -668,6 +668,7 @@ form.addEventListener("submit", async (e) => {
   const pdfTables = [];
   const fromName = findStationNameByCrs(stations, from);
   const toName = findStationNameByCrs(stations, to);
+  const viaNames = viaValues.map((crs) => findStationNameByCrs(stations, crs));
   if (servicesAB.length > 0) {
     const modelAB = buildTimetableModel(stations, stationSet, servicesAB);
     headingAB.textContent =
@@ -713,7 +714,19 @@ form.addEventListener("submit", async (e) => {
   }
 
   if (pdfTables.length > 0) {
-    lastPdfPayload = { tables: pdfTables };
+    const title = `${fromName} \u2192 ${toName}`;
+    const viaText = viaNames.length ? `Via ${viaNames.join(", ")}` : "";
+    const dateText = currentDate ? `Date ${currentDate}` : "";
+    const timeText =
+      startInput && endInput ? `Times ${startInput}\u2013${endInput}` : "";
+    const subtitle = [viaText, dateText, timeText].filter(Boolean).join(" \u2022 ");
+    lastPdfPayload = {
+      meta: {
+        title: `Timetable: ${title}`,
+        subtitle,
+      },
+      tables: pdfTables,
+    };
     downloadPdfBtn.style.display = "inline-block";
   }
 });

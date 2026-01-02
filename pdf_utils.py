@@ -58,7 +58,7 @@ def _split_columns(widths, available_width):
     return chunks
 
 
-def build_timetable_pdf(tables):
+def build_timetable_pdf(tables, meta=None):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -69,12 +69,33 @@ def build_timetable_pdf(tables):
         bottomMargin=36,
     )
     styles = getSampleStyleSheet()
+    doc_title_style = styles["Heading2"]
+    doc_subtitle_style = styles["Normal"]
     title_style = styles["Heading3"]
     title_style.spaceAfter = 6
 
     elements = []
     font_name = "Helvetica"
     font_size = 8
+    meta = meta or {}
+
+    def draw_footer(canvas, doc):
+        canvas.saveState()
+        footer_text = "Created by Paper Timetable Generator using RTT data"
+        page_text = f"Page {doc.page}"
+        y = doc.bottomMargin - 18
+        canvas.setFont(font_name, 8)
+        canvas.drawString(doc.leftMargin, y, footer_text)
+        canvas.drawRightString(doc.pagesize[0] - doc.rightMargin, y, page_text)
+        canvas.restoreState()
+
+    doc_title = _cell_text(meta.get("title", "")).strip()
+    doc_subtitle = _cell_text(meta.get("subtitle", "")).strip()
+    if doc_title:
+        elements.append(Paragraph(doc_title, doc_title_style))
+    if doc_subtitle:
+        elements.append(Paragraph(doc_subtitle, doc_subtitle_style))
+        elements.append(Spacer(1, 10))
 
     for table in tables:
         title = _cell_text(table.get("title", "")).strip()
@@ -100,12 +121,7 @@ def build_timetable_pdf(tables):
                 title_para = None
                 title_height = 0
 
-            pdf_table = Table(
-                data,
-                colWidths=chunk_widths,
-                repeatRows=1,
-                hAlign="RIGHT",
-            )
+            pdf_table = Table(data, colWidths=chunk_widths, repeatRows=1, hAlign="LEFT")
             pdf_table.setStyle(
                 TableStyle(
                     [
@@ -131,5 +147,5 @@ def build_timetable_pdf(tables):
     if not elements:
         elements.append(Paragraph("No timetable data provided.", styles["Normal"]))
 
-    doc.build(elements)
+    doc.build(elements, onFirstPage=draw_footer, onLaterPages=draw_footer)
     return buffer.getvalue()

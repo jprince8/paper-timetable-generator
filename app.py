@@ -75,11 +75,12 @@ def api_service():
 def timetable_pdf():
     payload = request.get_json(silent=True) or {}
     tables = payload.get("tables", [])
+    meta = payload.get("meta", {})
 
     if not isinstance(tables, list) or not tables:
         return jsonify({"error": "tables payload required"}), 400
 
-    pdf_bytes = build_timetable_pdf(tables)
+    pdf_bytes = build_timetable_pdf(tables, meta=meta)
     return send_file(
         io.BytesIO(pdf_bytes),
         mimetype="application/pdf",
