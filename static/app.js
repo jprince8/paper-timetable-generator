@@ -516,6 +516,8 @@ form.addEventListener("submit", async (e) => {
         stationNameByCrs[leg.from] = fromNameCandidate;
       }
       const toNameCandidate =
+        data.filter?.destination?.name ||
+        data.filter?.destination?.description ||
         data.filter?.location?.name ||
         data.filter?.location?.description ||
         null;
