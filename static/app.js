@@ -1857,12 +1857,13 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
 
     const serviceType = (detail.serviceType || svc.serviceType || "").trim();
     const isBus = serviceType.toLowerCase() === "bus";
+    const busFirstClassAvailable = isBus ? false : firstClassAvailable;
 
     return {
       visible,
       tooltip,
       href,
-      firstClassAvailable,
+      firstClassAvailable: busFirstClassAvailable,
       isSleeper,
       isBus,
     };
