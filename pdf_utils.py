@@ -201,18 +201,59 @@ def build_timetable_pdf(tables, meta=None):
                 title_height = 0
 
             pdf_table = Table(data, colWidths=chunk_widths, repeatRows=1, hAlign="LEFT")
-            pdf_table.setStyle(
-                TableStyle(
-                    [
-                        ("FONT", (0, 0), (-1, -1), font_name, font_size),
-                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                        ("ALIGN", (0, 0), (0, -1), "RIGHT"),
-                    ]
+            line_color = colors.grey
+            line_width = 0.5
+            table_style = [
+                ("FONT", (0, 0), (-1, -1), font_name, font_size),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                ("BACKGROUND", (0, 1), (-1, 1), colors.lightgrey),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("ALIGN", (0, 0), (0, -1), "RIGHT"),
+                ("LINEBEFORE", (0, 0), (-1, -1), line_width, line_color),
+                ("LINEAFTER", (0, 0), (-1, -1), line_width, line_color),
+            ]
+
+            if len(rows) >= 1:
+                table_style.append(
+                    ("LINEBELOW", (0, 1), (-1, 1), line_width, line_color)
                 )
-            )
+
+            for row_idx, row in enumerate(rows):
+                label = _cell_text(row[0]).strip() if row else ""
+                data_row_idx = row_idx + 1
+                if label == "Comes from":
+                    table_style.append(
+                        (
+                            "LINEBELOW",
+                            (0, data_row_idx),
+                            (-1, data_row_idx),
+                            line_width,
+                            line_color,
+                        )
+                    )
+                if label == "Continues to":
+                    table_style.append(
+                        (
+                            "LINEABOVE",
+                            (0, data_row_idx),
+                            (-1, data_row_idx),
+                            line_width,
+                            line_color,
+                        )
+                    )
+                if label.endswith("(dep)"):
+                    table_style.append(
+                        (
+                            "LINEABOVE",
+                            (0, data_row_idx),
+                            (-1, data_row_idx),
+                            line_width,
+                            line_color,
+                        )
+                    )
+
+            pdf_table.setStyle(TableStyle(table_style))
             table_height = pdf_table.wrap(doc.width, doc.height)[1]
             spacer_height = 14
             elements.append(

@@ -146,6 +146,16 @@
         padding-bottom: 0.25rem;
       }
 
+      .via-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        font-weight: 700;
+        color: var(--ink);
+        white-space: nowrap;
+        align-items: flex-start;
+      }
+
       .via-scroll {
         display: inline-flex;
         gap: 1rem;
@@ -242,8 +252,8 @@
       }
 
       #addViaBtn {
-        align-self: center;
-        transform: translateY(-6px);
+        align-self: flex-start;
+        transform: none;
       }
 
       form label button {
@@ -351,6 +361,14 @@
         font-weight: 700;
       }
 
+      thead tr:first-child th {
+        border-bottom: none;
+      }
+
+      thead tr:nth-child(2) th {
+        border-top: none;
+      }
+
       td {
         border-left: 1px solid var(--line);
         border-right: 1px solid var(--line);
@@ -380,6 +398,10 @@
         background: rgba(248, 244, 235, 0.98);
         text-align: right;
         z-index: 3;
+      }
+
+      th.sticky-left {
+        background: rgba(240, 232, 219, 0.98);
       }
 
       td.sticky-left.station-row-label {
@@ -538,14 +560,17 @@
                 From (CRS)
                 <input type="text" id="fromCrs" maxlength="3" required />
               </label>
-              <div class="via-scroll" id="viaScroll">
-                <button
-                  type="button"
-                  class="btn btn-secondary"
-                  id="addViaBtn"
-                >
-                  Add Via Stop
-                </button>
+              <div class="via-group">
+                <span class="via-group-label">Via (CRS)</span>
+                <div class="via-scroll" id="viaScroll">
+                  <button
+                    type="button"
+                    class="btn btn-secondary"
+                    id="addViaBtn"
+                  >
+                    Add Via
+                  </button>
+                </div>
               </div>
               <label>
                 To (CRS)
