@@ -20,6 +20,7 @@ const headerRowBA = document.getElementById("header-row-ba");
 const headerIconsRowBA = document.getElementById("header-icons-row-ba");
 const bodyRowsBA = document.getElementById("body-rows-ba");
 const addViaBtn = document.getElementById("addViaBtn");
+const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 
 // === Mutable state ===
 const viaInputs = [];
@@ -27,6 +28,7 @@ const viaInputs = [];
 let currentDate = "";
 let startMinutes = null;
 let endMinutes = null;
+let lastPdfPayload = null;
 
 // === Form helpers ===
 addViaBtn.addEventListener("click", () => {
@@ -219,7 +221,82 @@ function resetOutputs() {
   headerRowBA.innerHTML = "";
   headerIconsRowBA.innerHTML = "";
   bodyRowsBA.innerHTML = "";
+  downloadPdfBtn.style.display = "none";
+  downloadPdfBtn.disabled = false;
+  lastPdfPayload = null;
 }
+
+function stripHtmlToText(value) {
+  if (!value) return "";
+  if (!String(value).includes("<")) return String(value);
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = value;
+  return wrapper.textContent || "";
+}
+
+function rowLabelText(row) {
+  if (row.labelStation && row.labelArrDep) {
+    return `${row.labelStation} (${row.labelArrDep})`;
+  }
+  if (row.labelStation) return row.labelStation;
+  if (!row.labelStation && row.labelArrDep) return `(${row.labelArrDep})`;
+  return "";
+}
+
+function buildPdfTableData(model) {
+  const { rows, orderedSvcIndices, servicesMeta } = model;
+  const headers = [
+    "Station",
+    ...orderedSvcIndices.map((svcIndex) => servicesMeta[svcIndex].visible),
+  ];
+  const tableRows = rows.map((row) => {
+    const label = rowLabelText(row);
+    const cells = orderedSvcIndices.map((svcIndex) =>
+      stripHtmlToText(row.cells[svcIndex]),
+    );
+    return [label, ...cells];
+  });
+  return { headers, rows: tableRows };
+}
+
+function findStationNameByCrs(stations, crs) {
+  const match = stations.find((st) => st.crs === crs);
+  return match ? match.name : crs;
+}
+
+downloadPdfBtn.addEventListener("click", async () => {
+  if (!lastPdfPayload) return;
+  downloadPdfBtn.disabled = true;
+  setStatus("Building PDF...");
+
+  try {
+    const resp = await fetch("/timetable/pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(lastPdfPayload),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(text || "PDF build failed");
+    }
+
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "timetable.pdf";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setStatus("");
+  } catch (err) {
+    setStatus("Error building PDF: " + err.message);
+  } finally {
+    downloadPdfBtn.disabled = false;
+  }
+});
 
 // === Main form submit ===
 form.addEventListener("submit", async (e) => {
@@ -588,11 +665,18 @@ form.addEventListener("submit", async (e) => {
   const servicesBA = split.ba;
 
   // Build A -> B table (stations in forward order)
+  const pdfTables = [];
+  const fromName = findStationNameByCrs(stations, from);
+  const toName = findStationNameByCrs(stations, to);
   if (servicesAB.length > 0) {
     const modelAB = buildTimetableModel(stations, stationSet, servicesAB);
     headingAB.textContent =
       from + " \u2192 " + to + " (" + modelAB.orderedSvcIndices.length + " services)";
     renderTimetable(modelAB, headerRowAB, headerIconsRowAB, bodyRowsAB);
+    pdfTables.push({
+      title: `${fromName} \u2192 ${toName}`,
+      ...buildPdfTableData(modelAB),
+    });
   } else {
     headingAB.textContent =
       from + " \u2192 " + to + ": no through services in this time range";
@@ -609,9 +693,18 @@ form.addEventListener("submit", async (e) => {
     headingBA.textContent =
       to + " \u2192 " + from + " (" + modelBA.orderedSvcIndices.length + " services)";
     renderTimetable(modelBA, headerRowBA, headerIconsRowBA, bodyRowsBA);
+    pdfTables.push({
+      title: `${toName} \u2192 ${fromName}`,
+      ...buildPdfTableData(modelBA),
+    });
   } else {
     headingBA.textContent =
       to + " \u2192 " + from + ": no through services in this time range";
+  }
+
+  if (pdfTables.length > 0) {
+    lastPdfPayload = { tables: pdfTables };
+    downloadPdfBtn.style.display = "inline-block";
   }
 });
 

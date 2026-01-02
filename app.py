@@ -1,6 +1,9 @@
-from flask import Flask, send_from_directory, request, jsonify
+from flask import Flask, send_from_directory, request, jsonify, send_file
+import io
 import os
 import requests
+
+from pdf_utils import build_timetable_pdf
 
 app = Flask(__name__, static_folder="static")
 
@@ -67,6 +70,22 @@ def api_service():
     path = f"/json/service/{uid}/{year}/{month}/{day}"
     data = rtt_get(path)
     return jsonify(data)
+
+@app.route("/timetable/pdf", methods=["POST"])
+def timetable_pdf():
+    payload = request.get_json(silent=True) or {}
+    tables = payload.get("tables", [])
+
+    if not isinstance(tables, list) or not tables:
+        return jsonify({"error": "tables payload required"}), 400
+
+    pdf_bytes = build_timetable_pdf(tables)
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name="timetable.pdf",
+    )
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
