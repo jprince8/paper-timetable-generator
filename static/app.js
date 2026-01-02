@@ -28,6 +28,7 @@ const viaScroll = document.getElementById("viaScroll");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 const cookieBanner = document.getElementById("cookieBanner");
 const cookieAcceptBtn = document.getElementById("cookieAcceptBtn");
+const nowBtn = document.getElementById("nowBtn");
 
 // === Mutable state ===
 const viaInputs = [];
@@ -53,6 +54,20 @@ if (cookieAcceptBtn && cookieBanner) {
   cookieAcceptBtn.addEventListener("click", () => {
     localStorage.setItem(cookieKey, "true");
     cookieBanner.hidden = true;
+  });
+}
+
+if (nowBtn) {
+  nowBtn.addEventListener("click", () => {
+    const now = new Date();
+    const start = new Date(now);
+    const end = new Date(now);
+    start.setHours(now.getHours() - 1);
+    end.setHours(now.getHours() + 2);
+
+    document.getElementById("serviceDate").value = formatDateInput(now);
+    document.getElementById("startTime").value = formatTimeInput(start);
+    document.getElementById("endTime").value = formatTimeInput(end);
   });
 }
 
@@ -152,6 +167,19 @@ function loadSavedInputsFromCookies() {
 loadSavedInputsFromCookies();
 
 // === Formatting utilities ===
+function formatDateInput(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatTimeInput(date) {
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
 function htmlEscape(str) {
   return String(str)
     .replace(/&/g, "&amp;")
