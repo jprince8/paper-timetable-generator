@@ -476,6 +476,7 @@ form.addEventListener("submit", async (e) => {
 
   // Step 1: fetch all corridor services across all legs, deduplicated by serviceUid|runDate
   const corridorServicesMap = new Map();
+  const stationNameByCrs = {};
   let noServicesLeg = null;
   let invalidInputsDetected = false;
 
@@ -509,6 +510,18 @@ form.addEventListener("submit", async (e) => {
         invalidInputsDetected = true;
         return;
       }
+      const fromNameCandidate =
+        data.location?.name || data.location?.description || null;
+      if (fromNameCandidate) {
+        stationNameByCrs[leg.from] = fromNameCandidate;
+      }
+      const toNameCandidate =
+        data.filter?.location?.name ||
+        data.filter?.location?.description ||
+        null;
+      if (toNameCandidate) {
+        stationNameByCrs[leg.to] = toNameCandidate;
+      }
       const services = Array.isArray(data.services) ? data.services : [];
       const eligibleServices = services.filter((svc) => {
         if (svc.isPassenger === false) return;
@@ -517,7 +530,14 @@ form.addEventListener("submit", async (e) => {
         return true;
       });
       if (eligibleServices.length === 0 && !noServicesLeg) {
-        noServicesLeg = leg;
+        const fromName = stationNameByCrs[leg.from] || leg.from;
+        const toName = stationNameByCrs[leg.to] || leg.to;
+        noServicesLeg = {
+          from: leg.from,
+          to: leg.to,
+          fromName,
+          toName,
+        };
       }
       eligibleServices.forEach((svc) => {
         const key = (svc.serviceUid || "") + "|" + (svc.runDate || "");
@@ -543,9 +563,9 @@ form.addEventListener("submit", async (e) => {
   if (noServicesLeg) {
     setStatus(
       "No passenger services in this time range between " +
-        noServicesLeg.from +
+        noServicesLeg.fromName +
         " and " +
-        noServicesLeg.to +
+        noServicesLeg.toName +
         ".",
       { isError: true },
     );
@@ -555,11 +575,13 @@ form.addEventListener("submit", async (e) => {
   const corridorServices = Array.from(corridorServicesMap.values());
 
   if (corridorServices.length === 0) {
+    const fromLabel = stationNameByCrs[from] || from;
+    const toLabel = stationNameByCrs[to] || to;
     setStatus(
       "No passenger services in this time range between " +
-        from +
+        fromLabel +
         " and " +
-        to +
+        toLabel +
         ".",
       { isError: true },
     );
