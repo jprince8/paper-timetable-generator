@@ -15,6 +15,8 @@ const statusTextEl = document.getElementById("statusText");
 const statusBarEl = statusEl ? statusEl.querySelector(".status-bar") : null;
 const headingAB = document.getElementById("headingAB");
 const headingBA = document.getElementById("headingBA");
+const tableCardAB = document.getElementById("table-card-ab");
+const tableCardBA = document.getElementById("table-card-ba");
 const headerRowAB = document.getElementById("header-row-ab");
 const headerIconsRowAB = document.getElementById("header-icons-row-ab");
 const bodyRowsAB = document.getElementById("body-rows-ab");
@@ -244,6 +246,8 @@ function resetOutputs() {
   hideStatus();
   headingAB.textContent = "";
   headingBA.textContent = "";
+  tableCardAB?.classList.remove("has-data");
+  tableCardBA?.classList.remove("has-data");
   headerRowAB.innerHTML = "";
   headerIconsRowAB.innerHTML = "";
   bodyRowsAB.innerHTML = "";
@@ -271,6 +275,12 @@ function rowLabelText(row) {
   return "";
 }
 
+function extractFirstTime(value) {
+  if (!value) return "";
+  const match = String(value).match(/\b\d{2}:\d{2}\b/);
+  return match ? match[0] : "";
+}
+
 function buildPdfTableData(model) {
   const { rows, orderedSvcIndices, servicesMeta } = model;
   const headers = [
@@ -294,12 +304,42 @@ function buildPdfTableData(model) {
     );
     return [label, ...cells];
   });
-  return { headers, rows: [facilitiesRow, ...tableRows] };
+  const serviceTimes = orderedSvcIndices.map((svcIndex) => {
+    for (const row of rows) {
+      const value = stripHtmlToText(row.cells[svcIndex]);
+      const time = extractFirstTime(value);
+      if (time) return time;
+    }
+    return "";
+  });
+  return { headers, rows: [facilitiesRow, ...tableRows], serviceTimes };
 }
 
 function findStationNameByCrs(stations, crs) {
   const match = stations.find((st) => st.crs === crs);
   return match ? match.name : crs;
+}
+
+function formatDateDisplay(dateStr) {
+  if (!dateStr || !dateStr.includes("-")) return dateStr;
+  const [year, month, day] = dateStr.split("-");
+  if (!year || !month || !day) return dateStr;
+  return `${day}/${month}/${year}`;
+}
+
+function formatGeneratedTimestamp(dateObj = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(dateObj);
+  const lookup = Object.fromEntries(
+    parts.map((part) => [part.type, part.value]),
+  );
+  return `${lookup.day}/${lookup.month}/${lookup.year} ${lookup.hour}:${lookup.minute}`;
 }
 
 downloadPdfBtn.addEventListener("click", async () => {
@@ -709,6 +749,10 @@ form.addEventListener("submit", async (e) => {
   const fromName = findStationNameByCrs(stations, from);
   const toName = findStationNameByCrs(stations, to);
   const viaNames = viaValues.map((crs) => findStationNameByCrs(stations, crs));
+  const corridorLabel = [fromName, ...viaNames.filter(Boolean), toName].join(
+    " ↔ ",
+  );
+  const dateLabel = formatDateDisplay(currentDate);
   if (servicesAB.length > 0) {
     const modelAB = buildTimetableModel(stations, stationSet, servicesAB);
     headingAB.textContent =
@@ -719,10 +763,14 @@ form.addEventListener("submit", async (e) => {
       modelAB.orderedSvcIndices.length +
       " services)";
     renderTimetable(modelAB, headerRowAB, headerIconsRowAB, bodyRowsAB);
+    const tableDataAB = buildPdfTableData(modelAB);
     pdfTables.push({
-      title: `${fromName} \u2192 ${toName}`,
-      ...buildPdfTableData(modelAB),
+      title: `${fromName} -> ${toName}`,
+      dateLabel,
+      serviceTimes: tableDataAB.serviceTimes,
+      ...tableDataAB,
     });
+    tableCardAB?.classList.add("has-data");
   } else {
     headingAB.textContent =
       fromName + " \u2192 " + toName + ": no through services in this time range";
@@ -744,25 +792,25 @@ form.addEventListener("submit", async (e) => {
       modelBA.orderedSvcIndices.length +
       " services)";
     renderTimetable(modelBA, headerRowBA, headerIconsRowBA, bodyRowsBA);
+    const tableDataBA = buildPdfTableData(modelBA);
     pdfTables.push({
-      title: `${toName} \u2192 ${fromName}`,
-      ...buildPdfTableData(modelBA),
+      title: `${toName} -> ${fromName}`,
+      dateLabel,
+      serviceTimes: tableDataBA.serviceTimes,
+      ...tableDataBA,
     });
+    tableCardBA?.classList.add("has-data");
   } else {
     headingBA.textContent =
       toName + " \u2192 " + fromName + ": no through services in this time range";
   }
 
   if (pdfTables.length > 0) {
-    const title = `${fromName} \u2192 ${toName}`;
-    const viaText = viaNames.length ? `Via ${viaNames.join(", ")}` : "";
-    const dateText = currentDate ? `Date ${currentDate}` : "";
-    const timeText =
-      startInput && endInput ? `Times ${startInput}\u2013${endInput}` : "";
-    const subtitle = [viaText, dateText, timeText].filter(Boolean).join(" \u2022 ");
+    const title = corridorLabel || `${fromName} ↔ ${toName}`;
+    const subtitle = formatGeneratedTimestamp();
     lastPdfPayload = {
       meta: {
-        title: `Timetable: ${title}`,
+        title,
         subtitle,
       },
       tables: pdfTables,
