@@ -382,6 +382,7 @@ function buildPdfTableData(model) {
       const icons = [];
       if (meta.firstClassAvailable) icons.push("FC");
       if (meta.isSleeper) icons.push("SL");
+      if (meta.isBus) icons.push("BUS");
       return icons.join(" ");
     }),
   ];
@@ -1854,12 +1855,16 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
     const sl = (detail.sleepers || "").trim();
     const isSleeper = sl !== "";
 
+    const serviceType = (detail.serviceType || svc.serviceType || "").trim();
+    const isBus = serviceType.toLowerCase() === "bus";
+
     return {
       visible,
       tooltip,
       href,
       firstClassAvailable,
       isSleeper,
+      isBus,
     };
   });
 
@@ -1947,6 +1952,19 @@ function renderTimetable(
     `;
   }
 
+  function busSvg() {
+    return `
+<span class="bus-icon" title="Bus service" aria-label="Bus service">
+  <svg viewBox="0 0 24 24" role="img" focusable="false" aria-hidden="true">
+    <rect x="3" y="5" width="18" height="12" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2"/>
+    <path d="M3 10h18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="7.5" cy="17.5" r="1.5" fill="none" stroke="currentColor" stroke-width="2"/>
+    <circle cx="16.5" cy="17.5" r="1.5" fill="none" stroke="currentColor" stroke-width="2"/>
+  </svg>
+</span>
+    `;
+  }
+
   orderedSvcIndices.forEach((svcIndex) => {
     const meta = servicesMeta[svcIndex];
 
@@ -1961,6 +1979,9 @@ function renderTimetable(
     }
     if (meta.isSleeper) {
       icons.push(bedSvg());
+    }
+    if (meta.isBus) {
+      icons.push(busSvg());
     }
 
     th.innerHTML = icons.length
