@@ -1,2 +1,5 @@
 flask
 requests
+reportlab
+svglib
+gunicorn

@@ -11,8 +11,12 @@ const PROXY_SERVICE = "/rtt/service";
 // === DOM references ===
 const form = document.getElementById("form");
 const statusEl = document.getElementById("status");
+const statusTextEl = document.getElementById("statusText");
+const statusBarEl = statusEl ? statusEl.querySelector(".status-bar") : null;
 const headingAB = document.getElementById("headingAB");
 const headingBA = document.getElementById("headingBA");
+const tableCardAB = document.getElementById("table-card-ab");
+const tableCardBA = document.getElementById("table-card-ba");
 const headerRowAB = document.getElementById("header-row-ab");
 const headerIconsRowAB = document.getElementById("header-icons-row-ab");
 const bodyRowsAB = document.getElementById("body-rows-ab");
@@ -20,6 +24,10 @@ const headerRowBA = document.getElementById("header-row-ba");
 const headerIconsRowBA = document.getElementById("header-icons-row-ba");
 const bodyRowsBA = document.getElementById("body-rows-ba");
 const addViaBtn = document.getElementById("addViaBtn");
+const viaScroll = document.getElementById("viaScroll");
+const downloadPdfBtn = document.getElementById("downloadPdfBtn");
+const cookieBanner = document.getElementById("cookieBanner");
+const cookieAcceptBtn = document.getElementById("cookieAcceptBtn");
 
 // === Mutable state ===
 const viaInputs = [];
@@ -27,11 +35,26 @@ const viaInputs = [];
 let currentDate = "";
 let startMinutes = null;
 let endMinutes = null;
+let lastPdfPayload = null;
 
 // === Form helpers ===
 addViaBtn.addEventListener("click", () => {
   createViaField("");
 });
+
+if (cookieAcceptBtn && cookieBanner) {
+  const cookieKey = "cookieConsentAccepted";
+  const isAccepted = localStorage.getItem(cookieKey) === "true";
+  if (!isAccepted) {
+    cookieBanner.hidden = false;
+  } else {
+    cookieBanner.hidden = true;
+  }
+  cookieAcceptBtn.addEventListener("click", () => {
+    localStorage.setItem(cookieKey, "true");
+    cookieBanner.hidden = true;
+  });
+}
 
 function createViaField(initialValue = "") {
   const label = document.createElement("label");
@@ -64,11 +87,12 @@ function createViaField(initialValue = "") {
   label.appendChild(input);
   label.appendChild(removeBtn);
 
-  // Insert the new Via label before the Add Via button, so we get:
-  // Via
-  // Via
-  // [Add Via]
-  form.insertBefore(label, addViaBtn);
+  // Insert the new Via label before the Add Via button so vias scroll horizontally.
+  if (viaScroll && addViaBtn) {
+    viaScroll.insertBefore(label, addViaBtn);
+  } else {
+    form.insertBefore(label, addViaBtn);
+  }
 
   viaInputs.push(input);
 }
@@ -200,26 +224,173 @@ function safePairText(pairs) {
 }
 
 // === Status helpers ===
-function setStatus(msg) {
-  statusEl.textContent = msg;
+function showStatus() {
+  if (!statusEl) return;
+  statusEl.hidden = false;
+}
+
+function hideStatus() {
+  if (!statusEl) return;
+  statusEl.hidden = true;
+  statusEl.classList.remove("is-error");
+  if (statusTextEl) statusTextEl.textContent = "";
+  if (statusBarEl) statusBarEl.style.width = "0%";
+}
+
+function setStatus(msg, options = {}) {
+  if (!statusEl || !statusTextEl) return;
+  const { isError = false, progress = null } = options;
+  if (!msg) {
+    hideStatus();
+    return;
+  }
+  showStatus();
+  statusTextEl.textContent = msg;
+  statusEl.classList.toggle("is-error", isError);
+  if (statusBarEl) {
+    statusBarEl.style.width =
+      typeof progress === "number" ? `${progress}%` : "0%";
+  }
 }
 
 function setProgressStatus(label, completed, total) {
   const percent = total > 0 ? Math.round((completed / total) * 100) : 100;
-  setStatus(`${label} ${percent}%`);
+  setStatus(`${label}`, { progress: percent });
 }
 
 function resetOutputs() {
-  setStatus("");
+  hideStatus();
   headingAB.textContent = "";
   headingBA.textContent = "";
+  tableCardAB?.classList.remove("has-data");
+  tableCardBA?.classList.remove("has-data");
   headerRowAB.innerHTML = "";
   headerIconsRowAB.innerHTML = "";
   bodyRowsAB.innerHTML = "";
   headerRowBA.innerHTML = "";
   headerIconsRowBA.innerHTML = "";
   bodyRowsBA.innerHTML = "";
+  downloadPdfBtn.disabled = true;
+  lastPdfPayload = null;
 }
+
+function stripHtmlToText(value) {
+  if (!value) return "";
+  if (!String(value).includes("<")) return String(value);
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = value;
+  return wrapper.textContent || "";
+}
+
+function rowLabelText(row) {
+  if (row.labelStation && row.labelArrDep) {
+    return `${row.labelStation} (${row.labelArrDep})`;
+  }
+  if (row.labelStation) return row.labelStation;
+  if (!row.labelStation && row.labelArrDep) return `(${row.labelArrDep})`;
+  return "";
+}
+
+function extractFirstTime(value) {
+  if (!value) return "";
+  const match = String(value).match(/\b\d{2}:\d{2}\b/);
+  return match ? match[0] : "";
+}
+
+function buildPdfTableData(model) {
+  const { rows, orderedSvcIndices, servicesMeta } = model;
+  const headers = [
+    "Station",
+    ...orderedSvcIndices.map((svcIndex) => servicesMeta[svcIndex].visible),
+  ];
+  const facilitiesRow = [
+    "Facilities",
+    ...orderedSvcIndices.map((svcIndex) => {
+      const meta = servicesMeta[svcIndex];
+      const icons = [];
+      if (meta.firstClassAvailable) icons.push("FC");
+      if (meta.isSleeper) icons.push("SL");
+      return icons.join(" ");
+    }),
+  ];
+  const tableRows = rows.map((row) => {
+    const label = rowLabelText(row);
+    const cells = orderedSvcIndices.map((svcIndex) =>
+      stripHtmlToText(row.cells[svcIndex]),
+    );
+    return [label, ...cells];
+  });
+  const serviceTimes = orderedSvcIndices.map((svcIndex) => {
+    for (const row of rows) {
+      const value = stripHtmlToText(row.cells[svcIndex]);
+      const time = extractFirstTime(value);
+      if (time) return time;
+    }
+    return "";
+  });
+  return { headers, rows: [facilitiesRow, ...tableRows], serviceTimes };
+}
+
+function findStationNameByCrs(stations, crs) {
+  const match = stations.find((st) => st.crs === crs);
+  return match ? match.name : crs;
+}
+
+function formatDateDisplay(dateStr) {
+  if (!dateStr || !dateStr.includes("-")) return dateStr;
+  const [year, month, day] = dateStr.split("-");
+  if (!year || !month || !day) return dateStr;
+  return `${day}/${month}/${year}`;
+}
+
+function formatGeneratedTimestamp(dateObj = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(dateObj);
+  const lookup = Object.fromEntries(
+    parts.map((part) => [part.type, part.value]),
+  );
+  return `${lookup.day}/${lookup.month}/${lookup.year} ${lookup.hour}:${lookup.minute}`;
+}
+
+downloadPdfBtn.addEventListener("click", async () => {
+  if (!lastPdfPayload) return;
+  downloadPdfBtn.disabled = true;
+  setStatus("Building PDF...");
+
+  try {
+    const resp = await fetch("/timetable/pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(lastPdfPayload),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(text || "PDF build failed");
+    }
+
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "timetable.pdf";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setStatus("");
+  } catch (err) {
+    setStatus("Error building PDF: " + err.message, { isError: true });
+  } finally {
+    downloadPdfBtn.disabled = false;
+  }
+});
 
 // === Main form submit ===
 form.addEventListener("submit", async (e) => {
@@ -256,11 +427,11 @@ form.addEventListener("submit", async (e) => {
   endMinutes = timeStrToMinutes(endInput);
 
   if (!from || !to) {
-    setStatus("Please enter both From and To CRS codes.");
+    setStatus("Please enter both From and To CRS codes.", { isError: true });
     return;
   }
   if (startMinutes === null || endMinutes === null) {
-    setStatus("Please enter a valid time range.");
+    setStatus("Please enter a valid time range.", { isError: true });
     return;
   }
 
@@ -319,7 +490,9 @@ form.addEventListener("submit", async (e) => {
 
     await Promise.all(searchPromises);
   } catch (err) {
-    setStatus("Error fetching initial service search results: " + err);
+    setStatus("Error fetching initial service search results: " + err, {
+      isError: true,
+    });
     return;
   }
 
@@ -371,7 +544,7 @@ form.addEventListener("submit", async (e) => {
   try {
     corridorDetails = await Promise.all(corridorDetailPromises);
   } catch (err) {
-    setStatus("Error fetching service details: " + err);
+    setStatus("Error fetching service details: " + err, { isError: true });
     return;
   }
 
@@ -545,7 +718,7 @@ form.addEventListener("submit", async (e) => {
     console.warn("Error during candidate detail fetch:", err);
   }
 
-  setStatus("");
+  setStatus("Building timetable...");
 
   // Filter to services that:
   //  - have valid detail.locations
@@ -588,14 +761,35 @@ form.addEventListener("submit", async (e) => {
   const servicesBA = split.ba;
 
   // Build A -> B table (stations in forward order)
+  const pdfTables = [];
+  const fromName = findStationNameByCrs(stations, from);
+  const toName = findStationNameByCrs(stations, to);
+  const viaNames = viaValues.map((crs) => findStationNameByCrs(stations, crs));
+  const corridorLabel = [fromName, ...viaNames.filter(Boolean), toName].join(
+    " ↔ ",
+  );
+  const dateLabel = formatDateDisplay(currentDate);
   if (servicesAB.length > 0) {
     const modelAB = buildTimetableModel(stations, stationSet, servicesAB);
     headingAB.textContent =
-      from + " \u2192 " + to + " (" + modelAB.orderedSvcIndices.length + " services)";
+      fromName +
+      " \u2192 " +
+      toName +
+      " (" +
+      modelAB.orderedSvcIndices.length +
+      " services)";
     renderTimetable(modelAB, headerRowAB, headerIconsRowAB, bodyRowsAB);
+    const tableDataAB = buildPdfTableData(modelAB);
+    pdfTables.push({
+      title: `${fromName} → ${toName}`,
+      dateLabel,
+      serviceTimes: tableDataAB.serviceTimes,
+      ...tableDataAB,
+    });
+    tableCardAB?.classList.add("has-data");
   } else {
     headingAB.textContent =
-      from + " \u2192 " + to + ": no through services in this time range";
+      fromName + " \u2192 " + toName + ": no through services in this time range";
   }
 
   // Build B -> A table (stations in reverse order)
@@ -607,12 +801,39 @@ form.addEventListener("submit", async (e) => {
       servicesBA,
     );
     headingBA.textContent =
-      to + " \u2192 " + from + " (" + modelBA.orderedSvcIndices.length + " services)";
+      toName +
+      " \u2192 " +
+      fromName +
+      " (" +
+      modelBA.orderedSvcIndices.length +
+      " services)";
     renderTimetable(modelBA, headerRowBA, headerIconsRowBA, bodyRowsBA);
+    const tableDataBA = buildPdfTableData(modelBA);
+    pdfTables.push({
+      title: `${toName} → ${fromName}`,
+      dateLabel,
+      serviceTimes: tableDataBA.serviceTimes,
+      ...tableDataBA,
+    });
+    tableCardBA?.classList.add("has-data");
   } else {
     headingBA.textContent =
-      to + " \u2192 " + from + ": no through services in this time range";
+      toName + " \u2192 " + fromName + ": no through services in this time range";
   }
+
+  if (pdfTables.length > 0) {
+    const title = corridorLabel || `${fromName} ↔ ${toName}`;
+    const subtitle = `Generated on ${formatGeneratedTimestamp()}`;
+    lastPdfPayload = {
+      meta: {
+        title,
+        subtitle,
+      },
+      tables: pdfTables,
+    };
+    downloadPdfBtn.disabled = false;
+  }
+  hideStatus();
 });
 
 // Build station union over a possibly multi-via corridor.
