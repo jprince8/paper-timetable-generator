@@ -206,6 +206,7 @@ def build_timetable_pdf(tables, meta=None):
             table_style = [
                 ("FONT", (0, 0), (-1, -1), font_name, font_size),
                 ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                ("BACKGROUND", (0, 1), (-1, 1), colors.lightgrey),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                 ("ALIGN", (0, 0), (0, -1), "RIGHT"),
