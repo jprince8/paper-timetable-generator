@@ -1287,6 +1287,15 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
 
   function buildTimetableModel(stations, stationSet, servicesWithDetails) {
     // --- Helper: decide which stations get rows (only those with at least one PUBLIC call) ---
+    function hasTimingPoint(locEntry) {
+      return Boolean(
+        locEntry.gbttBookedArrival ||
+          locEntry.gbttBookedDeparture ||
+          locEntry.realtimeArrival ||
+          locEntry.realtimeDeparture,
+      );
+    }
+
     function computeDisplayStations(stationsList, svcs) {
       return stationsList.filter((station) => {
         return svcs.some(({ detail }) => {
@@ -1297,7 +1306,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
             const isPublic =
               showNonPassengerServices || locEntry.isPublicCall === true;
             if (disp === "PASS" || disp === "CANCELLED_PASS") return false;
-            return isPublic;
+            return isPublic && hasTimingPoint(locEntry);
           });
         });
       });
@@ -1314,6 +1323,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
 
         const disp = (l.displayAs || "").toUpperCase();
         if (disp === "PASS" || disp === "CANCELLED_PASS") continue;
+        if (!hasTimingPoint(l)) continue;
 
         seen.add(crs);
         if (seen.size >= 2) return true;
