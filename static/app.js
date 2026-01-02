@@ -1956,10 +1956,11 @@ function renderTimetable(
     return `
 <span class="bus-icon" title="Bus service" aria-label="Bus service">
   <svg viewBox="0 0 24 24" role="img" focusable="false" aria-hidden="true">
-    <rect x="3" y="5" width="18" height="12" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2"/>
-    <path d="M3 10h18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-    <circle cx="7.5" cy="17.5" r="1.5" fill="none" stroke="currentColor" stroke-width="2"/>
-    <circle cx="16.5" cy="17.5" r="1.5" fill="none" stroke="currentColor" stroke-width="2"/>
+    <rect x="3.5" y="4" width="17" height="16" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2"/>
+    <path d="M7 6h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    <rect x="7" y="7.5" width="10" height="6.5" rx="1" ry="1" fill="none" stroke="currentColor" stroke-width="1.8"/>
+    <circle cx="8.5" cy="16.5" r="1" fill="currentColor"/>
+    <circle cx="15.5" cy="16.5" r="1" fill="currentColor"/>
   </svg>
 </span>
     `;
