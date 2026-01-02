@@ -33,7 +33,9 @@ const nowBtn = document.getElementById("nowBtn");
 const settingsBtn = document.getElementById("settingsBtn");
 const settingsWrap = document.getElementById("settingsWrap");
 const settingsPanel = document.getElementById("settingsPanel");
-const showPassTimesToggle = document.getElementById("showPassTimesToggle");
+const showNonPassengerToggle = document.getElementById(
+  "showNonPassengerToggle",
+);
 
 // === Mutable state ===
 const viaInputs = [];
@@ -43,7 +45,7 @@ let startMinutes = null;
 let endMinutes = null;
 let lastPdfPayload = null;
 let lastBuildContext = null;
-let showPassTimes = false;
+let showNonPassengerServices = false;
 
 // === Form helpers ===
 addViaBtn.addEventListener("click", () => {
@@ -78,13 +80,16 @@ if (nowBtn) {
   });
 }
 
-function setShowPassTimes(value, { persist = true } = {}) {
-  showPassTimes = Boolean(value);
-  if (showPassTimesToggle) {
-    showPassTimesToggle.checked = showPassTimes;
+function setShowNonPassengerServices(value, { persist = true } = {}) {
+  showNonPassengerServices = Boolean(value);
+  if (showNonPassengerToggle) {
+    showNonPassengerToggle.checked = showNonPassengerServices;
   }
   if (persist) {
-    localStorage.setItem("showPassTimes", showPassTimes ? "true" : "false");
+    localStorage.setItem(
+      "showNonPassengerServices",
+      showNonPassengerServices ? "true" : "false",
+    );
   }
 }
 
@@ -100,11 +105,11 @@ if (settingsBtn && settingsPanel) {
   });
 }
 
-if (showPassTimesToggle) {
-  showPassTimesToggle.addEventListener("change", (event) => {
+if (showNonPassengerToggle) {
+  showNonPassengerToggle.addEventListener("change", (event) => {
     const target = event.target;
     if (target instanceof HTMLInputElement) {
-      setShowPassTimes(target.checked);
+      setShowNonPassengerServices(target.checked);
       if (lastBuildContext) {
         renderTablesFromContext(lastBuildContext);
       }
@@ -112,11 +117,15 @@ if (showPassTimesToggle) {
   });
 }
 
-const savedShowPassTimes = localStorage.getItem("showPassTimes");
-if (savedShowPassTimes !== null) {
-  setShowPassTimes(savedShowPassTimes === "true", { persist: false });
+const savedShowNonPassengerServices = localStorage.getItem(
+  "showNonPassengerServices",
+);
+if (savedShowNonPassengerServices !== null) {
+  setShowNonPassengerServices(savedShowNonPassengerServices === "true", {
+    persist: false,
+  });
 } else {
-  setShowPassTimes(false, { persist: false });
+  setShowNonPassengerServices(false, { persist: false });
 }
 
 function createViaField(initialValue = "") {
@@ -746,7 +755,7 @@ form.addEventListener("submit", async (e) => {
       }
       const services = Array.isArray(data.services) ? data.services : [];
       const eligibleServices = services.filter((svc) => {
-        if (svc.isPassenger === false) return;
+        if (!showNonPassengerServices && svc.isPassenger === false) return;
         if (svc.plannedCancel) return;
         if (!serviceAtStationInRange(svc)) return;
         return true;
@@ -931,7 +940,7 @@ form.addEventListener("submit", async (e) => {
       }
       const services = Array.isArray(data.services) ? data.services : [];
       services.forEach((svc) => {
-        if (svc.isPassenger === false) return;
+        if (!showNonPassengerServices && svc.isPassenger === false) return;
         if (svc.plannedCancel) return;
         if (!serviceAtStationInRange(svc)) return;
         const key = serviceKey(svc);
@@ -1285,7 +1294,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
           return locs.some((locEntry) => {
             if ((locEntry.crs || "") !== station.crs) return false;
             const disp = (locEntry.displayAs || "").toUpperCase();
-            const isPublic = locEntry.isPublicCall === true;
+            const isPublic =
+              showNonPassengerServices || locEntry.isPublicCall === true;
             if (disp === "PASS" || disp === "CANCELLED_PASS") return false;
             return isPublic;
           });
@@ -1363,100 +1373,19 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
 
     const numStations = displayStations.length;
 
-  function minutesToTimeStr(mins) {
-    const total = ((mins % 1440) + 1440) % 1440;
-    const h = String(Math.floor(total / 60)).padStart(2, "0");
-    const m = String(total % 60).padStart(2, "0");
-    return `${h}:${m}`;
-  }
-
-  function buildEstimatedPassTimes(detail) {
-    const locs = detail.locations || [];
-    const minsByIndex = locs.map((loc) => {
-      const raw =
-        loc.gbttBookedDeparture ||
-        loc.gbttBookedArrival ||
-        loc.realtimeDeparture ||
-        loc.realtimeArrival ||
-        "";
-      const timeStr = raw ? padTime(raw) : "";
-      return timeStr ? timeStrToMinutes(timeStr) : null;
-    });
-
-    let prevIndex = null;
-    let prevTime = null;
-    for (let i = 0; i < locs.length; i++) {
-      if (minsByIndex[i] !== null) {
-        prevIndex = i;
-        prevTime = minsByIndex[i];
-        continue;
-      }
-      if (prevIndex === null) continue;
-      let nextIndex = null;
-      let nextTime = null;
-      for (let j = i + 1; j < locs.length; j++) {
-        if (minsByIndex[j] !== null) {
-          nextIndex = j;
-          nextTime = minsByIndex[j];
-          break;
-        }
-      }
-      if (nextIndex === null || nextTime === null || prevTime === null) {
-        continue;
-      }
-      if (nextTime < prevTime) {
-        nextTime += 24 * 60;
-      }
-      const gap = nextIndex - prevIndex;
-      const step = (nextTime - prevTime) / gap;
-      for (let k = prevIndex + 1; k < nextIndex; k++) {
-        minsByIndex[k] = prevTime + step * (k - prevIndex);
-      }
-      i = nextIndex - 1;
-      prevIndex = nextIndex;
-      prevTime = minsByIndex[nextIndex];
-    }
-
-    const estimated = {};
-    locs.forEach((loc, idx) => {
-      const crs = loc.crs || "";
-      if (!crs) return;
-      const mins = minsByIndex[idx];
-      if (mins === null) return;
-      estimated[crs] = minutesToTimeStr(mins);
-    });
-    return estimated;
-  }
-
-  const estimatedPassTimesByService = [];
-  if (showPassTimes) {
-    servicesWithDetails.forEach(({ detail }) => {
-      estimatedPassTimesByService.push(buildEstimatedPassTimes(detail || {}));
-    });
-  }
-
   // --- Precompute per-station, per-service arrival/departure times ---
   // stationTimes[stationIndex][svcIndex] = { arrStr, arrMins, depStr, depMins }
   const stationTimes = [];
-  const passTimes = [];
   for (let i = 0; i < numStations; i++) {
     const row = [];
-    const passRow = [];
     for (let s = 0; s < numServices; s++) {
       row.push({ arrStr: "", arrMins: null, depStr: "", depMins: null });
-      passRow.push("");
     }
     stationTimes.push(row);
-    passTimes.push(passRow);
   }
 
   servicesWithDetails.forEach(({ detail }, svcIndex) => {
     const locs = detail.locations || [];
-
-    const estimatedPassTimes =
-      showPassTimes && estimatedPassTimesByService[svcIndex]
-        ? estimatedPassTimesByService[svcIndex]
-        : {};
 
     displayStations.forEach((station, stationIndex) => {
       const loc = locs.find(
@@ -1477,7 +1406,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
       const arrMins = arrStr ? timeStrToMinutes(arrStr) : null;
       const depMins = depStr ? timeStrToMinutes(depStr) : null;
 
-      if (!showPassTimes) {
+      if (!showNonPassengerServices) {
         stationTimes[stationIndex][svcIndex] = {
           arrStr,
           arrMins,
@@ -1487,7 +1416,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
         return;
       }
 
-      if (isPublic && disp !== "PASS" && disp !== "CANCELLED_PASS") {
+      if (disp !== "PASS" && disp !== "CANCELLED_PASS") {
         stationTimes[stationIndex][svcIndex] = {
           arrStr,
           arrMins,
@@ -1496,37 +1425,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
         };
         return;
       }
-
-      const rawPassTime =
-        loc.gbttBookedDeparture ||
-        loc.gbttBookedArrival ||
-        loc.realtimeDeparture ||
-        loc.realtimeArrival ||
-        loc.publicTime ||
-        loc.workingTime ||
-        "";
-      const passStr =
-        rawPassTime || estimatedPassTimes[station.crs || ""]
-          ? padTime(rawPassTime || estimatedPassTimes[station.crs || ""])
-          : "";
-      if (passStr) passTimes[stationIndex][svcIndex] = passStr;
     });
   });
-
-  const firstCalledStationIndex = new Array(numServices).fill(null);
-  const lastCalledStationIndex = new Array(numServices).fill(null);
-
-  for (let s = 0; s < numServices; s++) {
-    for (let stIdx = 0; stIdx < numStations; stIdx++) {
-      const t = stationTimes[stIdx][s];
-      if (!t) continue;
-      if (t.arrStr || t.depStr) {
-        if (firstCalledStationIndex[s] === null)
-          firstCalledStationIndex[s] = stIdx;
-        lastCalledStationIndex[s] = stIdx;
-      }
-    }
-  }
 
   // --- Decide row mode per station (merged vs two rows vs single) ---
   const stationModes = [];
@@ -1899,43 +1799,6 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
       for (const r of stationRowGroups[stIdx]) {
         if (rows[r].cells[s] === "") {
           rows[r].cells[s] = "|";
-        }
-      }
-    }
-  }
-
-  // === Add bracketed pass times for non-call stations before/after the service window ===
-  if (showPassTimes) {
-    for (let s = 0; s < numServices; s++) {
-      const firstIdx = firstCalledStationIndex[s];
-      const lastIdx = lastCalledStationIndex[s];
-      if (firstIdx === null || lastIdx === null) continue;
-
-      if (firstIdx > 0) {
-        for (let stIdx = 0; stIdx < firstIdx; stIdx++) {
-          const passStr = passTimes[stIdx][s];
-          if (!passStr) continue;
-          const groupRows = stationRowGroups[stIdx];
-          const targetRow =
-            groupRows.find((r) => rows[r].cells[s] === "") ||
-            groupRows[0];
-          if (targetRow !== undefined) {
-            rows[targetRow].cells[s] = `(${passStr})`;
-          }
-        }
-      }
-
-      if (lastIdx < numStations - 1) {
-        for (let stIdx = lastIdx + 1; stIdx < numStations; stIdx++) {
-          const passStr = passTimes[stIdx][s];
-          if (!passStr) continue;
-          const groupRows = stationRowGroups[stIdx];
-          const targetRow =
-            groupRows.find((r) => rows[r].cells[s] === "") ||
-            groupRows[0];
-          if (targetRow !== undefined) {
-            rows[targetRow].cells[s] = `(${passStr})`;
-          }
         }
       }
     }
