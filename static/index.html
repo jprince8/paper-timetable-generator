@@ -157,7 +157,9 @@
 
       .form-row-stations {
         flex-wrap: nowrap;
-        overflow: visible;
+        overflow-x: auto;
+        overflow-y: visible;
+        max-width: 100%;
       }
 
       .via-group {
@@ -600,11 +602,6 @@
           padding: 1.5rem;
         }
 
-        .form-row-meta {
-          flex-direction: column;
-          align-items: stretch;
-        }
-
         .form-row-stations {
           flex-wrap: wrap;
           align-items: stretch;
@@ -618,6 +615,7 @@
 
         .via-scroll {
           width: 100%;
+          max-width: 100%;
         }
       }
     </style>
