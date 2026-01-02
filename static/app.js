@@ -31,6 +31,7 @@ const cookieBanner = document.getElementById("cookieBanner");
 const cookieAcceptBtn = document.getElementById("cookieAcceptBtn");
 const nowBtn = document.getElementById("nowBtn");
 const settingsBtn = document.getElementById("settingsBtn");
+const settingsWrap = document.getElementById("settingsWrap");
 const settingsPanel = document.getElementById("settingsPanel");
 const showPassTimesToggle = document.getElementById("showPassTimesToggle");
 
@@ -93,6 +94,9 @@ if (settingsBtn && settingsPanel) {
     settingsPanel.setAttribute("aria-hidden", isOpen ? "false" : "true");
     settingsBtn.classList.toggle("is-open", isOpen);
     settingsBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    if (settingsWrap) {
+      settingsWrap.classList.toggle("is-open", isOpen);
+    }
   });
 }
 
@@ -1416,22 +1420,13 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
         return;
       }
 
-      const destinationPublicTime =
-        Array.isArray(loc.destination) && loc.destination[0]
-          ? loc.destination[0].publicTime || ""
-          : "";
-      const originPublicTime =
-        Array.isArray(loc.origin) && loc.origin[0]
-          ? loc.origin[0].publicTime || ""
-          : "";
       const rawPassTime =
         loc.gbttBookedDeparture ||
         loc.gbttBookedArrival ||
         loc.realtimeDeparture ||
         loc.realtimeArrival ||
         loc.publicTime ||
-        destinationPublicTime ||
-        originPublicTime ||
+        loc.workingTime ||
         "";
       const passStr = rawPassTime ? padTime(rawPassTime) : "";
       if (passStr) passTimes[stationIndex][svcIndex] = passStr;
