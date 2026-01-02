@@ -146,6 +146,16 @@
         padding-bottom: 0.25rem;
       }
 
+      .via-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        font-weight: 700;
+        color: var(--ink);
+        white-space: nowrap;
+        align-items: flex-start;
+      }
+
       .via-scroll {
         display: inline-flex;
         gap: 1rem;
@@ -538,18 +548,18 @@
                 From (CRS)
                 <input type="text" id="fromCrs" maxlength="3" required />
               </label>
-              <label class="via-group">
-                Via (CRS)
+              <div class="via-group">
+                <span class="via-group-label">Via (CRS)</span>
                 <div class="via-scroll" id="viaScroll">
                   <button
                     type="button"
                     class="btn btn-secondary"
                     id="addViaBtn"
                   >
-                  Add Via
-                </button>
+                    Add Via
+                  </button>
                 </div>
-              </label>
+              </div>
               <label>
                 To (CRS)
                 <input type="text" id="toCrs" maxlength="3" required />
