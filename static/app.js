@@ -26,6 +26,7 @@ const bodyRowsBA = document.getElementById("body-rows-ba");
 const addViaBtn = document.getElementById("addViaBtn");
 const viaScroll = document.getElementById("viaScroll");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
+const shareBtn = document.getElementById("shareBtn");
 const cookieBanner = document.getElementById("cookieBanner");
 const cookieAcceptBtn = document.getElementById("cookieAcceptBtn");
 const nowBtn = document.getElementById("nowBtn");
@@ -111,6 +112,13 @@ function createViaField(initialValue = "") {
   viaInputs.push(input);
 }
 
+function clearViaFields() {
+  viaInputs.forEach((input) => {
+    input.closest("label")?.remove();
+  });
+  viaInputs.length = 0;
+}
+
 // === Cookie helpers ===
 function setCookie(name, value, days) {
   const d = new Date();
@@ -165,6 +173,42 @@ function loadSavedInputsFromCookies() {
 
 // Run once when the script loads
 loadSavedInputsFromCookies();
+
+function loadInputsFromQuery() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.size === 0) return false;
+
+  const from = normaliseCrs(params.get("from"));
+  const to = normaliseCrs(params.get("to"));
+  const date = params.get("date");
+  const start = padTime(params.get("start"));
+  const end = padTime(params.get("end"));
+  const viasRaw = params.get("vias");
+
+  if (from) document.getElementById("fromCrs").value = from;
+  if (to) document.getElementById("toCrs").value = to;
+  if (date) document.getElementById("serviceDate").value = date;
+  if (start) document.getElementById("startTime").value = start;
+  if (end) document.getElementById("endTime").value = end;
+
+  if (viasRaw !== null) {
+    clearViaFields();
+    viasRaw
+      .split(",")
+      .map((v) => v.trim())
+      .filter((v) => v)
+      .forEach((v) => createViaField(normaliseCrs(v)));
+  }
+
+  return Boolean(from && to && date && start && end);
+}
+
+const shouldAutoSubmit = loadInputsFromQuery();
+if (shouldAutoSubmit) {
+  setTimeout(() => {
+    form.requestSubmit();
+  }, 0);
+}
 
 // === Formatting utilities ===
 function formatDateInput(date) {
@@ -298,6 +342,7 @@ function resetOutputs() {
   headerIconsRowBA.innerHTML = "";
   bodyRowsBA.innerHTML = "";
   downloadPdfBtn.disabled = true;
+  shareBtn.disabled = true;
   lastPdfPayload = null;
 }
 
@@ -416,6 +461,57 @@ downloadPdfBtn.addEventListener("click", async () => {
     setStatus("Error building PDF: " + err.message, { isError: true });
   } finally {
     downloadPdfBtn.disabled = false;
+  }
+});
+
+function buildShareUrl() {
+  const url = new URL(window.location.href);
+  const from = normaliseCrs(document.getElementById("fromCrs").value);
+  const to = normaliseCrs(document.getElementById("toCrs").value);
+  const date = document.getElementById("serviceDate").value;
+  const start = document.getElementById("startTime").value;
+  const end = document.getElementById("endTime").value;
+  const viaValues = viaInputs
+    .map((input) => normaliseCrs(input.value))
+    .filter((v) => v);
+
+  url.searchParams.set("from", from);
+  url.searchParams.set("to", to);
+  url.searchParams.set("date", date);
+  url.searchParams.set("start", start);
+  url.searchParams.set("end", end);
+  if (viaValues.length > 0) {
+    url.searchParams.set("vias", viaValues.join(","));
+  } else {
+    url.searchParams.delete("vias");
+  }
+
+  return url.toString();
+}
+
+async function copyToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const tempInput = document.createElement("input");
+  tempInput.value = text;
+  document.body.appendChild(tempInput);
+  tempInput.select();
+  tempInput.setSelectionRange(0, text.length);
+  document.execCommand("copy");
+  tempInput.remove();
+}
+
+shareBtn.addEventListener("click", async () => {
+  if (shareBtn.disabled) return;
+  const url = buildShareUrl();
+  try {
+    await copyToClipboard(url);
+    setStatus("Share link copied to clipboard.");
+  } catch (err) {
+    setStatus("Unable to copy share link.", { isError: true });
   }
 });
 
@@ -922,6 +1018,7 @@ form.addEventListener("submit", async (e) => {
       tables: pdfTables,
     };
     downloadPdfBtn.disabled = false;
+    shareBtn.disabled = false;
   }
   hideStatus();
 });
