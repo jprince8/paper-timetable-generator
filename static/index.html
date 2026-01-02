@@ -86,6 +86,12 @@
         border: 1px solid rgba(198, 183, 162, 0.65);
       }
 
+      .panel-narrow {
+        max-width: 48rem;
+        margin-left: auto;
+        margin-right: auto;
+      }
+
       header.hero h1 {
         font-family: "Special Elite", "Courier Prime", monospace;
         font-size: clamp(2rem, 3vw, 2.8rem);
@@ -156,8 +162,10 @@
       }
 
       .form-row-stations {
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
         overflow-y: visible;
+        width: 100%;
+        row-gap: 1rem;
       }
 
       .via-group {
@@ -168,6 +176,8 @@
         color: var(--ink);
         white-space: nowrap;
         align-items: flex-start;
+        flex: 1 1 18ch;
+        min-width: 18ch;
       }
 
       .via-scroll {
@@ -212,12 +222,13 @@
 
       .station-field {
         position: relative;
-        min-width: 16ch;
+        min-width: 18ch;
+        flex: 1 1 18ch;
       }
 
       .station-input {
-        width: 18ch;
-        min-width: 16ch;
+        width: 100%;
+        min-width: 18ch;
         text-transform: none;
       }
 
@@ -600,26 +611,14 @@
         }
 
         .form-row-stations {
-          flex-wrap: wrap;
           align-items: stretch;
-          gap: 1rem;
-        }
-
-        .form-row-stations > label,
-        .form-row-stations .via-group {
-          flex: 1 1 100%;
-        }
-
-        .via-scroll {
-          width: 100%;
-          max-width: 100%;
         }
       }
     </style>
   </head>
   <body>
     <div class="page">
-      <header class="hero">
+      <header class="hero panel-narrow">
         <h1>Paper Timetable Generator</h1>
         <p>
           Create clean, printable timetable tables for train services between the
@@ -631,7 +630,7 @@
       </header>
 
       <main>
-        <section class="panel">
+        <section class="panel panel-narrow">
           <h2>Create Your Timetable</h2>
           <form id="form">
             <div class="form-row form-row-stations">
