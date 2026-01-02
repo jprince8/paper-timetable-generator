@@ -212,7 +212,6 @@ def build_timetable_pdf(tables, meta=None):
                 ("ALIGN", (0, 0), (0, -1), "RIGHT"),
                 ("LINEBEFORE", (0, 0), (-1, -1), line_width, line_color),
                 ("LINEAFTER", (0, 0), (-1, -1), line_width, line_color),
-                ("LINEBELOW", (0, 0), (-1, 0), line_width, line_color),
             ]
 
             if len(rows) >= 1:
