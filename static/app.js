@@ -1363,6 +1363,78 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
 
     const numStations = displayStations.length;
 
+  function minutesToTimeStr(mins) {
+    const total = ((mins % 1440) + 1440) % 1440;
+    const h = String(Math.floor(total / 60)).padStart(2, "0");
+    const m = String(total % 60).padStart(2, "0");
+    return `${h}:${m}`;
+  }
+
+  function buildEstimatedPassTimes(detail) {
+    const locs = detail.locations || [];
+    const minsByIndex = locs.map((loc) => {
+      const raw =
+        loc.gbttBookedDeparture ||
+        loc.gbttBookedArrival ||
+        loc.realtimeDeparture ||
+        loc.realtimeArrival ||
+        "";
+      const timeStr = raw ? padTime(raw) : "";
+      return timeStr ? timeStrToMinutes(timeStr) : null;
+    });
+
+    let prevIndex = null;
+    let prevTime = null;
+    for (let i = 0; i < locs.length; i++) {
+      if (minsByIndex[i] !== null) {
+        prevIndex = i;
+        prevTime = minsByIndex[i];
+        continue;
+      }
+      if (prevIndex === null) continue;
+      let nextIndex = null;
+      let nextTime = null;
+      for (let j = i + 1; j < locs.length; j++) {
+        if (minsByIndex[j] !== null) {
+          nextIndex = j;
+          nextTime = minsByIndex[j];
+          break;
+        }
+      }
+      if (nextIndex === null || nextTime === null || prevTime === null) {
+        continue;
+      }
+      if (nextTime < prevTime) {
+        nextTime += 24 * 60;
+      }
+      const gap = nextIndex - prevIndex;
+      const step = (nextTime - prevTime) / gap;
+      for (let k = prevIndex + 1; k < nextIndex; k++) {
+        minsByIndex[k] = prevTime + step * (k - prevIndex);
+      }
+      i = nextIndex - 1;
+      prevIndex = nextIndex;
+      prevTime = minsByIndex[nextIndex];
+    }
+
+    const estimated = {};
+    locs.forEach((loc, idx) => {
+      const crs = loc.crs || "";
+      if (!crs) return;
+      const mins = minsByIndex[idx];
+      if (mins === null) return;
+      estimated[crs] = minutesToTimeStr(mins);
+    });
+    return estimated;
+  }
+
+  const estimatedPassTimesByService = [];
+  if (showPassTimes) {
+    servicesWithDetails.forEach(({ detail }) => {
+      estimatedPassTimesByService.push(buildEstimatedPassTimes(detail || {}));
+    });
+  }
+
   // --- Precompute per-station, per-service arrival/departure times ---
   // stationTimes[stationIndex][svcIndex] = { arrStr, arrMins, depStr, depMins }
   const stationTimes = [];
@@ -1380,6 +1452,11 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
 
   servicesWithDetails.forEach(({ detail }, svcIndex) => {
     const locs = detail.locations || [];
+
+    const estimatedPassTimes =
+      showPassTimes && estimatedPassTimesByService[svcIndex]
+        ? estimatedPassTimesByService[svcIndex]
+        : {};
 
     displayStations.forEach((station, stationIndex) => {
       const loc = locs.find(
@@ -1428,7 +1505,10 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
         loc.publicTime ||
         loc.workingTime ||
         "";
-      const passStr = rawPassTime ? padTime(rawPassTime) : "";
+      const passStr =
+        rawPassTime || estimatedPassTimes[station.crs || ""]
+          ? padTime(rawPassTime || estimatedPassTimes[station.crs || ""])
+          : "";
       if (passStr) passTimes[stationIndex][svcIndex] = passStr;
     });
   });
@@ -1860,6 +1940,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
       }
     }
   }
+
 
   // === Column ordering ===
   // We insert services row-by-row based on firstRowForService.
