@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Realtime Trains – Corridor Timetable (All Services)</title>
+    <title>Paper Timetable Generator</title>
     <style>
       body {
         font-family: system-ui, sans-serif;
@@ -167,23 +167,13 @@
     </style>
   </head>
   <body>
-    <h1>Realtime Trains – Corridor Timetable (All Services)</h1>
+    <h1>Paper Timetable Generator</h1>
     <p class="small">
-      Rows: stations between the two endpoints (each with <em>arr</em> and
-      <em>dep</em>).<br />
-      Columns: services that run along the corridor and call at
-      <strong>at least two</strong> of these stations (including the
-      endpoints).<br />
-      Stations are derived from the union of calling points of services directly
-      along the corridor (including any via stations), using the
-      <code>/json/service/&lt;uid&gt;/&lt;date&gt;</code> API, and ignoring
-      locations whose <code>displayAs</code> is <code>PASS</code> or
-      <code>CANCELLED_PASS</code>.<br />
-      Services are split into two tables by direction: A→B (where A occurs
-      before B in the calling pattern) and B→A (where B occurs before A). For
-      services starting/ending outside the corridor, the origin/destination CRS
-      is shown in dedicated rows at the very top (“Comes from”) and/or very
-      bottom (“Continues to”) if needed. Hover shows the full location name.
+      Create clean, printable timetable tables for train services between the
+      stations you choose, filtered to your selected date and time window.
+      Enter your stops (including any optional via points) and the generator
+      will lay out services in easy-to-read tables by direction. Data is
+      provided via the Realtime Trains API.
     </p>
 
     <form id="form">

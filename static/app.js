@@ -1,32 +1,34 @@
+// === Configuration ===
 const DEBUG_STATIONS = false; // set true to log station selection / dwell details
 // If true: the “must call at >=2 stops” rule is applied *after* hiding stations
 // that have no public calls (and iterated to a stable result).
 const APPLY_MIN_STOP_FILTER_AFTER_PUBLIC_HIDE = true;
 
-// === PROXY ENDPOINTS ===
+// === Proxy endpoints ===
 const PROXY_SEARCH = "/rtt/search";
 const PROXY_SERVICE = "/rtt/service";
 
+// === DOM references ===
 const form = document.getElementById("form");
 const statusEl = document.getElementById("status");
 const headingAB = document.getElementById("headingAB");
 const headingBA = document.getElementById("headingBA");
 const headerRowAB = document.getElementById("header-row-ab");
+const headerIconsRowAB = document.getElementById("header-icons-row-ab");
 const bodyRowsAB = document.getElementById("body-rows-ab");
 const headerRowBA = document.getElementById("header-row-ba");
+const headerIconsRowBA = document.getElementById("header-icons-row-ba");
 const bodyRowsBA = document.getElementById("body-rows-ba");
 const addViaBtn = document.getElementById("addViaBtn");
-const headerIconsRowAB = document.getElementById("header-icons-row-ab");
-const headerIconsRowBA = document.getElementById("header-icons-row-ba");
 
-// Track dynamically-added via inputs
+// === Mutable state ===
 const viaInputs = [];
 
 let currentDate = "";
 let startMinutes = null;
 let endMinutes = null;
 
-// === "Add Via" button behaviour ===
+// === Form helpers ===
 addViaBtn.addEventListener("click", () => {
   createViaField("");
 });
@@ -71,6 +73,7 @@ function createViaField(initialValue = "") {
   viaInputs.push(input);
 }
 
+// === Cookie helpers ===
 function setCookie(name, value, days) {
   const d = new Date();
   d.setTime(d.getTime() + days * 24 * 60 * 60 * 1000);
@@ -125,6 +128,7 @@ function loadSavedInputsFromCookies() {
 // Run once when the script loads
 loadSavedInputsFromCookies();
 
+// === Formatting utilities ===
 function htmlEscape(str) {
   return String(str)
     .replace(/&/g, "&amp;")
@@ -195,6 +199,7 @@ function safePairText(pairs) {
   return name + (time ? " " + time : "");
 }
 
+// === Status helpers ===
 function setStatus(msg) {
   statusEl.textContent = msg;
 }
@@ -204,19 +209,8 @@ function setProgressStatus(label, completed, total) {
   setStatus(`${label} ${percent}%`);
 }
 
-form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-
-  // Run HTML5 validation for "required" fields, min/max, etc.
-  if (!form.reportValidity()) {
-    return;
-  }
-
+function resetOutputs() {
   setStatus("");
-  headerRowAB.innerHTML = "";
-  bodyRowsAB.innerHTML = "";
-  headerRowBA.innerHTML = "";
-  bodyRowsBA.innerHTML = "";
   headingAB.textContent = "";
   headingBA.textContent = "";
   headerRowAB.innerHTML = "";
@@ -225,6 +219,18 @@ form.addEventListener("submit", async (e) => {
   headerRowBA.innerHTML = "";
   headerIconsRowBA.innerHTML = "";
   bodyRowsBA.innerHTML = "";
+}
+
+// === Main form submit ===
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  // Run HTML5 validation for "required" fields, min/max, etc.
+  if (!form.reportValidity()) {
+    return;
+  }
+
+  resetOutputs();
 
   const from = normaliseCrs(document.getElementById("fromCrs").value);
   const to = normaliseCrs(document.getElementById("toCrs").value);
@@ -313,14 +319,16 @@ form.addEventListener("submit", async (e) => {
 
     await Promise.all(searchPromises);
   } catch (err) {
-    setStatus("Error fetching initial corridor search results: " + err);
+    setStatus("Error fetching initial service search results: " + err);
     return;
   }
 
   const corridorServices = Array.from(corridorServicesMap.values());
 
   if (corridorServices.length === 0) {
-    setStatus("No passenger services in this time range on corridor.");
+    setStatus(
+      "No passenger services in this time range between selected stations.",
+    );
     return;
   }
 
@@ -363,7 +371,7 @@ form.addEventListener("submit", async (e) => {
   try {
     corridorDetails = await Promise.all(corridorDetailPromises);
   } catch (err) {
-    setStatus("Error fetching corridor service details: " + err);
+    setStatus("Error fetching service details: " + err);
     return;
   }
 
@@ -371,7 +379,7 @@ form.addEventListener("submit", async (e) => {
     (d) => d.detail && Array.isArray(d.detail.locations),
   );
   if (okCorridorDetails.length === 0) {
-    setStatus("No usable corridor service detail responses.");
+    setStatus("No usable service detail responses.");
     return;
   }
 
@@ -569,7 +577,7 @@ form.addEventListener("submit", async (e) => {
 
   if (allDetails.length === 0) {
     setStatus(
-      "No services found that call at two or more corridor stations in this time range.",
+      "No services found that call at two or more selected stations in this time range.",
     );
     return;
   }
@@ -1503,7 +1511,7 @@ function renderTimetable(
 
   // --- Build icons row ---
   const thStationIcons = document.createElement("th");
-  thStationIcons.classList.add("sticky-left", "corner", "icon-row");
+  thStationIcons.classList.add("sticky-left", "icon-row");
   thStationIcons.textContent = "Facilities"; // blank under "Station"
   headerIconsRowEl.appendChild(thStationIcons);
 
