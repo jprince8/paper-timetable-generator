@@ -1,5 +1,6 @@
 // === Configuration ===
 const DEBUG_STATIONS = false; // set true to log station selection / dwell details
+const DEBUG_PASS_TIMES = true; // log bracketed pass-time placement for specific services
 // If true: the “must call at >=2 stops” rule is applied *after* hiding stations
 // that have no public calls (and iterated to a stable result).
 const APPLY_MIN_STOP_FILTER_AFTER_PUBLIC_HIDE = true;
@@ -1334,12 +1335,22 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
         return;
       }
 
+      const destinationPublicTime =
+        Array.isArray(loc.destination) && loc.destination[0]
+          ? loc.destination[0].publicTime || ""
+          : "";
+      const originPublicTime =
+        Array.isArray(loc.origin) && loc.origin[0]
+          ? loc.origin[0].publicTime || ""
+          : "";
       const rawPassTime =
         loc.gbttBookedDeparture ||
         loc.gbttBookedArrival ||
         loc.realtimeDeparture ||
         loc.realtimeArrival ||
         loc.publicTime ||
+        destinationPublicTime ||
+        originPublicTime ||
         "";
       const passStr = rawPassTime ? padTime(rawPassTime) : "";
       if (passStr) passTimes[stationIndex][svcIndex] = passStr;
@@ -1767,6 +1778,41 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
           groupRows[0];
         if (targetRow !== undefined) {
           rows[targetRow].cells[s] = `(${passStr})`;
+        }
+      }
+    }
+  }
+
+  if (DEBUG_PASS_TIMES) {
+    const targetUid = "W58531";
+    const targetCrs = "RYS";
+    const svcIndex = servicesWithDetails.findIndex(
+      ({ svc }) => (svc.serviceUid || "") === targetUid,
+    );
+    if (svcIndex === -1) {
+      console.log(`[PASS] Service ${targetUid} not in timetable.`);
+    } else {
+      const stationIndex = displayStations.findIndex(
+        (st) => (st.crs || "") === targetCrs,
+      );
+      if (stationIndex === -1) {
+        console.log(`[PASS] Station ${targetCrs} not in timetable.`);
+      } else {
+        const groupRows = stationRowGroups[stationIndex];
+        const cellValues = groupRows.map((r) => rows[r].cells[svcIndex]);
+        const passValue = passTimes[stationIndex][svcIndex] || "";
+        const expected = passValue ? `(${passValue})` : "";
+        const hasExpected = expected
+          ? cellValues.some((v) => v === expected)
+          : false;
+        console.log(
+          `[PASS] ${targetUid} ${targetCrs} pass=${passValue || "n/a"}`,
+          cellValues,
+        );
+        if (expected && !hasExpected) {
+          console.warn(
+            `[PASS] Missing bracketed pass time for ${targetUid} at ${targetCrs}.`,
+          );
         }
       }
     }
