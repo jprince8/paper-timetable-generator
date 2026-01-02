@@ -100,6 +100,10 @@ function updateStationValidity(field) {
     field.textInput.setCustomValidity("");
     return;
   }
+  if (document.activeElement === field.textInput) {
+    field.textInput.setCustomValidity("");
+    return;
+  }
   if (!field.crsInput.value) {
     field.textInput.setCustomValidity("Select a station from the list.");
     return;
@@ -255,7 +259,13 @@ function setupStationPicker(field) {
     }
   });
 
-  textInput.addEventListener("blur", () => {
+  textInput.addEventListener("blur", async () => {
+    if (!crsInput.value) {
+      const exactMatch = await resolveExactMatch(textInput.value);
+      if (exactMatch) {
+        selectResult(exactMatch);
+      }
+    }
     updateStationValidity(field);
     setTimeout(clearSuggestions, 120);
   });
@@ -798,21 +808,6 @@ form.addEventListener("submit", async (e) => {
   e.preventDefault();
 
   // Run HTML5 validation for "required" fields, min/max, etc.
-  const resolvePromises = stationFields.map(async (field) => {
-    if (field.crsInput.value) {
-      return;
-    }
-    const query = field.textInput.value.trim();
-    if (!query || !field.resolveExactMatch) {
-      return;
-    }
-    const match = await field.resolveExactMatch(query);
-    if (match) {
-      field.textInput.value = match.stationName;
-      field.crsInput.value = match.crsCode;
-    }
-  });
-  await Promise.all(resolvePromises);
   stationFields.forEach((field) => updateStationValidity(field));
   if (!form.reportValidity()) {
     return;
