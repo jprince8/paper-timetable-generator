@@ -2480,138 +2480,111 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   }
 
   // === Column ordering ===
-  // We insert services row-by-row based on firstRowForService.
-  // When inserting a service that starts on a given row, we compare it against
-  // existing columns using the *time on that same row*, with this preference:
-  //   - use departure time if available
-  //   - otherwise use arrival time
-  //
-  // (If a service has no time on that row at all, it sorts last for that row.)
-  function orderingTimeStrForLoc(
-    loc,
-    preferDeparture,
-    serviceRealtimeActivated,
-    realtimeToggleEnabled,
-  ) {
-    if (!loc) return "";
-
-    const useRealtime = serviceRealtimeActivated && realtimeToggleEnabled;
-    const dep = useRealtime
-      ? loc.realtimeDeparture || loc.gbttBookedDeparture
-      : loc.gbttBookedDeparture;
-    const arr = useRealtime
-      ? loc.realtimeArrival || loc.gbttBookedArrival
-      : loc.gbttBookedArrival;
-
-    if (preferDeparture && dep) return padTime(dep);
-    if (arr) return padTime(arr);
-    return dep ? padTime(dep) : "";
-  }
-
-  function preferredTimeMinsAtRow(serviceIdx, rowIdx) {
-    const spec = rowSpecs[rowIdx];
-    if (!spec || spec.kind !== "station") return null;
-
-    const stationIndex = spec.stationIndex;
-    const t = stationTimes[stationIndex][serviceIdx];
+  // Sort columns by inserting one service at a time, keeping each station's
+  // times in order. For each station, we prefer departure time when available,
+  // otherwise arrival time. Empty times are ignored.
+  function preferredTimeMinsAtStation(serviceIdx, stationIdx) {
+    const t = stationTimes[stationIdx][serviceIdx];
     if (!t) return null;
-    const loc = t.loc;
-    if (!loc) return null;
-
-    const serviceRealtimeActivated =
-      serviceRealtimeFlags[serviceIdx] === true;
-
-    // Prefer dep; otherwise arr (even on "arr" rows).
-    const timeStr = orderingTimeStrForLoc(
-      loc,
-      true,
-      serviceRealtimeActivated,
-      realtimeToggleEnabled,
-    );
-    if (!timeStr) return null;
-
-    const mins = timeStrToMinutes(timeStr);
-    return mins === null ? null : mins;
+    if (t.depMins !== null) return t.depMins;
+    if (t.arrMins !== null) return t.arrMins;
+    return null;
   }
 
-  // Phase A: build a time matrix per row/service so each row has comparable
-  // times (or null) for each service.
-  const rowTimeMins = Array.from({ length: totalRows }, (_, rowIdx) => {
-    const rowTimes = new Array(numServices).fill(null);
-    for (let svcIdx = 0; svcIdx < numServices; svcIdx++) {
-      rowTimes[svcIdx] = preferredTimeMinsAtRow(svcIdx, rowIdx);
+  function stationTimesArrayForService(serviceIdx) {
+    const times = new Array(numStations).fill(null);
+    for (let stationIdx = 0; stationIdx < numStations; stationIdx++) {
+      times[stationIdx] = preferredTimeMinsAtStation(serviceIdx, stationIdx);
     }
-    return rowTimes;
-  });
-
-  // Phase B: compute an ordering that minimizes weighted out-of-order pairs.
-  const pairDataCache = new Map();
-  function pairKey(a, b) {
-    return a < b ? `${a}|${b}` : `${b}|${a}`;
+    return times;
   }
 
-  function getPairData(a, b) {
-    const key = pairKey(a, b);
-    if (pairDataCache.has(key)) return pairDataCache.get(key);
-
-    let scoreAB = 0;
-    let scoreBA = 0;
-    let earliestRow = null;
-    let earliestOrder = 0;
-    let flipDetected = false;
-
-    for (let rowIdx = 0; rowIdx < totalRows; rowIdx++) {
-      const timeA = rowTimeMins[rowIdx][a];
-      const timeB = rowTimeMins[rowIdx][b];
-      if (timeA === null || timeB === null) continue;
-      if (timeA === timeB) continue;
-
-      const weight = totalRows - rowIdx;
-      if (timeA > timeB) {
-        scoreAB += weight;
-      } else {
-        scoreBA += weight;
-      }
-
-      const order = timeA < timeB ? -1 : 1;
-      if (earliestRow === null) {
-        earliestRow = rowIdx;
-        earliestOrder = order;
-      } else if (!flipDetected && order !== earliestOrder) {
-        flipDetected = true;
-      }
-    }
-
-    const data = {
-      scoreAB,
-      scoreBA,
-      earliestRow,
-      earliestOrder,
-      flipDetected,
-    };
-    pairDataCache.set(key, data);
-    return data;
-  }
-
-  const orderedSvcIndices = Array.from(
-    { length: numServices },
-    (_, idx) => idx,
+  const perServiceStationTimes = Array.from({ length: numServices }, (_, idx) =>
+    stationTimesArrayForService(idx),
   );
 
-  orderedSvcIndices.sort((a, b) => {
-    if (a === b) return 0;
-    const { scoreAB, scoreBA, earliestRow, earliestOrder, flipDetected } =
-      getPairData(a, b);
+  function findBestInsertPosition(serviceIdx, orderedSvcIndices) {
+    if (orderedSvcIndices.length === 0) return 0;
 
-    if (earliestRow === null) return a - b;
+    let lowerBound = 0;
+    let upperBound = orderedSvcIndices.length;
+    let hasConstraint = false;
 
-    // Overtake detection: if ordering flips, prioritise the earliest row.
-    if (flipDetected && earliestOrder !== 0) return earliestOrder;
+    for (let stationIdx = 0; stationIdx < numStations; stationIdx++) {
+      const time = perServiceStationTimes[serviceIdx][stationIdx];
+      if (time === null) continue;
 
-    if (scoreAB !== scoreBA) return scoreAB - scoreBA;
-    if (earliestOrder !== 0) return earliestOrder;
-    return a - b;
-  });
+      let lastLE = -1;
+      let firstGE = orderedSvcIndices.length;
+
+      for (let pos = 0; pos < orderedSvcIndices.length; pos++) {
+        const otherSvc = orderedSvcIndices[pos];
+        const otherTime = perServiceStationTimes[otherSvc][stationIdx];
+        if (otherTime === null) continue;
+
+        if (otherTime <= time) lastLE = pos;
+        if (firstGE === orderedSvcIndices.length && otherTime >= time) {
+          firstGE = pos;
+        }
+      }
+
+      if (lastLE !== -1 || firstGE !== orderedSvcIndices.length) {
+        hasConstraint = true;
+        lowerBound = Math.max(lowerBound, lastLE + 1);
+        upperBound = Math.min(upperBound, firstGE);
+      }
+    }
+
+    if (hasConstraint && lowerBound <= upperBound) {
+      return lowerBound;
+    }
+
+    let bestPos = 0;
+    let bestViolations = Infinity;
+
+    for (let pos = 0; pos <= orderedSvcIndices.length; pos++) {
+      let violations = 0;
+
+      for (let stationIdx = 0; stationIdx < numStations; stationIdx++) {
+        const time = perServiceStationTimes[serviceIdx][stationIdx];
+        if (time === null) continue;
+
+        for (let i = 0; i < pos; i++) {
+          const otherTime =
+            perServiceStationTimes[orderedSvcIndices[i]][stationIdx];
+          if (otherTime === null) continue;
+          if (otherTime > time) {
+            violations += 1;
+            break;
+          }
+        }
+
+        for (let i = pos; i < orderedSvcIndices.length; i++) {
+          const otherTime =
+            perServiceStationTimes[orderedSvcIndices[i]][stationIdx];
+          if (otherTime === null) continue;
+          if (otherTime < time) {
+            violations += 1;
+            break;
+          }
+        }
+      }
+
+      if (violations < bestViolations) {
+        bestViolations = violations;
+        bestPos = pos;
+      }
+    }
+
+    return bestPos;
+  }
+
+  const orderedSvcIndices = [];
+
+  for (let svcIdx = 0; svcIdx < numServices; svcIdx++) {
+    const insertPos = findBestInsertPosition(svcIdx, orderedSvcIndices);
+    orderedSvcIndices.splice(insertPos, 0, svcIdx);
+  }
 
   // --- ATOC code -> display name override (updated LUT) ---
   const ATOC_NAME_BY_CODE = {
