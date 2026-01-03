@@ -1,4 +1,5 @@
 flask
+flask-cors>=4.0.0
 requests
 reportlab
 svglib==1.5.1
