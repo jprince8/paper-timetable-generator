@@ -37,6 +37,7 @@ const toStationInput = document.getElementById("toStation");
 const toCrsInput = document.getElementById("toCrs");
 const toSuggestBox = document.getElementById("toSuggest");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
+const downloadSortLogBtn = document.getElementById("downloadSortLogBtn");
 const shareBtn = document.getElementById("shareBtn");
 const realtimeBtn = document.getElementById("realtimeBtn");
 const cookieBanner = document.getElementById("cookieBanner");
@@ -52,6 +53,7 @@ let startMinutes = null;
 let endMinutes = null;
 let lastPdfPayload = null;
 let lastTimetableContext = null;
+let lastSortLog = "";
 let realtimeEnabled = false;
 let realtimeAvailable = false;
 
@@ -778,9 +780,11 @@ function resetOutputs() {
   headerIconsRowBA.innerHTML = "";
   bodyRowsBA.innerHTML = "";
   downloadPdfBtn.disabled = true;
+  downloadSortLogBtn.disabled = true;
   shareBtn.disabled = true;
   lastPdfPayload = null;
   lastTimetableContext = null;
+  lastSortLog = "";
   setRealtimeToggleState({ enabled: false, active: false });
 }
 
@@ -796,9 +800,11 @@ function clearTimetableOutputs() {
   headerIconsRowBA.innerHTML = "";
   bodyRowsBA.innerHTML = "";
   downloadPdfBtn.disabled = true;
+  downloadSortLogBtn.disabled = true;
   shareBtn.disabled = true;
   lastPdfPayload = null;
   lastTimetableContext = null;
+  lastSortLog = "";
   setRealtimeToggleState({ enabled: false, active: false });
 }
 
@@ -921,6 +927,30 @@ function formatGeneratedTimestamp(dateObj = new Date()) {
   return `${lookup.day}/${lookup.month}/${lookup.year} ${lookup.hour}:${lookup.minute}`;
 }
 
+function downloadTextFile(filename, contents) {
+  const blob = new Blob([contents], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+if (downloadSortLogBtn) {
+  downloadSortLogBtn.addEventListener("click", () => {
+    if (!lastSortLog) return;
+    downloadSortLogBtn.disabled = true;
+    try {
+      downloadTextFile("timetable-sort-log.txt", lastSortLog);
+    } finally {
+      downloadSortLogBtn.disabled = false;
+    }
+  });
+}
+
 downloadPdfBtn.addEventListener("click", async () => {
   if (!lastPdfPayload) return;
   downloadPdfBtn.disabled = true;
@@ -1021,6 +1051,7 @@ function renderTimetablesFromContext(context) {
     generatedTimestamp,
   } = context;
   const pdfTables = [];
+  const sortLogs = [];
 
   if (servicesAB.length > 0) {
     const modelAB = buildTimetableModel(stations, stationSet, servicesAB, {
@@ -1034,6 +1065,7 @@ function renderTimetablesFromContext(context) {
       " (" +
       modelAB.orderedSvcIndices.length +
       " services)";
+    if (modelAB.sortLog) sortLogs.push(modelAB.sortLog);
     renderTimetable(modelAB, headerRowAB, headerIconsRowAB, bodyRowsAB);
     const tableDataAB = buildPdfTableData(pdfModelAB);
     pdfTables.push({
@@ -1062,6 +1094,7 @@ function renderTimetablesFromContext(context) {
       " (" +
       modelBA.orderedSvcIndices.length +
       " services)";
+    if (modelBA.sortLog) sortLogs.push(modelBA.sortLog);
     renderTimetable(modelBA, headerRowBA, headerIconsRowBA, bodyRowsBA);
     const tableDataBA = buildPdfTableData(pdfModelBA);
     pdfTables.push({
@@ -1075,6 +1108,14 @@ function renderTimetablesFromContext(context) {
     headingBA.textContent =
       reverseStopsLabel + ": no through services in this time range";
     tableCardBA?.classList.remove("has-data");
+  }
+
+  if (sortLogs.length > 0) {
+    lastSortLog = sortLogs.join("\n\n");
+    downloadSortLogBtn.disabled = false;
+  } else {
+    lastSortLog = "";
+    downloadSortLogBtn.disabled = true;
   }
 
   if (pdfTables.length > 0) {
@@ -2483,12 +2524,41 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   // Sort columns by inserting one service at a time, keeping each station's
   // times in order. For each station, we prefer departure time when available,
   // otherwise arrival time. Empty times are ignored.
+  const sortLogLines = [];
+  const stationLabels = displayStations.map(
+    (station) => station.name || station.crs || "?",
+  );
+  sortLogLines.push("Column sort log");
+  sortLogLines.push(`Stations: ${stationLabels.join(" → ")}`);
+  sortLogLines.push(`Services: ${numServices}`);
+
+  function serviceLabel(serviceIdx) {
+    const svc = servicesWithDetails[serviceIdx]?.svc || {};
+    const detail = servicesWithDetails[serviceIdx]?.detail || {};
+    const headcode =
+      svc.trainIdentity || svc.runningIdentity || svc.serviceUid || "";
+    const originText = safePairText(detail.origin);
+    const destText = safePairText(detail.destination);
+    const route =
+      originText || destText ? `${originText} → ${destText}` : "";
+    const labelBase = headcode || svc.serviceUid || `svc#${serviceIdx + 1}`;
+    return route ? `${labelBase} (${route})` : labelBase;
+  }
+
   function preferredTimeMinsAtStation(serviceIdx, stationIdx) {
     const t = stationTimes[stationIdx][serviceIdx];
     if (!t) return null;
     if (t.depMins !== null) return t.depMins;
     if (t.arrMins !== null) return t.arrMins;
     return null;
+  }
+
+  function preferredTimeLabelAtStation(serviceIdx, stationIdx) {
+    const t = stationTimes[stationIdx][serviceIdx];
+    if (!t) return "";
+    if (t.depStr) return t.depStr;
+    if (t.arrStr) return t.arrStr;
+    return "";
   }
 
   function stationTimesArrayForService(serviceIdx) {
@@ -2506,6 +2576,17 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   function findBestInsertPosition(serviceIdx, orderedSvcIndices) {
     if (orderedSvcIndices.length === 0) return 0;
 
+    const label = serviceLabel(serviceIdx);
+    sortLogLines.push("");
+    sortLogLines.push(`Service: ${label}`);
+    sortLogLines.push(
+      `Current order: ${
+        orderedSvcIndices.length > 0
+          ? orderedSvcIndices.map(serviceLabel).join(", ")
+          : "(none)"
+      }`,
+    );
+
     let lowerBound = 0;
     let upperBound = orderedSvcIndices.length;
     let hasConstraint = false;
@@ -2513,6 +2594,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     for (let stationIdx = 0; stationIdx < numStations; stationIdx++) {
       const time = perServiceStationTimes[serviceIdx][stationIdx];
       if (time === null) continue;
+      const timeLabel = preferredTimeLabelAtStation(serviceIdx, stationIdx);
 
       let lastLE = -1;
       let firstGE = orderedSvcIndices.length;
@@ -2533,14 +2615,29 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         lowerBound = Math.max(lowerBound, lastLE + 1);
         upperBound = Math.min(upperBound, firstGE);
       }
+
+      const stationLabel = stationLabels[stationIdx] || `station#${stationIdx}`;
+      const lastLabel =
+        lastLE >= 0 ? serviceLabel(orderedSvcIndices[lastLE]) : "none";
+      const firstLabel =
+        firstGE < orderedSvcIndices.length
+          ? serviceLabel(orderedSvcIndices[firstGE])
+          : "none";
+      sortLogLines.push(
+        `  ${stationLabel} @ ${timeLabel || "?"}: last<=${lastLabel}, first>=${firstLabel}`,
+      );
     }
 
     if (hasConstraint && lowerBound <= upperBound) {
+      sortLogLines.push(
+        `Chosen position: ${lowerBound} (bounds ${lowerBound}-${upperBound})`,
+      );
       return lowerBound;
     }
 
     let bestPos = 0;
     let bestViolations = Infinity;
+    const violationSummary = [];
 
     for (let pos = 0; pos <= orderedSvcIndices.length; pos++) {
       let violations = 0;
@@ -2574,8 +2671,16 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         bestViolations = violations;
         bestPos = pos;
       }
+
+      violationSummary.push({ pos, violations });
     }
 
+    sortLogLines.push(
+      `No strict bounds; violations by position: ${violationSummary
+        .map((entry) => `${entry.pos}:${entry.violations}`)
+        .join(" ")}`,
+    );
+    sortLogLines.push(`Chosen position: ${bestPos}`);
     return bestPos;
   }
 
@@ -2585,6 +2690,15 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     const insertPos = findBestInsertPosition(svcIdx, orderedSvcIndices);
     orderedSvcIndices.splice(insertPos, 0, svcIdx);
   }
+
+  sortLogLines.push("");
+  sortLogLines.push(
+    `Final order: ${
+      orderedSvcIndices.length > 0
+        ? orderedSvcIndices.map(serviceLabel).join(", ")
+        : "(none)"
+    }`,
+  );
 
   // --- ATOC code -> display name override (updated LUT) ---
   const ATOC_NAME_BY_CODE = {
@@ -2695,6 +2809,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     rows,
     orderedSvcIndices,
     servicesMeta,
+    sortLog: sortLogLines.join("\n"),
   };
 }
 
