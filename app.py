@@ -1,4 +1,4 @@
-from flask import Flask, send_from_directory, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file
 import io
 import json
 import os
@@ -9,14 +9,20 @@ from pdf_utils import build_timetable_pdf
 
 from flask_cors import CORS
 
-app = Flask(__name__, static_folder="static")
+app = Flask(__name__, static_folder="docs", static_url_path="")
+
+ALLOWED_ORIGINS = [
+    "https://jprince8.github.io",
+    "http://127.0.0.1:8080",
+    "http://localhost:8080",
+]
 
 CORS(
     app,
     resources={
-        r"/rtt/*": {"origins": "https://jprince8.github.io"},
-        r"/timetable/*": {"origins": "https://jprince8.github.io"},
-        r"/api/*": {"origins": "https://jprince8.github.io"},
+        r"/rtt/*": {"origins": ALLOWED_ORIGINS},
+        r"/timetable/*": {"origins": ALLOWED_ORIGINS},
+        r"/api/*": {"origins": ALLOWED_ORIGINS},
     },
 )
 
@@ -72,10 +78,10 @@ def rtt_get(path, params=None):
         raise
     return resp.json()
 
-# Disabled due to frontend and backend in different places
-# @app.route("/")
-# def index():
-#     return send_from_directory(app.static_folder, "index.html")
+# Only used in testing
+@app.route("/")
+def index():
+    return app.send_static_file("index.html")
 
 @app.route("/rtt/search")
 def api_search():
