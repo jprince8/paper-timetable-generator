@@ -1311,7 +1311,11 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
-  const okCorridorDetails = corridorDetails.filter(
+  const splitCorridorDetails = splitServiceEntries(
+    corridorDetails,
+    corridorStations,
+  );
+  const okCorridorDetails = splitCorridorDetails.filter(
     (d) => d.detail && Array.isArray(d.detail.locations),
   );
   if (okCorridorDetails.length === 0) {
@@ -1483,12 +1487,21 @@ form.addEventListener("submit", async (e) => {
 
   setStatus("Building timetable...");
 
+  const splitCandidateEntries = [];
+  for (const entry of candidateMap.values()) {
+    splitCandidateEntries.push(
+      ...splitServiceEntries([entry], corridorStations),
+    );
+  }
+  const dedupedCandidateEntries =
+    dedupeServiceEntries(splitCandidateEntries);
+
   // Filter to services that:
   //  - have valid detail.locations
   //  - and call at >= 2 *distinct* non-PASS corridor stations.
   // This removes loops like CTR→CTR that only ever touch one station in the table.
   const allDetails = [];
-  for (const [key, entry] of candidateMap.entries()) {
+  for (const entry of dedupedCandidateEntries) {
     const detail = entry.detail;
     if (!detail || !Array.isArray(detail.locations)) continue;
 
@@ -1562,6 +1575,127 @@ form.addEventListener("submit", async (e) => {
   renderTimetablesFromContext(lastTimetableContext);
   hideStatus();
 });
+
+function splitServiceEntries(entries, corridorStations = []) {
+  const corridorSet = new Set(corridorStations.filter(Boolean));
+  const splitEntries = [];
+  entries.forEach((entry) => {
+    if (!entry?.detail || !Array.isArray(entry.detail.locations)) {
+      splitEntries.push(entry);
+      return;
+    }
+    if (entry?.svc?.originalServiceUid) {
+      splitEntries.push(entry);
+      return;
+    }
+    const splitIndex = findRepeatedStationSplitIndex(
+      entry.detail.locations,
+      corridorSet,
+    );
+    if (splitIndex === null) {
+      splitEntries.push(entry);
+      return;
+    }
+    const locations = entry.detail.locations;
+    const firstLocations = locations.slice(0, splitIndex + 1);
+    const secondLocations = locations.slice(splitIndex);
+    const firstSvc = withServiceSuffix(entry.svc, "(1)");
+    firstSvc.splitContinuesToLocation =
+      secondLocations[secondLocations.length - 1] || null;
+    const secondSvc = withServiceSuffix(entry.svc, "(2)");
+    secondSvc.splitComesFromLocation = firstLocations[0] || null;
+    splitEntries.push({
+      ...entry,
+      svc: firstSvc,
+      detail: { ...entry.detail, locations: firstLocations },
+    });
+    splitEntries.push({
+      ...entry,
+      svc: secondSvc,
+      detail: { ...entry.detail, locations: secondLocations },
+    });
+  });
+  return splitEntries;
+}
+
+function findRepeatedStationSplitIndex(locations, corridorSet) {
+  const seen = new Map();
+  for (let i = 0; i < locations.length; i++) {
+    const crs = locations[i]?.crs || "";
+    if (!crs) continue;
+    if (seen.has(crs)) {
+      const firstIndex = seen.get(crs);
+      let splitIndex = i - 1;
+      for (let j = i - 1; j > firstIndex; j--) {
+        const corridorCrs = locations[j]?.crs || "";
+        if (corridorCrs && corridorSet.has(corridorCrs)) {
+          splitIndex = j;
+          break;
+        }
+      }
+      if (splitIndex >= 0) {
+        return splitIndex;
+      }
+      return null;
+    }
+    seen.set(crs, i);
+  }
+  return null;
+}
+
+function withServiceSuffix(svc, suffix) {
+  const updated = { ...(svc || {}) };
+  if (updated.serviceUid && !updated.originalServiceUid) {
+    updated.originalServiceUid = updated.serviceUid;
+  }
+  if (updated.serviceUid) {
+    updated.serviceUid = `${updated.serviceUid}${suffix}`;
+  }
+  if (updated.trainIdentity) {
+    updated.trainIdentity = `${updated.trainIdentity}${suffix}`;
+  }
+  if (updated.runningIdentity) {
+    updated.runningIdentity = `${updated.runningIdentity}${suffix}`;
+  }
+  return updated;
+}
+
+function dedupeServiceEntries(entries) {
+  const seen = new Set();
+  const deduped = [];
+  entries.forEach((entry) => {
+    if (!entry?.detail || !Array.isArray(entry.detail.locations)) {
+      deduped.push(entry);
+      return;
+    }
+    const svc = entry.svc || {};
+    const uid =
+      svc.serviceUid ||
+      svc.originalServiceUid ||
+      svc.trainIdentity ||
+      svc.runningIdentity ||
+      "";
+    const date = svc.runDate || entry.detail.runDate || "";
+    const locationKey = entry.detail.locations
+      .map((loc) => {
+        const crs = loc.crs || "";
+        const arr =
+          loc.gbttBookedArrival || loc.realtimeArrival || "";
+        const dep =
+          loc.gbttBookedDeparture || loc.realtimeDeparture || "";
+        const displayAs = loc.displayAs || "";
+        return `${crs}|${arr}|${dep}|${displayAs}`;
+      })
+      .join(">");
+    const key = `${uid}|${date}|${locationKey}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    deduped.push(entry);
+  });
+  return deduped;
+}
 
 // Build station union over a possibly multi-via corridor.
 // corridorStations is e.g. ["SHR", "VIA1", "VIA2", "WRX"].
@@ -2056,6 +2190,14 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   // We store:
   //  - display: CRS only
   //  - title: full name only (no "from/to")
+  function buildEndpointMeta(location) {
+    if (!location) return null;
+    const crs = location.crs || "";
+    const name = location.description || crs || location.tiploc || "";
+    const display = crs || location.tiploc || name;
+    return { display, title: name };
+  }
+
   const originMeta = new Array(numServices).fill(null);
   const destMeta = new Array(numServices).fill(null);
 
@@ -2069,19 +2211,24 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     if (firstLoc) {
       const crs = firstLoc.crs || "";
       if (!stationSet[crs]) {
-        const name = firstLoc.description || crs || firstLoc.tiploc || "";
-        const crsCode = crs || firstLoc.tiploc || name;
-        originMeta[idx] = { display: crsCode, title: name };
+        originMeta[idx] = buildEndpointMeta(firstLoc);
       }
     }
 
     if (lastLoc) {
       const crs = lastLoc.crs || "";
       if (!stationSet[crs]) {
-        const name = lastLoc.description || crs || lastLoc.tiploc || "";
-        const crsCode = crs || lastLoc.tiploc || name;
-        destMeta[idx] = { display: crsCode, title: name };
+        destMeta[idx] = buildEndpointMeta(lastLoc);
       }
+    }
+  });
+
+  servicesWithDetails.forEach(({ svc }, idx) => {
+    if (svc?.splitContinuesToLocation) {
+      destMeta[idx] = buildEndpointMeta(svc.splitContinuesToLocation);
+    }
+    if (svc?.splitComesFromLocation) {
+      originMeta[idx] = buildEndpointMeta(svc.splitComesFromLocation);
     }
   });
 
@@ -2387,54 +2534,84 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     return mins === null ? null : mins;
   }
 
-  const orderedSvcIndices = [];
-
-  for (let r = 0; r < totalRows; r++) {
-    // Services whose first corridor timing row is exactly this row.
-    const startingHere = [];
-    for (let s = 0; s < numServices; s++) {
-      if (firstRowForService[s] === r) {
-        startingHere.push({
-          index: s,
-          timeMins: preferredTimeMinsAtRow(s, r),
-        });
-      }
+  // Phase A: build a time matrix per row/service so each row has comparable
+  // times (or null) for each service.
+  const rowTimeMins = Array.from({ length: totalRows }, (_, rowIdx) => {
+    const rowTimes = new Array(numServices).fill(null);
+    for (let svcIdx = 0; svcIdx < numServices; svcIdx++) {
+      rowTimes[svcIdx] = preferredTimeMinsAtRow(svcIdx, rowIdx);
     }
+    return rowTimes;
+  });
 
-    // Sort those by preferred row-time (nulls last, then by original index)
-    startingHere.sort((a, b) => {
-      if (a.timeMins === null && b.timeMins === null)
-        return a.index - b.index;
-      if (a.timeMins === null) return 1;
-      if (b.timeMins === null) return -1;
-      if (a.timeMins !== b.timeMins) return a.timeMins - b.timeMins;
-      return a.index - b.index;
-    });
-
-    // Insert into orderedSvcIndices relative to existing services, comparing
-    // against the existing services' preferred time on *this same row*.
-    for (const { index: sIdx, timeMins } of startingHere) {
-      if (orderedSvcIndices.length === 0 || timeMins === null) {
-        orderedSvcIndices.push(sIdx);
-        continue;
-      }
-
-      let inserted = false;
-      for (let pos = 0; pos < orderedSvcIndices.length; pos++) {
-        const existingIdx = orderedSvcIndices[pos];
-        const existingTime = preferredTimeMinsAtRow(existingIdx, r);
-        if (existingTime === null) continue; // can't compare at this row
-
-        if (timeMins <= existingTime) {
-          orderedSvcIndices.splice(pos, 0, sIdx);
-          inserted = true;
-          break;
-        }
-      }
-
-      if (!inserted) orderedSvcIndices.push(sIdx);
-    }
+  // Phase B: compute an ordering that minimizes weighted out-of-order pairs.
+  const pairDataCache = new Map();
+  function pairKey(a, b) {
+    return a < b ? `${a}|${b}` : `${b}|${a}`;
   }
+
+  function getPairData(a, b) {
+    const key = pairKey(a, b);
+    if (pairDataCache.has(key)) return pairDataCache.get(key);
+
+    let scoreAB = 0;
+    let scoreBA = 0;
+    let earliestRow = null;
+    let earliestOrder = 0;
+    let flipDetected = false;
+
+    for (let rowIdx = 0; rowIdx < totalRows; rowIdx++) {
+      const timeA = rowTimeMins[rowIdx][a];
+      const timeB = rowTimeMins[rowIdx][b];
+      if (timeA === null || timeB === null) continue;
+      if (timeA === timeB) continue;
+
+      const weight = totalRows - rowIdx;
+      if (timeA > timeB) {
+        scoreAB += weight;
+      } else {
+        scoreBA += weight;
+      }
+
+      const order = timeA < timeB ? -1 : 1;
+      if (earliestRow === null) {
+        earliestRow = rowIdx;
+        earliestOrder = order;
+      } else if (!flipDetected && order !== earliestOrder) {
+        flipDetected = true;
+      }
+    }
+
+    const data = {
+      scoreAB,
+      scoreBA,
+      earliestRow,
+      earliestOrder,
+      flipDetected,
+    };
+    pairDataCache.set(key, data);
+    return data;
+  }
+
+  const orderedSvcIndices = Array.from(
+    { length: numServices },
+    (_, idx) => idx,
+  );
+
+  orderedSvcIndices.sort((a, b) => {
+    if (a === b) return 0;
+    const { scoreAB, scoreBA, earliestRow, earliestOrder, flipDetected } =
+      getPairData(a, b);
+
+    if (earliestRow === null) return a - b;
+
+    // Overtake detection: if ordering flips, prioritise the earliest row.
+    if (flipDetected && earliestOrder !== 0) return earliestOrder;
+
+    if (scoreAB !== scoreBA) return scoreAB - scoreBA;
+    if (earliestOrder !== 0) return earliestOrder;
+    return a - b;
+  });
 
   // --- ATOC code -> display name override (updated LUT) ---
   const ATOC_NAME_BY_CODE = {
@@ -2487,7 +2664,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     const originText = safePairText(detail.origin);
     const destText = safePairText(detail.destination);
     const dateText = detail.runDate || svc.runDate || "";
-    const uid = svc.serviceUid || "";
+    const uid = svc.originalServiceUid || svc.serviceUid || "";
     const date = svc.runDate || detail.runDate || "";
     const href = `https://www.realtimetrains.co.uk/service/gb-nr:${encodeURIComponent(uid)}/${encodeURIComponent(date)}`;
 
