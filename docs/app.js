@@ -1518,13 +1518,14 @@ form.addEventListener("submit", async (e) => {
 function buildStationsUnion(corridorStations, servicesWithDetails) {
   const stationMap = {};
   const corridorIndex = {};
+  const orderedCrs = [];
 
   // Map each corridor CRS to its index in the chain (A=0, VIA1=1, ..., Z=n)
   corridorStations.forEach((crs, idx) => {
     if (crs) corridorIndex[crs] = idx;
   });
 
-  function addStation(crs, tiploc, name, pos) {
+  function addStation(crs, tiploc, name) {
     if (!crs) return;
     const key = crs;
     if (!stationMap[key]) {
@@ -1532,10 +1533,61 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         crs,
         tiploc: tiploc || "",
         name: name || crs,
-        positions: [],
       };
     }
-    stationMap[key].positions.push(pos);
+  }
+
+  function mergeIntoOrder(sequence) {
+    sequence.forEach((crs, idx) => {
+      if (!crs) return;
+      if (orderedCrs.includes(crs)) return;
+
+      let prevKnown = null;
+      for (let i = idx - 1; i >= 0; i--) {
+        if (orderedCrs.includes(sequence[i])) {
+          prevKnown = sequence[i];
+          break;
+        }
+      }
+
+      let nextKnown = null;
+      for (let i = idx + 1; i < sequence.length; i++) {
+        if (orderedCrs.includes(sequence[i])) {
+          nextKnown = sequence[i];
+          break;
+        }
+      }
+
+      if (prevKnown && nextKnown) {
+        const prevIndex = orderedCrs.indexOf(prevKnown);
+        const nextIndex = orderedCrs.indexOf(nextKnown);
+        console.assert(
+          prevIndex < nextIndex,
+          "Station order conflict between services",
+          { crs, prevKnown, nextKnown, orderedCrs },
+        );
+        orderedCrs.splice(nextIndex, 0, crs);
+      } else if (prevKnown) {
+        const prevIndex = orderedCrs.indexOf(prevKnown);
+        orderedCrs.splice(prevIndex + 1, 0, crs);
+      } else if (nextKnown) {
+        const nextIndex = orderedCrs.indexOf(nextKnown);
+        orderedCrs.splice(nextIndex, 0, crs);
+      } else {
+        orderedCrs.push(crs);
+      }
+    });
+
+    const orderedSet = new Set(orderedCrs);
+    const filteredSequence = sequence.filter((crs) => orderedSet.has(crs));
+    const indices = filteredSequence.map((crs) => orderedCrs.indexOf(crs));
+    for (let i = 1; i < indices.length; i++) {
+      console.assert(
+        indices[i - 1] < indices[i],
+        "Station order mismatch with service calling pattern",
+        { sequence: filteredSequence, orderedCrs },
+      );
+    }
   }
 
   servicesWithDetails.forEach(({ detail }) => {
@@ -1562,7 +1614,7 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
       if (i1 === i2) continue;
 
       const step = i1 < i2 ? 1 : -1;
-      const span = Math.abs(i2 - i1);
+      const segmentSequence = [];
 
       for (let i = i1; step > 0 ? i <= i2 : i >= i2; i += step) {
         const l = locs[i];
@@ -1575,29 +1627,20 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         const tiploc = l.tiploc || "";
         const name = l.description || crs || tiploc;
 
-        let pos;
-        if (Object.prototype.hasOwnProperty.call(corridorIndex, crs)) {
-          // Corridor station itself -> exact integer corridor index
-          pos = corridorIndex[crs];
-        } else {
-          // Off-corridor station: interpolate between the two corridor stations
-          const offset = Math.abs(i - i1);
-          const frac = span === 0 ? 0 : offset / span;
-          pos = c1 + (c2 - c1) * frac; // fractional position between corridor indices
-        }
+        addStation(crs, tiploc, name);
+        segmentSequence.push(crs);
+      }
 
-        addStation(crs, tiploc, name, pos);
+      if (segmentSequence.length > 0) {
+        if (c1 > c2) {
+          segmentSequence.reverse();
+        }
+        mergeIntoOrder(segmentSequence);
       }
     }
   });
 
-  const stations = Object.values(stationMap);
-  stations.forEach((s) => {
-    const sum = s.positions.reduce((a, b) => a + b, 0);
-    s.avgPos = sum / s.positions.length;
-  });
-  stations.sort((a, b) => a.avgPos - b.avgPos);
-  return stations;
+  return orderedCrs.map((crs) => stationMap[crs]).filter(Boolean);
 }
 
 function splitByDirection(servicesWithDetails, stations) {
@@ -1658,14 +1701,13 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
 
       let base = mins + dayOffset;
 
-      // If this appears to go backwards, treat it as a midnight rollover
+      // If this appears to go backwards, only treat it as a midnight rollover
+      // when the jump is large enough to plausibly cross midnight.
       if (prevAbs !== null && base < prevAbs) {
-        // allow multiple midnights in pathological cases (up to a few days)
-        let safety = 0;
-        while (base <= prevAbs && safety < 5) {
+        const diff = prevAbs - base;
+        if (diff > 6 * 60) {
           dayOffset += 1440;
           base = mins + dayOffset;
-          safety++;
         }
       }
 
