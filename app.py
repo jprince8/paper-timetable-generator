@@ -44,6 +44,12 @@ STATIONS_N = [
     if st.get("crsCode")
 ]
 
+STATIONS_BY_CRS = {
+    st["crsCode"].upper(): st["stationName"]
+    for st in STATIONS
+    if st.get("crsCode")
+}
+
 def rtt_get(path, params=None):
     url = RTT_BASE + path
     resp = requests.get(url, auth=(RTT_USER, RTT_PASS), params=params, timeout=15)
@@ -128,8 +134,17 @@ def api_stations():
 
     qn = norm_station_query(q)
     results = []
+    crs_candidate = q.strip().upper()
+    if re.fullmatch(r"[A-Z]{3}", crs_candidate):
+        station_name = STATIONS_BY_CRS.get(crs_candidate)
+        if station_name:
+            results.append(
+                {"stationName": station_name, "crsCode": crs_candidate}
+            )
     for st in STATIONS_N:
         if qn in st["_n"]:
+            if any(r["crsCode"] == st["crsCode"] for r in results):
+                continue
             results.append(
                 {"stationName": st["stationName"], "crsCode": st["crsCode"]}
             )
