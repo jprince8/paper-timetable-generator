@@ -2560,9 +2560,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     stationTimesArrayForService(idx),
   );
 
-  function findBestInsertPosition(serviceIdx, orderedSvcIndices) {
-    if (orderedSvcIndices.length === 0) return 0;
-
+  function findInsertBounds(serviceIdx, orderedSvcIndices) {
     const label = serviceLabel(serviceIdx);
     sortLogLines.push("");
     sortLogLines.push(`Service: ${label}`);
@@ -2615,67 +2613,48 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       );
     }
 
-    if (hasConstraint && lowerBound <= upperBound) {
-      sortLogLines.push(
-        `Chosen position: ${lowerBound} (bounds ${lowerBound}-${upperBound})`,
-      );
-      return lowerBound;
-    }
-
-    let bestPos = 0;
-    let bestViolations = Infinity;
-    const violationSummary = [];
-
-    for (let pos = 0; pos <= orderedSvcIndices.length; pos++) {
-      let violations = 0;
-
-      for (let stationIdx = 0; stationIdx < numStations; stationIdx++) {
-        const time = perServiceStationTimes[serviceIdx][stationIdx];
-        if (time === null) continue;
-
-        for (let i = 0; i < pos; i++) {
-          const otherTime =
-            perServiceStationTimes[orderedSvcIndices[i]][stationIdx];
-          if (otherTime === null) continue;
-          if (otherTime > time) {
-            violations += 1;
-            break;
-          }
-        }
-
-        for (let i = pos; i < orderedSvcIndices.length; i++) {
-          const otherTime =
-            perServiceStationTimes[orderedSvcIndices[i]][stationIdx];
-          if (otherTime === null) continue;
-          if (otherTime < time) {
-            violations += 1;
-            break;
-          }
-        }
-      }
-
-      if (violations < bestViolations) {
-        bestViolations = violations;
-        bestPos = pos;
-      }
-
-      violationSummary.push({ pos, violations });
-    }
-
-    sortLogLines.push(
-      `No strict bounds; violations by position: ${violationSummary
-        .map((entry) => `${entry.pos}:${entry.violations}`)
-        .join(" ")}`,
-    );
-    sortLogLines.push(`Chosen position: ${bestPos}`);
-    return bestPos;
+    return { hasConstraint, lowerBound, upperBound };
   }
 
   const orderedSvcIndices = [];
+  const remainingServices = Array.from(
+    { length: numServices },
+    (_, idx) => idx,
+  );
 
-  for (let svcIdx = 0; svcIdx < numServices; svcIdx++) {
-    const insertPos = findBestInsertPosition(svcIdx, orderedSvcIndices);
-    orderedSvcIndices.splice(insertPos, 0, svcIdx);
+  if (remainingServices.length > 0) {
+    const seedService = remainingServices.shift();
+    orderedSvcIndices.push(seedService);
+    sortLogLines.push("");
+    sortLogLines.push(`Seed service: ${serviceLabel(seedService)}`);
+  }
+
+  let rotationsWithoutInsert = 0;
+  while (remainingServices.length > 0) {
+    if (rotationsWithoutInsert >= remainingServices.length) {
+      assertWithStatus(false, "Unable to sort some services", {
+        services: remainingServices.map(serviceLabel),
+      });
+      break;
+    }
+
+    const svcIdx = remainingServices.shift();
+    const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
+      svcIdx,
+      orderedSvcIndices,
+    );
+
+    if (hasConstraint && lowerBound <= upperBound) {
+      orderedSvcIndices.splice(lowerBound, 0, svcIdx);
+      rotationsWithoutInsert = 0;
+      sortLogLines.push(
+        `Chosen position: ${lowerBound} (bounds ${lowerBound}-${upperBound})`,
+      );
+    } else {
+      remainingServices.push(svcIdx);
+      rotationsWithoutInsert += 1;
+      sortLogLines.push("No strict bounds; moved to end of queue.");
+    }
   }
 
   sortLogLines.push("");
