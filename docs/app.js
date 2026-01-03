@@ -2619,9 +2619,14 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       const stationLower = lastLE + 1;
       const stationUpper =
         firstGE === orderedSvcIndices.length ? orderedSvcIndices.length : firstGE;
-      sortLogLines.push(
-        `  ${stationLabel} @ ${timeLabel || "?"}: last<=${lastLabel} (${lastTimeLabel || "?"}), first>=${firstLabel} (${firstTimeLabel || "?"}), bounds ${stationLower}-${stationUpper}`,
-      );
+      const sameService =
+        lastLE >= 0 &&
+        firstGE < orderedSvcIndices.length &&
+        lastLE === firstGE;
+      const stationLine = sameService
+        ? `  ${stationLabel} @ ${timeLabel || "?"}: same service=${lastLabel} (${lastTimeLabel || "?"}) at pos ${lastLE}, bounds ${stationLower}-${stationUpper}`
+        : `  ${stationLabel} @ ${timeLabel || "?"}: last<=${lastLabel} (${lastTimeLabel || "?"}), first>=${firstLabel} (${firstTimeLabel || "?"}), bounds ${stationLower}-${stationUpper}`;
+      sortLogLines.push(stationLine);
     }
 
     return { hasConstraint, lowerBound, upperBound };
