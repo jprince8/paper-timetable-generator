@@ -2608,8 +2608,19 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         firstGE < orderedSvcIndices.length
           ? serviceLabel(orderedSvcIndices[firstGE])
           : "none";
+      const lastTimeLabel =
+        lastLE >= 0
+          ? preferredTimeLabelAtStation(orderedSvcIndices[lastLE], stationIdx)
+          : "";
+      const firstTimeLabel =
+        firstGE < orderedSvcIndices.length
+          ? preferredTimeLabelAtStation(orderedSvcIndices[firstGE], stationIdx)
+          : "";
+      const stationLower = lastLE + 1;
+      const stationUpper =
+        firstGE === orderedSvcIndices.length ? orderedSvcIndices.length : firstGE;
       sortLogLines.push(
-        `  ${stationLabel} @ ${timeLabel || "?"}: last<=${lastLabel}, first>=${firstLabel}`,
+        `  ${stationLabel} @ ${timeLabel || "?"}: last<=${lastLabel} (${lastTimeLabel || "?"}), first>=${firstLabel} (${firstTimeLabel || "?"}), bounds ${stationLower}-${stationUpper}`,
       );
     }
 
@@ -2660,9 +2671,24 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         `Chosen position: ${lowerBound} (bounds ${lowerBound}-${upperBound})`,
       );
     } else {
+      const maxPos = orderedSvcIndices.length;
+      const candidateStart = hasConstraint ? lowerBound : 0;
+      const candidateEnd = hasConstraint ? upperBound : maxPos;
+      const candidates =
+        candidateStart <= candidateEnd
+          ? Array.from(
+              { length: candidateEnd - candidateStart + 1 },
+              (_, idx) => candidateStart + idx,
+            ).join(", ")
+          : "(none)";
+      const reason = hasConstraint
+        ? `conflicting bounds ${lowerBound}-${upperBound}`
+        : "no station constraints";
       remainingServices.push(svcIdx);
       rotationsWithoutInsert += 1;
-      sortLogLines.push("No strict bounds; moved to end of queue.");
+      sortLogLines.push(
+        `No strict bounds (${reason}); possible positions: ${candidates}. Moved to end of queue.`,
+      );
     }
   }
 
