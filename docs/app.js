@@ -1613,8 +1613,8 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         const nextIndex = orderedCrs.indexOf(nextKnown);
         assertWithStatus(
           prevIndex < nextIndex,
-          "Could not build a consistent station order for this corridor.",
-          { crs, prevKnown, nextKnown },
+          "Could not build a consistent station order for this corridor",
+          `inserting ${crs} between ${prevKnown} and ${nextKnown}`,
         );
         orderedCrs.splice(nextIndex, 0, crs);
       } else if (prevKnown) {
@@ -1634,8 +1634,8 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
     for (let i = 1; i < indices.length; i++) {
       assertWithStatus(
         indices[i - 1] < indices[i],
-        "Service calling pattern conflicts with the station order.",
-        { sequence: filteredSequence },
+        "Service calling pattern conflicts with the station order",
+        `sequence: ${filteredSequence.join(" → ")}`,
       );
     }
   }
@@ -1735,11 +1735,15 @@ function splitByDirection(servicesWithDetails, stations) {
   return { ab, ba };
 }
 
-function checkMonotonicTimes(rows, orderedSvcIndices) {
+function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   orderedSvcIndices.forEach((svcIndex) => {
     let dayOffset = 0; // minutes added for midnight rollovers
     let prevAbs = null; // previous absolute time in minutes
     let prevText = "";
+    let prevRowLabel = "";
+    const svc = servicesWithDetails[svcIndex]?.svc || {};
+    const headcode =
+      svc.trainIdentity || svc.runningIdentity || svc.serviceUid || "";
 
     for (let r = 0; r < rows.length; r++) {
       const val = rows[r].cells[svcIndex];
@@ -1764,21 +1768,23 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
 
       // If it's STILL going backwards, assert-fail in console
       if (prevAbs !== null && base < prevAbs) {
+        const currentRowLabel = rowLabelText(rows[r]) || "current stop";
+        const previousRowLabel = prevRowLabel || "previous stop";
+        const detailParts = [
+          `${previousRowLabel}: ${prevText} to ${currentRowLabel}: ${rawText}`,
+        ];
+        if (headcode) detailParts.push(`headcode: ${headcode}`);
         assertWithStatus(
           false,
-          "Timetable times go backwards in this corridor.",
-          {
-            from: prevText,
-            to: rawText,
-            row: rowLabelText(rows[r]),
-            serviceIndex: svcIndex,
-          },
+          "Timetable times go backwards in this corridor",
+          detailParts.join(", "),
         );
         break; // stop checking this service; we've already flagged it
       }
 
       prevAbs = base;
       prevText = rawText;
+      prevRowLabel = rowLabelText(rows[r]);
     }
   });
 }
@@ -2533,7 +2539,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
 
   // Assert (in console) that times in each service column never decrease
   // as you go down the table, allowing for midnight rollovers.
-  checkMonotonicTimes(rows, orderedSvcIndices);
+  checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails);
 
   return {
     rows,
