@@ -2185,8 +2185,43 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   // We store:
   //  - display: CRS only
   //  - title: full name only (no "from/to")
+  function buildEndpointMeta(location) {
+    if (!location) return null;
+    const crs = location.crs || "";
+    const name = location.description || crs || location.tiploc || "";
+    const display = crs || location.tiploc || name;
+    return { display, title: name };
+  }
+
+  function getSplitServiceInfo(svc) {
+    if (!svc) return null;
+    const candidates = [svc.serviceUid, svc.trainIdentity, svc.runningIdentity];
+    for (const value of candidates) {
+      if (!value) continue;
+      const match = String(value).match(/^(.*)\((1|2)\)$/);
+      if (match) {
+        const baseKey = svc.originalServiceUid || match[1].trim() || value;
+        return { baseKey, part: match[2] };
+      }
+    }
+    return null;
+  }
+
   const originMeta = new Array(numServices).fill(null);
   const destMeta = new Array(numServices).fill(null);
+  const splitPairs = new Map();
+
+  servicesWithDetails.forEach(({ svc, detail }) => {
+    const splitInfo = getSplitServiceInfo(svc);
+    if (!splitInfo || !detail?.locations?.length) return;
+    const locs = detail.locations;
+    const startMeta = buildEndpointMeta(locs[0]);
+    const endMeta = buildEndpointMeta(locs[locs.length - 1]);
+    if (!startMeta || !endMeta) return;
+    const entry = splitPairs.get(splitInfo.baseKey) || { parts: {} };
+    entry.parts[splitInfo.part] = { startMeta, endMeta };
+    splitPairs.set(splitInfo.baseKey, entry);
+  });
 
   servicesWithDetails.forEach(({ detail }, idx) => {
     const locs = detail.locations || [];
@@ -2198,19 +2233,28 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     if (firstLoc) {
       const crs = firstLoc.crs || "";
       if (!stationSet[crs]) {
-        const name = firstLoc.description || crs || firstLoc.tiploc || "";
-        const crsCode = crs || firstLoc.tiploc || name;
-        originMeta[idx] = { display: crsCode, title: name };
+        originMeta[idx] = buildEndpointMeta(firstLoc);
       }
     }
 
     if (lastLoc) {
       const crs = lastLoc.crs || "";
       if (!stationSet[crs]) {
-        const name = lastLoc.description || crs || lastLoc.tiploc || "";
-        const crsCode = crs || lastLoc.tiploc || name;
-        destMeta[idx] = { display: crsCode, title: name };
+        destMeta[idx] = buildEndpointMeta(lastLoc);
       }
+    }
+  });
+
+  servicesWithDetails.forEach(({ svc }, idx) => {
+    const splitInfo = getSplitServiceInfo(svc);
+    if (!splitInfo) return;
+    const pair = splitPairs.get(splitInfo.baseKey);
+    if (!pair) return;
+    if (splitInfo.part === "1" && pair.parts["2"]?.endMeta) {
+      destMeta[idx] = pair.parts["2"].endMeta;
+    }
+    if (splitInfo.part === "2" && pair.parts["1"]?.startMeta) {
+      originMeta[idx] = pair.parts["1"].startMeta;
     }
   });
 
