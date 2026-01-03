@@ -1,5 +1,6 @@
 // === Configuration ===
 const DEBUG_STATIONS = false; // set true to log station selection / dwell details
+const LOG_COLUMN_ORDERING = true; // set true to download per-station ordering logs
 // Apply the “must call at >=2 stops” rule *after* hiding stations
 // that have no public calls (and iterate to a stable result).
 
@@ -2569,6 +2570,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     (_, idx) => idx,
   );
 
+  const columnOrderingLogs = [];
+
   for (let stationIndex = numStations - 1; stationIndex >= 0; stationIndex--) {
     const stationInfo = displayStations[stationIndex];
     const beforeOrder = orderedSvcIndices;
@@ -2578,23 +2581,42 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     );
     orderedSvcIndices = order;
 
+    const logEntry = {
+      stationIndex,
+      crs: stationInfo?.crs || "",
+      name: stationInfo?.name || "",
+      timedEntries: timedEntries.map((entry) => ({
+        ...entry,
+        label: serviceLabel(entry.svcIdx),
+      })),
+      sortedEntries: sortedEntries.map((entry) => ({
+        ...entry,
+        label: serviceLabel(entry.svcIdx),
+      })),
+      before: beforeOrder.map((svcIdx) => serviceLabel(svcIdx)),
+      after: orderedSvcIndices.map((svcIdx) => serviceLabel(svcIdx)),
+    };
+
+    columnOrderingLogs.push(logEntry);
     console.log(
-      `[column-order] station ${stationIndex} ${
-        stationInfo?.crs || ""
-      } ${stationInfo?.name || ""}`.trim(),
-      {
-        timedEntries: timedEntries.map((entry) => ({
-          ...entry,
-          label: serviceLabel(entry.svcIdx),
-        })),
-        sortedEntries: sortedEntries.map((entry) => ({
-          ...entry,
-          label: serviceLabel(entry.svcIdx),
-        })),
-        before: beforeOrder.map((svcIdx) => serviceLabel(svcIdx)),
-        after: orderedSvcIndices.map((svcIdx) => serviceLabel(svcIdx)),
-      },
+      `[column-order] station ${stationIndex} ${logEntry.crs} ${logEntry.name}`.trim(),
+      logEntry,
     );
+  }
+
+  if (LOG_COLUMN_ORDERING && columnOrderingLogs.length > 0) {
+    const text = columnOrderingLogs
+      .map((entry) => JSON.stringify(entry))
+      .join("\n");
+    const blob = new Blob([text], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `column-ordering-${Date.now()}.log`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 
   // --- ATOC code -> display name override (updated LUT) ---
