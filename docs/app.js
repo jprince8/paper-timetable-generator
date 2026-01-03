@@ -2527,6 +2527,16 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     return mins === null ? null : mins;
   }
 
+  function serviceLabel(serviceIdx) {
+    const svc = servicesWithDetails[serviceIdx]?.svc || {};
+    return (
+      svc.trainIdentity ||
+      svc.runningIdentity ||
+      svc.serviceUid ||
+      `svc#${serviceIdx}`
+    );
+  }
+
   function reorderServicesByStation(order, stationIndex) {
     const timedEntries = [];
     const timedSlots = [];
@@ -2538,18 +2548,20 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       timedEntries.push({ svcIdx, mins, pos });
     });
 
-    if (timedEntries.length <= 1) return order;
+    if (timedEntries.length <= 1) {
+      return { order, timedEntries, sortedEntries: timedEntries.slice() };
+    }
 
-    timedEntries.sort((a, b) => {
+    const sortedEntries = timedEntries.slice().sort((a, b) => {
       if (a.mins !== b.mins) return a.mins - b.mins;
       return a.pos - b.pos;
     });
 
     const nextOrder = order.slice();
     for (let i = 0; i < timedSlots.length; i++) {
-      nextOrder[timedSlots[i]] = timedEntries[i].svcIdx;
+      nextOrder[timedSlots[i]] = sortedEntries[i].svcIdx;
     }
-    return nextOrder;
+    return { order: nextOrder, timedEntries, sortedEntries };
   }
 
   let orderedSvcIndices = Array.from(
@@ -2558,9 +2570,30 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   );
 
   for (let stationIndex = numStations - 1; stationIndex >= 0; stationIndex--) {
-    orderedSvcIndices = reorderServicesByStation(
+    const stationInfo = displayStations[stationIndex];
+    const beforeOrder = orderedSvcIndices;
+    const { order, timedEntries, sortedEntries } = reorderServicesByStation(
       orderedSvcIndices,
       stationIndex,
+    );
+    orderedSvcIndices = order;
+
+    console.log(
+      `[column-order] station ${stationIndex} ${
+        stationInfo?.crs || ""
+      } ${stationInfo?.name || ""}`.trim(),
+      {
+        timedEntries: timedEntries.map((entry) => ({
+          ...entry,
+          label: serviceLabel(entry.svcIdx),
+        })),
+        sortedEntries: sortedEntries.map((entry) => ({
+          ...entry,
+          label: serviceLabel(entry.svcIdx),
+        })),
+        before: beforeOrder.map((svcIdx) => serviceLabel(svcIdx)),
+        after: orderedSvcIndices.map((svcIdx) => serviceLabel(svcIdx)),
+      },
     );
   }
 
