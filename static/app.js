@@ -35,6 +35,7 @@ const toCrsInput = document.getElementById("toCrs");
 const toSuggestBox = document.getElementById("toSuggest");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 const shareBtn = document.getElementById("shareBtn");
+const realtimeBtn = document.getElementById("realtimeBtn");
 const cookieBanner = document.getElementById("cookieBanner");
 const cookieAcceptBtn = document.getElementById("cookieAcceptBtn");
 const nowBtn = document.getElementById("nowBtn");
@@ -47,6 +48,9 @@ let currentDate = "";
 let startMinutes = null;
 let endMinutes = null;
 let lastPdfPayload = null;
+let lastTimetableContext = null;
+let realtimeEnabled = false;
+let realtimeAvailable = false;
 
 // === Form helpers ===
 addViaBtn.addEventListener("click", () => {
@@ -78,6 +82,28 @@ if (nowBtn) {
     document.getElementById("serviceDate").value = formatDateInput(now);
     document.getElementById("startTime").value = formatTimeInput(start);
     document.getElementById("endTime").value = formatTimeInput(end);
+  });
+}
+
+function setRealtimeToggleState({ enabled, active }) {
+  realtimeAvailable = enabled;
+  realtimeEnabled = enabled && active;
+  if (!realtimeBtn) return;
+  realtimeBtn.disabled = !enabled;
+  realtimeBtn.classList.toggle("is-active", realtimeEnabled);
+  realtimeBtn.setAttribute("aria-pressed", realtimeEnabled ? "true" : "false");
+}
+
+if (realtimeBtn) {
+  realtimeBtn.addEventListener("click", () => {
+    if (realtimeBtn.disabled) return;
+    setRealtimeToggleState({
+      enabled: realtimeAvailable,
+      active: !realtimeEnabled,
+    });
+    if (lastTimetableContext) {
+      renderTimetablesFromContext(lastTimetableContext);
+    }
   });
 }
 
@@ -555,6 +581,126 @@ function rttTimeToMinutes(hhmm) {
   return h * 60 + m;
 }
 
+function cellToText(cell) {
+  if (!cell) return "";
+  if (typeof cell === "object") return cell.text || "";
+  return String(cell);
+}
+
+function formatDelayText(delayMins) {
+  if (!delayMins || Number.isNaN(delayMins)) return "";
+  const sign = delayMins > 0 ? "+" : "";
+  return `${sign}${delayMins}`;
+}
+
+function hexToRgb(hex) {
+  const normalized = hex.replace("#", "");
+  if (normalized.length !== 6) return null;
+  const intVal = parseInt(normalized, 16);
+  if (Number.isNaN(intVal)) return null;
+  return {
+    r: (intVal >> 16) & 255,
+    g: (intVal >> 8) & 255,
+    b: intVal & 255,
+  };
+}
+
+function rgbToHex({ r, g, b }) {
+  const clamp = (val) => Math.max(0, Math.min(255, Math.round(val)));
+  return `#${[r, g, b]
+    .map((val) => clamp(val).toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+function interpolateHexColor(startHex, endHex, t) {
+  const start = hexToRgb(startHex);
+  const end = hexToRgb(endHex);
+  if (!start || !end) return endHex;
+  const mix = (a, b) => a + (b - a) * t;
+  return rgbToHex({
+    r: mix(start.r, end.r),
+    g: mix(start.g, end.g),
+    b: mix(start.b, end.b),
+  });
+}
+
+function delayToColor(delayMins) {
+  if (delayMins === null || delayMins === undefined) return null;
+  const absDelay = Math.abs(delayMins);
+  if (absDelay <= 1) return null;
+
+  const earlyDark = "#1f3a6f";
+  const earlyBright = "#2c6fbe";
+  const lateDark = "#7a1f1f";
+  const lateBright = "#e53935";
+
+  if (delayMins < 0) {
+    if (absDelay <= 5) return earlyDark;
+    return earlyBright;
+  }
+
+  if (absDelay <= 5) return lateDark;
+  if (absDelay >= 20) return lateBright;
+
+  const t = (absDelay - 5) / (20 - 5);
+  return interpolateHexColor(lateDark, lateBright, t);
+}
+
+function chooseDisplayedTimeAndStatus(
+  loc,
+  isArrival,
+  serviceRealtimeActivated,
+  realtimeToggleEnabled,
+) {
+  const sched = isArrival
+    ? loc.gbttBookedArrival
+    : loc.gbttBookedDeparture;
+  const rt = isArrival ? loc.realtimeArrival : loc.realtimeDeparture;
+  const rtAct = isArrival
+    ? loc.realtimeArrivalActual
+    : loc.realtimeDepartureActual;
+
+  const schedDisplay = sched ? padTime(sched) : "";
+  const rtDisplay = rt ? padTime(rt) : "";
+
+  if ((loc.displayAs || "").toUpperCase() === "CANCELLED_CALL") {
+    return {
+      text: schedDisplay,
+      format: { strike: true },
+    };
+  }
+
+  if (serviceRealtimeActivated !== true || !realtimeToggleEnabled) {
+    return { text: schedDisplay, format: null };
+  }
+
+  if (loc.realtimePassNoReport === true) {
+    return {
+      text: schedDisplay,
+      format: { color: "muted" },
+    };
+  }
+
+  if (rtDisplay) {
+    const schedMins = rttTimeToMinutes(sched);
+    const rtMins = rttTimeToMinutes(rt);
+    const delayMins =
+      schedMins !== null && rtMins !== null ? rtMins - schedMins : null;
+    const color = delayToColor(delayMins);
+    return {
+      text: rtDisplay,
+      format: {
+        bold: rtAct === true,
+        italic: rtAct !== true,
+        color,
+        delayMins: rtAct === true ? delayMins : null,
+      },
+    };
+  }
+
+  return { text: schedDisplay, format: null };
+}
+
 function serviceInTimeRange(locationDetail) {
   if (!locationDetail) return false;
   const tStr =
@@ -631,10 +777,13 @@ function resetOutputs() {
   downloadPdfBtn.disabled = true;
   shareBtn.disabled = true;
   lastPdfPayload = null;
+  lastTimetableContext = null;
+  setRealtimeToggleState({ enabled: false, active: false });
 }
 
 function stripHtmlToText(value) {
   if (!value) return "";
+  if (typeof value === "object") return cellToText(value);
   if (!String(value).includes("<")) return String(value);
   const wrapper = document.createElement("div");
   wrapper.innerHTML = value;
@@ -651,8 +800,9 @@ function rowLabelText(row) {
 }
 
 function extractFirstTime(value) {
-  if (!value) return "";
-  const match = String(value).match(/\b\d{2}:\d{2}\b/);
+  const text = cellToText(value);
+  if (!text) return "";
+  const match = String(text).match(/\b\d{2}:\d{2}\b/);
   return match ? match[0] : "";
 }
 
@@ -676,13 +826,13 @@ function buildPdfTableData(model) {
   const tableRows = rows.map((row) => {
     const label = rowLabelText(row);
     const cells = orderedSvcIndices.map((svcIndex) =>
-      stripHtmlToText(row.cells[svcIndex]),
+      cellToText(row.cells[svcIndex]),
     );
     return [label, ...cells];
   });
   const serviceTimes = orderedSvcIndices.map((svcIndex) => {
     for (const row of rows) {
-      const value = stripHtmlToText(row.cells[svcIndex]);
+      const value = cellToText(row.cells[svcIndex]);
       const time = extractFirstTime(value);
       if (time) return time;
     }
@@ -802,6 +952,95 @@ shareBtn.addEventListener("click", async () => {
     setStatus("Unable to copy share link.", { isError: true });
   }
 });
+
+function renderTimetablesFromContext(context) {
+  const {
+    stations,
+    stationSet,
+    servicesAB,
+    servicesBA,
+    fromName,
+    toName,
+    forwardStopsLabel,
+    reverseStopsLabel,
+    corridorLabel,
+    dateLabel,
+    generatedTimestamp,
+  } = context;
+  const pdfTables = [];
+
+  if (servicesAB.length > 0) {
+    const modelAB = buildTimetableModel(stations, stationSet, servicesAB, {
+      realtimeEnabled,
+    });
+    const pdfModelAB = buildTimetableModel(stations, stationSet, servicesAB, {
+      realtimeEnabled: false,
+    });
+    headingAB.textContent =
+      forwardStopsLabel +
+      " (" +
+      modelAB.orderedSvcIndices.length +
+      " services)";
+    renderTimetable(modelAB, headerRowAB, headerIconsRowAB, bodyRowsAB);
+    const tableDataAB = buildPdfTableData(pdfModelAB);
+    pdfTables.push({
+      title: `${fromName} → ${toName}`,
+      dateLabel,
+      serviceTimes: tableDataAB.serviceTimes,
+      ...tableDataAB,
+    });
+    tableCardAB?.classList.add("has-data");
+  } else {
+    headingAB.textContent =
+      forwardStopsLabel + ": no through services in this time range";
+    tableCardAB?.classList.remove("has-data");
+  }
+
+  if (servicesBA.length > 0) {
+    const stationsRev = stations.slice().reverse();
+    const modelBA = buildTimetableModel(stationsRev, stationSet, servicesBA, {
+      realtimeEnabled,
+    });
+    const pdfModelBA = buildTimetableModel(stationsRev, stationSet, servicesBA, {
+      realtimeEnabled: false,
+    });
+    headingBA.textContent =
+      reverseStopsLabel +
+      " (" +
+      modelBA.orderedSvcIndices.length +
+      " services)";
+    renderTimetable(modelBA, headerRowBA, headerIconsRowBA, bodyRowsBA);
+    const tableDataBA = buildPdfTableData(pdfModelBA);
+    pdfTables.push({
+      title: `${toName} → ${fromName}`,
+      dateLabel,
+      serviceTimes: tableDataBA.serviceTimes,
+      ...tableDataBA,
+    });
+    tableCardBA?.classList.add("has-data");
+  } else {
+    headingBA.textContent =
+      reverseStopsLabel + ": no through services in this time range";
+    tableCardBA?.classList.remove("has-data");
+  }
+
+  if (pdfTables.length > 0) {
+    const title = corridorLabel || `${fromName} ↔ ${toName}`;
+    const subtitle = `Generated on ${generatedTimestamp}`;
+    lastPdfPayload = {
+      meta: {
+        title,
+        subtitle,
+      },
+      tables: pdfTables,
+    };
+    downloadPdfBtn.disabled = false;
+    shareBtn.disabled = false;
+  } else {
+    downloadPdfBtn.disabled = true;
+    shareBtn.disabled = true;
+  }
+}
 
 // === Main form submit ===
 form.addEventListener("submit", async (e) => {
@@ -1231,8 +1470,6 @@ form.addEventListener("submit", async (e) => {
   const servicesAB = split.ab;
   const servicesBA = split.ba;
 
-  // Build A -> B table (stations in forward order)
-  const pdfTables = [];
   const fromName = findStationNameByCrs(stations, from);
   const toName = findStationNameByCrs(stations, to);
   const viaNames = viaValues.map((crs) => findStationNameByCrs(stations, crs));
@@ -1249,67 +1486,27 @@ form.addEventListener("submit", async (e) => {
     .join(" → ");
   const corridorLabel = [fromName, ...viaNamesForward, toName].join(" ↔ ");
   const dateLabel = formatDateDisplay(currentDate);
-  if (servicesAB.length > 0) {
-    const modelAB = buildTimetableModel(stations, stationSet, servicesAB);
-    headingAB.textContent =
-      forwardStopsLabel +
-      " (" +
-      modelAB.orderedSvcIndices.length +
-      " services)";
-    renderTimetable(modelAB, headerRowAB, headerIconsRowAB, bodyRowsAB);
-    const tableDataAB = buildPdfTableData(modelAB);
-    pdfTables.push({
-      title: `${fromName} → ${toName}`,
-      dateLabel,
-      serviceTimes: tableDataAB.serviceTimes,
-      ...tableDataAB,
-    });
-    tableCardAB?.classList.add("has-data");
-  } else {
-    headingAB.textContent =
-      forwardStopsLabel + ": no through services in this time range";
-  }
 
-  // Build B -> A table (stations in reverse order)
-  if (servicesBA.length > 0) {
-    const stationsRev = stations.slice().reverse();
-    const modelBA = buildTimetableModel(
-      stationsRev,
-      stationSet,
-      servicesBA,
-    );
-    headingBA.textContent =
-      reverseStopsLabel +
-      " (" +
-      modelBA.orderedSvcIndices.length +
-      " services)";
-    renderTimetable(modelBA, headerRowBA, headerIconsRowBA, bodyRowsBA);
-    const tableDataBA = buildPdfTableData(modelBA);
-    pdfTables.push({
-      title: `${toName} → ${fromName}`,
-      dateLabel,
-      serviceTimes: tableDataBA.serviceTimes,
-      ...tableDataBA,
-    });
-    tableCardBA?.classList.add("has-data");
-  } else {
-    headingBA.textContent =
-      reverseStopsLabel + ": no through services in this time range";
-  }
+  const hasRealtimeServices =
+    servicesAB.some((entry) => entry.detail?.realtimeActivated === true) ||
+    servicesBA.some((entry) => entry.detail?.realtimeActivated === true);
+  setRealtimeToggleState({ enabled: hasRealtimeServices, active: false });
 
-  if (pdfTables.length > 0) {
-    const title = corridorLabel || `${fromName} ↔ ${toName}`;
-    const subtitle = `Generated on ${formatGeneratedTimestamp()}`;
-    lastPdfPayload = {
-      meta: {
-        title,
-        subtitle,
-      },
-      tables: pdfTables,
-    };
-    downloadPdfBtn.disabled = false;
-    shareBtn.disabled = false;
-  }
+  lastTimetableContext = {
+    stations,
+    stationSet,
+    servicesAB,
+    servicesBA,
+    fromName,
+    toName,
+    viaNamesForward,
+    forwardStopsLabel,
+    reverseStopsLabel,
+    corridorLabel,
+    dateLabel,
+    generatedTimestamp: formatGeneratedTimestamp(),
+  };
+  renderTimetablesFromContext(lastTimetableContext);
   hideStatus();
 });
 
@@ -1450,10 +1647,10 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
     for (let r = 0; r < rows.length; r++) {
       const val = rows[r].cells[svcIndex];
 
-      if (!val) continue;
-      if (typeof val === "string" && val.startsWith("<i")) continue; // skip from/to italics
+      const rawText = cellToText(val);
+      if (!rawText) continue;
 
-      const mins = timeStrToMinutes(val); // "HH:MM" -> 0..1439
+      const mins = timeStrToMinutes(rawText); // "HH:MM" -> 0..1439
       if (mins === null) continue;
 
       let base = mins + dayOffset;
@@ -1490,7 +1687,13 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
   });
 }
 
-  function buildTimetableModel(stations, stationSet, servicesWithDetails) {
+  function buildTimetableModel(
+    stations,
+    stationSet,
+    servicesWithDetails,
+    options = {},
+  ) {
+    const { realtimeEnabled: realtimeToggleEnabled = false } = options;
     // --- Helper: decide which stations get rows (only those with at least one PUBLIC call) ---
     function computeDisplayStations(stationsList, svcs) {
       return stationsList.filter((station) => {
@@ -1569,7 +1772,11 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
       );
     }
 
-    const numStations = displayStations.length;
+  const numStations = displayStations.length;
+
+  const serviceRealtimeFlags = servicesWithDetails.map(
+    ({ detail }) => detail && detail.realtimeActivated === true,
+  );
 
   // --- Precompute per-station, per-service arrival/departure times ---
   // stationTimes[stationIndex][svcIndex] = { arrStr, arrMins, depStr, depMins }
@@ -1606,6 +1813,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
         arrMins,
         depStr,
         depMins,
+        loc,
       };
     });
   });
@@ -1883,18 +2091,49 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
       for (let s = 0; s < numServices; s++) {
         const t = stationTimes[stationIndex][s];
         if (!t) continue;
+        const loc = t.loc;
+        if (!loc) continue;
+
+        const serviceRealtimeActivated = serviceRealtimeFlags[s] === true;
 
         let timeStr = "";
+        let timeFormat = null;
         if (mode === "arr") {
-          timeStr = t.arrStr;
+          const chosen = chooseDisplayedTimeAndStatus(
+            loc,
+            true,
+            serviceRealtimeActivated,
+            realtimeToggleEnabled,
+          );
+          timeStr = chosen.text;
+          timeFormat = chosen.format;
         } else if (mode === "dep") {
-          timeStr = t.depStr;
+          const chosen = chooseDisplayedTimeAndStatus(
+            loc,
+            false,
+            serviceRealtimeActivated,
+            realtimeToggleEnabled,
+          );
+          timeStr = chosen.text;
+          timeFormat = chosen.format;
         } else if (mode === "merged" || mode === "single") {
-          timeStr = t.depStr || t.arrStr;
+          const hasDeparture =
+            loc.gbttBookedDeparture || loc.realtimeDeparture;
+          const chosen = chooseDisplayedTimeAndStatus(
+            loc,
+            !hasDeparture,
+            serviceRealtimeActivated,
+            realtimeToggleEnabled,
+          );
+          timeStr = chosen.text;
+          timeFormat = chosen.format;
         }
 
         if (timeStr) {
-          rows[r].cells[s] = timeStr;
+          rows[r].cells[s] = {
+            text: timeStr,
+            format: timeFormat,
+          };
           if (firstRowForService[s] === null || r < firstRowForService[s])
             firstRowForService[s] = r;
           if (lastRowForService[s] === null || r > lastRowForService[s])
@@ -1926,15 +2165,21 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
 
     if (fromInfo && topExtraRowIdx !== null) {
       if (!rows[topExtraRowIdx].cells[svcIndex]) {
-        rows[topExtraRowIdx].cells[svcIndex] =
-          `<i title="${htmlEscape(fromInfo.title)}">${htmlEscape(fromInfo.display)}</i>`;
+        rows[topExtraRowIdx].cells[svcIndex] = {
+          text: fromInfo.display,
+          title: fromInfo.title,
+          format: { italic: true },
+        };
       }
     }
 
     if (toInfo && bottomExtraRowIdx !== null) {
       if (!rows[bottomExtraRowIdx].cells[svcIndex]) {
-        rows[bottomExtraRowIdx].cells[svcIndex] =
-          `<i title="${htmlEscape(toInfo.title)}">${htmlEscape(toInfo.display)}</i>`;
+        rows[bottomExtraRowIdx].cells[svcIndex] = {
+          text: toInfo.display,
+          title: toInfo.title,
+          format: { italic: true },
+        };
       }
     }
   });
@@ -1956,9 +2201,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
     for (let stIdx = 0; stIdx < numStations; stIdx++) {
       const groupRows = stationRowGroups[stIdx];
       for (const r of groupRows) {
-        const v = rows[r].cells[s];
+        const v = cellToText(rows[r].cells[s]);
         if (!v) continue;
-        if (typeof v === "string" && v.startsWith("<i")) continue; // ignore Comes/Continues rows if ever present
         called[stIdx] = true;
         break;
       }
@@ -1980,7 +2224,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
       if (called[stIdx]) continue; // not skipped
       for (const r of stationRowGroups[stIdx]) {
         if (rows[r].cells[s] === "") {
-          rows[r].cells[s] = "|";
+          rows[r].cells[s] = { text: "|" };
         }
       }
     }
@@ -2319,10 +2563,32 @@ function renderTimetable(
     orderedSvcIndices.forEach((svcIndex) => {
       const val = row.cells[svcIndex];
       const td = document.createElement("td");
-      if (val && val.startsWith("<i")) {
-        td.innerHTML = val;
+      if (val && typeof val === "object") {
+        const text = val.text || "";
+        if (!text) {
+          td.classList.add("time-empty");
+        } else {
+          const span = document.createElement("span");
+          span.textContent = text;
+          const format = val.format || {};
+          if (format.bold) span.classList.add("time-bold");
+          if (format.italic) span.classList.add("time-italic");
+          if (format.strike) span.classList.add("time-cancelled");
+          if (format.color === "muted") {
+            span.classList.add("time-muted");
+          } else if (format.color && format.color.startsWith("#")) {
+            span.style.color = format.color;
+          }
+          const titleParts = [];
+          if (val.title) titleParts.push(val.title);
+          if (format.bold && format.delayMins) {
+            titleParts.push(formatDelayText(format.delayMins));
+          }
+          if (titleParts.length) span.title = titleParts.join(" ");
+          td.appendChild(span);
+        }
       } else {
-        td.textContent = val;
+        td.textContent = val || "";
         if (!val) td.classList.add("time-empty");
       }
       tr.appendChild(td);
