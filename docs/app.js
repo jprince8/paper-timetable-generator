@@ -2480,13 +2480,10 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   }
 
   // === Column ordering ===
-  // We insert services row-by-row based on firstRowForService.
-  // When inserting a service that starts on a given row, we compare it against
-  // existing columns using the *time on that same row*, with this preference:
-  //   - use departure time if available
+  // For each station from bottom to top, reorder columns by time:
+  //   - prefer departure time if available
   //   - otherwise use arrival time
-  //
-  // (If a service has no time on that row at all, it sorts last for that row.)
+  // Columns with no time at that station keep their existing positions.
   function orderingTimeStrForLoc(
     loc,
     preferDeparture,
@@ -2508,11 +2505,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     return dep ? padTime(dep) : "";
   }
 
-  function preferredTimeMinsAtRow(serviceIdx, rowIdx) {
-    const spec = rowSpecs[rowIdx];
-    if (!spec || spec.kind !== "station") return null;
-
-    const stationIndex = spec.stationIndex;
+  function preferredTimeMinsAtStation(serviceIdx, stationIndex) {
     const t = stationTimes[stationIndex][serviceIdx];
     if (!t) return null;
     const loc = t.loc;
@@ -2534,84 +2527,42 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     return mins === null ? null : mins;
   }
 
-  // Phase A: build a time matrix per row/service so each row has comparable
-  // times (or null) for each service.
-  const rowTimeMins = Array.from({ length: totalRows }, (_, rowIdx) => {
-    const rowTimes = new Array(numServices).fill(null);
-    for (let svcIdx = 0; svcIdx < numServices; svcIdx++) {
-      rowTimes[svcIdx] = preferredTimeMinsAtRow(svcIdx, rowIdx);
-    }
-    return rowTimes;
-  });
+  function reorderServicesByStation(order, stationIndex) {
+    const timedEntries = [];
+    const timedSlots = [];
 
-  // Phase B: compute an ordering that minimizes weighted out-of-order pairs.
-  const pairDataCache = new Map();
-  function pairKey(a, b) {
-    return a < b ? `${a}|${b}` : `${b}|${a}`;
+    order.forEach((svcIdx, pos) => {
+      const mins = preferredTimeMinsAtStation(svcIdx, stationIndex);
+      if (mins === null) return;
+      timedSlots.push(pos);
+      timedEntries.push({ svcIdx, mins, pos });
+    });
+
+    if (timedEntries.length <= 1) return order;
+
+    timedEntries.sort((a, b) => {
+      if (a.mins !== b.mins) return a.mins - b.mins;
+      return a.pos - b.pos;
+    });
+
+    const nextOrder = order.slice();
+    for (let i = 0; i < timedSlots.length; i++) {
+      nextOrder[timedSlots[i]] = timedEntries[i].svcIdx;
+    }
+    return nextOrder;
   }
 
-  function getPairData(a, b) {
-    const key = pairKey(a, b);
-    if (pairDataCache.has(key)) return pairDataCache.get(key);
-
-    let scoreAB = 0;
-    let scoreBA = 0;
-    let earliestRow = null;
-    let earliestOrder = 0;
-    let flipDetected = false;
-
-    for (let rowIdx = 0; rowIdx < totalRows; rowIdx++) {
-      const timeA = rowTimeMins[rowIdx][a];
-      const timeB = rowTimeMins[rowIdx][b];
-      if (timeA === null || timeB === null) continue;
-      if (timeA === timeB) continue;
-
-      const weight = totalRows - rowIdx;
-      if (timeA > timeB) {
-        scoreAB += weight;
-      } else {
-        scoreBA += weight;
-      }
-
-      const order = timeA < timeB ? -1 : 1;
-      if (earliestRow === null) {
-        earliestRow = rowIdx;
-        earliestOrder = order;
-      } else if (!flipDetected && order !== earliestOrder) {
-        flipDetected = true;
-      }
-    }
-
-    const data = {
-      scoreAB,
-      scoreBA,
-      earliestRow,
-      earliestOrder,
-      flipDetected,
-    };
-    pairDataCache.set(key, data);
-    return data;
-  }
-
-  const orderedSvcIndices = Array.from(
+  let orderedSvcIndices = Array.from(
     { length: numServices },
     (_, idx) => idx,
   );
 
-  orderedSvcIndices.sort((a, b) => {
-    if (a === b) return 0;
-    const { scoreAB, scoreBA, earliestRow, earliestOrder, flipDetected } =
-      getPairData(a, b);
-
-    if (earliestRow === null) return a - b;
-
-    // Overtake detection: if ordering flips, prioritise the earliest row.
-    if (flipDetected && earliestOrder !== 0) return earliestOrder;
-
-    if (scoreAB !== scoreBA) return scoreAB - scoreBA;
-    if (earliestOrder !== 0) return earliestOrder;
-    return a - b;
-  });
+  for (let stationIndex = numStations - 1; stationIndex >= 0; stationIndex--) {
+    orderedSvcIndices = reorderServicesByStation(
+      orderedSvcIndices,
+      stationIndex,
+    );
+  }
 
   // --- ATOC code -> display name override (updated LUT) ---
   const ATOC_NAME_BY_CODE = {
