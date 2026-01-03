@@ -162,7 +162,7 @@
       }
 
       .form-row-stations {
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         overflow-y: visible;
         width: 100%;
         row-gap: 1rem;
@@ -618,7 +618,18 @@
         }
 
         .form-row-stations {
+          flex-wrap: wrap;
           align-items: stretch;
+        }
+
+        .form-row-stations > label,
+        .form-row-stations .via-group {
+          flex: 1 1 100%;
+        }
+
+        .action-buttons .btn {
+          flex: 1 1 100%;
+          min-width: 0;
         }
       }
     </style>
