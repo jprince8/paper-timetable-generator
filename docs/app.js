@@ -1599,14 +1599,19 @@ function splitServiceEntries(entries, corridorStations = []) {
     const locations = entry.detail.locations;
     const firstLocations = locations.slice(0, splitIndex + 1);
     const secondLocations = locations.slice(splitIndex);
+    const firstSvc = withServiceSuffix(entry.svc, "(1)");
+    firstSvc.splitContinuesToLocation =
+      secondLocations[secondLocations.length - 1] || null;
+    const secondSvc = withServiceSuffix(entry.svc, "(2)");
+    secondSvc.splitComesFromLocation = firstLocations[0] || null;
     splitEntries.push({
       ...entry,
-      svc: withServiceSuffix(entry.svc, "(1)"),
+      svc: firstSvc,
       detail: { ...entry.detail, locations: firstLocations },
     });
     splitEntries.push({
       ...entry,
-      svc: withServiceSuffix(entry.svc, "(2)"),
+      svc: secondSvc,
       detail: { ...entry.detail, locations: secondLocations },
     });
   });
@@ -2193,35 +2198,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     return { display, title: name };
   }
 
-  function getSplitServiceInfo(svc) {
-    if (!svc) return null;
-    const candidates = [svc.serviceUid, svc.trainIdentity, svc.runningIdentity];
-    for (const value of candidates) {
-      if (!value) continue;
-      const match = String(value).match(/^(.*)\((1|2)\)$/);
-      if (match) {
-        const baseKey = svc.originalServiceUid || match[1].trim() || value;
-        return { baseKey, part: match[2] };
-      }
-    }
-    return null;
-  }
-
   const originMeta = new Array(numServices).fill(null);
   const destMeta = new Array(numServices).fill(null);
-  const splitPairs = new Map();
-
-  servicesWithDetails.forEach(({ svc, detail }) => {
-    const splitInfo = getSplitServiceInfo(svc);
-    if (!splitInfo || !detail?.locations?.length) return;
-    const locs = detail.locations;
-    const startMeta = buildEndpointMeta(locs[0]);
-    const endMeta = buildEndpointMeta(locs[locs.length - 1]);
-    if (!startMeta || !endMeta) return;
-    const entry = splitPairs.get(splitInfo.baseKey) || { parts: {} };
-    entry.parts[splitInfo.part] = { startMeta, endMeta };
-    splitPairs.set(splitInfo.baseKey, entry);
-  });
 
   servicesWithDetails.forEach(({ detail }, idx) => {
     const locs = detail.locations || [];
@@ -2246,15 +2224,11 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   });
 
   servicesWithDetails.forEach(({ svc }, idx) => {
-    const splitInfo = getSplitServiceInfo(svc);
-    if (!splitInfo) return;
-    const pair = splitPairs.get(splitInfo.baseKey);
-    if (!pair) return;
-    if (splitInfo.part === "1" && pair.parts["2"]?.endMeta) {
-      destMeta[idx] = pair.parts["2"].endMeta;
+    if (svc?.splitContinuesToLocation) {
+      destMeta[idx] = buildEndpointMeta(svc.splitContinuesToLocation);
     }
-    if (splitInfo.part === "2" && pair.parts["1"]?.startMeta) {
-      originMeta[idx] = pair.parts["1"].startMeta;
+    if (svc?.splitComesFromLocation) {
+      originMeta[idx] = buildEndpointMeta(svc.splitComesFromLocation);
     }
   });
 
