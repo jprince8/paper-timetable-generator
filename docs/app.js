@@ -4,9 +4,12 @@ const DEBUG_STATIONS = false; // set true to log station selection / dwell detai
 // that have no public calls (and iterate to a stable result).
 
 // === Proxy endpoints ===
-const PROXY_SEARCH = "/rtt/search";
-const PROXY_SERVICE = "/rtt/service";
-const STATION_SEARCH = "/api/stations";
+const BACKEND_BASE = (window.BACKEND_BASE || "").trim()
+const PROXY_SEARCH = `${BACKEND_BASE}/rtt/search`;
+const PROXY_SERVICE = `${BACKEND_BASE}/rtt/service`;
+const PROXY_PDF = `${BACKEND_BASE}/timetable/pdf`; // if you call this from JS
+const PROXY_STATION = `${BACKEND_BASE}/api/stations`; // if you call this from JS
+
 const STATION_DEBOUNCE_MS = 180;
 const STATION_MIN_QUERY = 2;
 
@@ -112,7 +115,7 @@ async function fetchStationMatches(query) {
     return [];
   }
   const resp = await fetch(
-    `${STATION_SEARCH}?q=${encodeURIComponent(query)}`,
+    `${API_STATION}?q=${encodeURIComponent(query)}`,
   );
   if (!resp.ok) {
     return [];
@@ -874,7 +877,7 @@ downloadPdfBtn.addEventListener("click", async () => {
   setStatus("Building PDF...");
 
   try {
-    const resp = await fetch("/timetable/pdf", {
+    const resp = await fetch(PROXY_PDF, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(lastPdfPayload),

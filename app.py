@@ -7,7 +7,18 @@ import requests
 
 from pdf_utils import build_timetable_pdf
 
+from flask_cors import CORS
+
 app = Flask(__name__, static_folder="static")
+
+CORS(
+    app,
+    resources={
+        r"/rtt/*": {"origins": "https://jprince8.github.io"},
+        r"/timetable/*": {"origins": "https://jprince8.github.io"},
+        r"/api/*": {"origins": "https://jprince8.github.io"},
+    },
+)
 
 # Credentials MUST be set in Cloud Run env vars (do NOT hardcode)
 RTT_USER = os.environ.get("RTT_USER")
@@ -61,9 +72,10 @@ def rtt_get(path, params=None):
         raise
     return resp.json()
 
-@app.route("/")
-def index():
-    return send_from_directory(app.static_folder, "index.html")
+# Disabled due to frontend and backend in different places
+# @app.route("/")
+# def index():
+#     return send_from_directory(app.static_folder, "index.html")
 
 @app.route("/rtt/search")
 def api_search():
