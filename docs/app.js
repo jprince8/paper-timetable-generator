@@ -37,7 +37,7 @@ const toStationInput = document.getElementById("toStation");
 const toCrsInput = document.getElementById("toCrs");
 const toSuggestBox = document.getElementById("toSuggest");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
-const ENABLE_SORT_LOG_DOWNLOAD = false;
+const ENABLE_SORT_LOG_DOWNLOAD = true;
 const shareBtn = document.getElementById("shareBtn");
 const realtimeBtn = document.getElementById("realtimeBtn");
 const cookieBanner = document.getElementById("cookieBanner");
@@ -2632,8 +2632,17 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   let rotationsWithoutInsert = 0;
   while (remainingServices.length > 0) {
     if (rotationsWithoutInsert >= remainingServices.length) {
+      const unsortedLabels = remainingServices.map(serviceLabel);
+      sortLogLines.push(
+        `Assertion: unable to determine strict bounds for remaining services: ${unsortedLabels.join(
+          ", ",
+        )}`,
+      );
+      if (ENABLE_SORT_LOG_DOWNLOAD) {
+        downloadTextFile("timetable-sort-log.txt", sortLogLines.join("\n"));
+      }
       assertWithStatus(false, "Unable to sort some services", {
-        services: remainingServices.map(serviceLabel),
+        services: unsortedLabels,
       });
       break;
     }
