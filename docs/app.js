@@ -1311,7 +1311,11 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
-  const okCorridorDetails = corridorDetails.filter(
+  const splitCorridorDetails = splitServiceEntries(
+    corridorDetails,
+    corridorStations,
+  );
+  const okCorridorDetails = splitCorridorDetails.filter(
     (d) => d.detail && Array.isArray(d.detail.locations),
   );
   if (okCorridorDetails.length === 0) {
@@ -1483,12 +1487,21 @@ form.addEventListener("submit", async (e) => {
 
   setStatus("Building timetable...");
 
+  const splitCandidateEntries = [];
+  for (const entry of candidateMap.values()) {
+    splitCandidateEntries.push(
+      ...splitServiceEntries([entry], corridorStations),
+    );
+  }
+  const dedupedCandidateEntries =
+    dedupeServiceEntries(splitCandidateEntries);
+
   // Filter to services that:
   //  - have valid detail.locations
   //  - and call at >= 2 *distinct* non-PASS corridor stations.
   // This removes loops like CTR→CTR that only ever touch one station in the table.
   const allDetails = [];
-  for (const [key, entry] of candidateMap.entries()) {
+  for (const entry of dedupedCandidateEntries) {
     const detail = entry.detail;
     if (!detail || !Array.isArray(detail.locations)) continue;
 
@@ -1562,6 +1575,122 @@ form.addEventListener("submit", async (e) => {
   renderTimetablesFromContext(lastTimetableContext);
   hideStatus();
 });
+
+function splitServiceEntries(entries, corridorStations = []) {
+  const corridorSet = new Set(corridorStations.filter(Boolean));
+  const splitEntries = [];
+  entries.forEach((entry) => {
+    if (!entry?.detail || !Array.isArray(entry.detail.locations)) {
+      splitEntries.push(entry);
+      return;
+    }
+    if (entry?.svc?.originalServiceUid) {
+      splitEntries.push(entry);
+      return;
+    }
+    const splitIndex = findRepeatedStationSplitIndex(
+      entry.detail.locations,
+      corridorSet,
+    );
+    if (splitIndex === null) {
+      splitEntries.push(entry);
+      return;
+    }
+    const locations = entry.detail.locations;
+    const firstLocations = locations.slice(0, splitIndex + 1);
+    const secondLocations = locations.slice(splitIndex);
+    splitEntries.push({
+      ...entry,
+      svc: withServiceSuffix(entry.svc, "(1)"),
+      detail: { ...entry.detail, locations: firstLocations },
+    });
+    splitEntries.push({
+      ...entry,
+      svc: withServiceSuffix(entry.svc, "(2)"),
+      detail: { ...entry.detail, locations: secondLocations },
+    });
+  });
+  return splitEntries;
+}
+
+function findRepeatedStationSplitIndex(locations, corridorSet) {
+  const seen = new Map();
+  for (let i = 0; i < locations.length; i++) {
+    const crs = locations[i]?.crs || "";
+    if (!crs) continue;
+    if (seen.has(crs)) {
+      const firstIndex = seen.get(crs);
+      let splitIndex = i - 1;
+      for (let j = i - 1; j > firstIndex; j--) {
+        const corridorCrs = locations[j]?.crs || "";
+        if (corridorCrs && corridorSet.has(corridorCrs)) {
+          splitIndex = j;
+          break;
+        }
+      }
+      if (splitIndex >= 0) {
+        return splitIndex;
+      }
+      return null;
+    }
+    seen.set(crs, i);
+  }
+  return null;
+}
+
+function withServiceSuffix(svc, suffix) {
+  const updated = { ...(svc || {}) };
+  if (updated.serviceUid && !updated.originalServiceUid) {
+    updated.originalServiceUid = updated.serviceUid;
+  }
+  if (updated.serviceUid) {
+    updated.serviceUid = `${updated.serviceUid}${suffix}`;
+  }
+  if (updated.trainIdentity) {
+    updated.trainIdentity = `${updated.trainIdentity}${suffix}`;
+  }
+  if (updated.runningIdentity) {
+    updated.runningIdentity = `${updated.runningIdentity}${suffix}`;
+  }
+  return updated;
+}
+
+function dedupeServiceEntries(entries) {
+  const seen = new Set();
+  const deduped = [];
+  entries.forEach((entry) => {
+    if (!entry?.detail || !Array.isArray(entry.detail.locations)) {
+      deduped.push(entry);
+      return;
+    }
+    const svc = entry.svc || {};
+    const uid =
+      svc.serviceUid ||
+      svc.originalServiceUid ||
+      svc.trainIdentity ||
+      svc.runningIdentity ||
+      "";
+    const date = svc.runDate || entry.detail.runDate || "";
+    const locationKey = entry.detail.locations
+      .map((loc) => {
+        const crs = loc.crs || "";
+        const arr =
+          loc.gbttBookedArrival || loc.realtimeArrival || "";
+        const dep =
+          loc.gbttBookedDeparture || loc.realtimeDeparture || "";
+        const displayAs = loc.displayAs || "";
+        return `${crs}|${arr}|${dep}|${displayAs}`;
+      })
+      .join(">");
+    const key = `${uid}|${date}|${locationKey}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    deduped.push(entry);
+  });
+  return deduped;
+}
 
 // Build station union over a possibly multi-via corridor.
 // corridorStations is e.g. ["SHR", "VIA1", "VIA2", "WRX"].
@@ -2487,7 +2616,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     const originText = safePairText(detail.origin);
     const destText = safePairText(detail.destination);
     const dateText = detail.runDate || svc.runDate || "";
-    const uid = svc.serviceUid || "";
+    const uid = svc.originalServiceUid || svc.serviceUid || "";
     const date = svc.runDate || detail.runDate || "";
     const href = `https://www.realtimetrains.co.uk/service/gb-nr:${encodeURIComponent(uid)}/${encodeURIComponent(date)}`;
 
