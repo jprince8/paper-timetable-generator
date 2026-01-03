@@ -2241,6 +2241,27 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
   //   - otherwise use arrival time
   //
   // (If a service has no time on that row at all, it sorts last for that row.)
+  function orderingTimeStrForLoc(
+    loc,
+    preferDeparture,
+    serviceRealtimeActivated,
+    realtimeToggleEnabled,
+  ) {
+    if (!loc) return "";
+
+    const useRealtime = serviceRealtimeActivated && realtimeToggleEnabled;
+    const dep = useRealtime
+      ? loc.realtimeDeparture || loc.gbttBookedDeparture
+      : loc.gbttBookedDeparture;
+    const arr = useRealtime
+      ? loc.realtimeArrival || loc.gbttBookedArrival
+      : loc.gbttBookedArrival;
+
+    if (preferDeparture && dep) return padTime(dep);
+    if (arr) return padTime(arr);
+    return dep ? padTime(dep) : "";
+  }
+
   function preferredTimeMinsAtRow(serviceIdx, rowIdx) {
     const spec = rowSpecs[rowIdx];
     if (!spec || spec.kind !== "station") return null;
@@ -2248,9 +2269,19 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
     const stationIndex = spec.stationIndex;
     const t = stationTimes[stationIndex][serviceIdx];
     if (!t) return null;
+    const loc = t.loc;
+    if (!loc) return null;
+
+    const serviceRealtimeActivated =
+      serviceRealtimeFlags[serviceIdx] === true;
 
     // Prefer dep; otherwise arr (even on "arr" rows).
-    const timeStr = t.depStr && t.depStr.trim() ? t.depStr : t.arrStr;
+    const timeStr = orderingTimeStrForLoc(
+      loc,
+      true,
+      serviceRealtimeActivated,
+      realtimeToggleEnabled,
+    );
     if (!timeStr) return null;
 
     const mins = timeStrToMinutes(timeStr);
