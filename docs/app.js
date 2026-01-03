@@ -784,6 +784,32 @@ function resetOutputs() {
   setRealtimeToggleState({ enabled: false, active: false });
 }
 
+function clearTimetableOutputs() {
+  headingAB.textContent = "";
+  headingBA.textContent = "";
+  tableCardAB?.classList.remove("has-data");
+  tableCardBA?.classList.remove("has-data");
+  headerRowAB.innerHTML = "";
+  headerIconsRowAB.innerHTML = "";
+  bodyRowsAB.innerHTML = "";
+  headerRowBA.innerHTML = "";
+  headerIconsRowBA.innerHTML = "";
+  bodyRowsBA.innerHTML = "";
+  downloadPdfBtn.disabled = true;
+  shareBtn.disabled = true;
+  lastPdfPayload = null;
+  lastTimetableContext = null;
+  setRealtimeToggleState({ enabled: false, active: false });
+}
+
+function assertWithStatus(condition, userMessage, detail = {}) {
+  if (condition) return;
+  console.assert(false, userMessage, detail);
+  clearTimetableOutputs();
+  setStatus(userMessage, { isError: true });
+  throw new Error(userMessage);
+}
+
 function stripHtmlToText(value) {
   if (!value) return "";
   if (typeof value === "object") return cellToText(value);
@@ -1561,9 +1587,9 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
       if (prevKnown && nextKnown) {
         const prevIndex = orderedCrs.indexOf(prevKnown);
         const nextIndex = orderedCrs.indexOf(nextKnown);
-        console.assert(
+        assertWithStatus(
           prevIndex < nextIndex,
-          "Station order conflict between services",
+          "Could not build a consistent station order for this corridor.",
           { crs, prevKnown, nextKnown, orderedCrs },
         );
         orderedCrs.splice(nextIndex, 0, crs);
@@ -1582,9 +1608,9 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
     const filteredSequence = sequence.filter((crs) => orderedSet.has(crs));
     const indices = filteredSequence.map((crs) => orderedCrs.indexOf(crs));
     for (let i = 1; i < indices.length; i++) {
-      console.assert(
+      assertWithStatus(
         indices[i - 1] < indices[i],
-        "Station order mismatch with service calling pattern",
+        "Service calling pattern conflicts with the station order.",
         { sequence: filteredSequence, orderedCrs },
       );
     }
@@ -1713,9 +1739,9 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
 
       // If it's STILL going backwards, assert-fail in console
       if (prevAbs !== null && base < prevAbs) {
-        console.assert(
+        assertWithStatus(
           false,
-          "Time order assertion failed for service column",
+          "Timetable times go backwards in this corridor.",
           {
             svcIndex,
             rowIndex: r,
