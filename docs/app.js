@@ -115,7 +115,7 @@ async function fetchStationMatches(query) {
     return [];
   }
   const resp = await fetch(
-    `${API_STATION}?q=${encodeURIComponent(query)}`,
+    `${PROXY_STATION}?q=${encodeURIComponent(query)}`,
   );
   if (!resp.ok) {
     return [];
