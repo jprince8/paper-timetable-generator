@@ -784,6 +784,56 @@ function resetOutputs() {
   setRealtimeToggleState({ enabled: false, active: false });
 }
 
+function clearTimetableOutputs() {
+  headingAB.textContent = "";
+  headingBA.textContent = "";
+  tableCardAB?.classList.remove("has-data");
+  tableCardBA?.classList.remove("has-data");
+  headerRowAB.innerHTML = "";
+  headerIconsRowAB.innerHTML = "";
+  bodyRowsAB.innerHTML = "";
+  headerRowBA.innerHTML = "";
+  headerIconsRowBA.innerHTML = "";
+  bodyRowsBA.innerHTML = "";
+  downloadPdfBtn.disabled = true;
+  shareBtn.disabled = true;
+  lastPdfPayload = null;
+  lastTimetableContext = null;
+  setRealtimeToggleState({ enabled: false, active: false });
+}
+
+function formatAssertDetail(detail) {
+  if (!detail) return "";
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) return detail.join(", ");
+  if (typeof detail !== "object") return String(detail);
+
+  const parts = [];
+  Object.entries(detail).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") return;
+    let rendered = value;
+    if (Array.isArray(value)) {
+      rendered = value.join(" → ");
+    } else if (typeof value === "object") {
+      rendered = JSON.stringify(value);
+    }
+    parts.push(`${key}: ${rendered}`);
+  });
+  return parts.join(", ");
+}
+
+function assertWithStatus(condition, userMessage, detail = {}) {
+  if (condition) return;
+  const detailText = formatAssertDetail(detail);
+  const fullMessage = detailText
+    ? `${userMessage} (${detailText})`
+    : userMessage;
+  console.assert(false, fullMessage, detail);
+  clearTimetableOutputs();
+  setStatus(fullMessage, { isError: true });
+  throw new Error(fullMessage);
+}
+
 function stripHtmlToText(value) {
   if (!value) return "";
   if (typeof value === "object") return cellToText(value);
@@ -1518,13 +1568,14 @@ form.addEventListener("submit", async (e) => {
 function buildStationsUnion(corridorStations, servicesWithDetails) {
   const stationMap = {};
   const corridorIndex = {};
+  const orderedCrs = [];
 
   // Map each corridor CRS to its index in the chain (A=0, VIA1=1, ..., Z=n)
   corridorStations.forEach((crs, idx) => {
     if (crs) corridorIndex[crs] = idx;
   });
 
-  function addStation(crs, tiploc, name, pos) {
+  function addStation(crs, tiploc, name) {
     if (!crs) return;
     const key = crs;
     if (!stationMap[key]) {
@@ -1532,10 +1583,61 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         crs,
         tiploc: tiploc || "",
         name: name || crs,
-        positions: [],
       };
     }
-    stationMap[key].positions.push(pos);
+  }
+
+  function mergeIntoOrder(sequence) {
+    sequence.forEach((crs, idx) => {
+      if (!crs) return;
+      if (orderedCrs.includes(crs)) return;
+
+      let prevKnown = null;
+      for (let i = idx - 1; i >= 0; i--) {
+        if (orderedCrs.includes(sequence[i])) {
+          prevKnown = sequence[i];
+          break;
+        }
+      }
+
+      let nextKnown = null;
+      for (let i = idx + 1; i < sequence.length; i++) {
+        if (orderedCrs.includes(sequence[i])) {
+          nextKnown = sequence[i];
+          break;
+        }
+      }
+
+      if (prevKnown && nextKnown) {
+        const prevIndex = orderedCrs.indexOf(prevKnown);
+        const nextIndex = orderedCrs.indexOf(nextKnown);
+        assertWithStatus(
+          prevIndex < nextIndex,
+          "Could not build a consistent station order for this corridor",
+          `inserting ${crs} between ${prevKnown} and ${nextKnown}`,
+        );
+        orderedCrs.splice(nextIndex, 0, crs);
+      } else if (prevKnown) {
+        const prevIndex = orderedCrs.indexOf(prevKnown);
+        orderedCrs.splice(prevIndex + 1, 0, crs);
+      } else if (nextKnown) {
+        const nextIndex = orderedCrs.indexOf(nextKnown);
+        orderedCrs.splice(nextIndex, 0, crs);
+      } else {
+        orderedCrs.push(crs);
+      }
+    });
+
+    const orderedSet = new Set(orderedCrs);
+    const filteredSequence = sequence.filter((crs) => orderedSet.has(crs));
+    const indices = filteredSequence.map((crs) => orderedCrs.indexOf(crs));
+    for (let i = 1; i < indices.length; i++) {
+      assertWithStatus(
+        indices[i - 1] < indices[i],
+        "Service calling pattern conflicts with the station order",
+        `sequence: ${filteredSequence.join(" → ")}`,
+      );
+    }
   }
 
   servicesWithDetails.forEach(({ detail }) => {
@@ -1562,7 +1664,7 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
       if (i1 === i2) continue;
 
       const step = i1 < i2 ? 1 : -1;
-      const span = Math.abs(i2 - i1);
+      const segmentSequence = [];
 
       for (let i = i1; step > 0 ? i <= i2 : i >= i2; i += step) {
         const l = locs[i];
@@ -1575,29 +1677,20 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         const tiploc = l.tiploc || "";
         const name = l.description || crs || tiploc;
 
-        let pos;
-        if (Object.prototype.hasOwnProperty.call(corridorIndex, crs)) {
-          // Corridor station itself -> exact integer corridor index
-          pos = corridorIndex[crs];
-        } else {
-          // Off-corridor station: interpolate between the two corridor stations
-          const offset = Math.abs(i - i1);
-          const frac = span === 0 ? 0 : offset / span;
-          pos = c1 + (c2 - c1) * frac; // fractional position between corridor indices
-        }
+        addStation(crs, tiploc, name);
+        segmentSequence.push(crs);
+      }
 
-        addStation(crs, tiploc, name, pos);
+      if (segmentSequence.length > 0) {
+        if (c1 > c2) {
+          segmentSequence.reverse();
+        }
+        mergeIntoOrder(segmentSequence);
       }
     }
   });
 
-  const stations = Object.values(stationMap);
-  stations.forEach((s) => {
-    const sum = s.positions.reduce((a, b) => a + b, 0);
-    s.avgPos = sum / s.positions.length;
-  });
-  stations.sort((a, b) => a.avgPos - b.avgPos);
-  return stations;
+  return orderedCrs.map((crs) => stationMap[crs]).filter(Boolean);
 }
 
 function splitByDirection(servicesWithDetails, stations) {
@@ -1642,10 +1735,15 @@ function splitByDirection(servicesWithDetails, stations) {
   return { ab, ba };
 }
 
-function checkMonotonicTimes(rows, orderedSvcIndices) {
+function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   orderedSvcIndices.forEach((svcIndex) => {
     let dayOffset = 0; // minutes added for midnight rollovers
     let prevAbs = null; // previous absolute time in minutes
+    let prevText = "";
+    let prevRowLabel = "";
+    const svc = servicesWithDetails[svcIndex]?.svc || {};
+    const headcode =
+      svc.trainIdentity || svc.runningIdentity || svc.serviceUid || "";
 
     for (let r = 0; r < rows.length; r++) {
       const val = rows[r].cells[svcIndex];
@@ -1658,34 +1756,35 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
 
       let base = mins + dayOffset;
 
-      // If this appears to go backwards, treat it as a midnight rollover
+      // If this appears to go backwards, only treat it as a midnight rollover
+      // when the jump is large enough to plausibly cross midnight.
       if (prevAbs !== null && base < prevAbs) {
-        // allow multiple midnights in pathological cases (up to a few days)
-        let safety = 0;
-        while (base <= prevAbs && safety < 5) {
+        const diff = prevAbs - base;
+        if (diff > 6 * 60) {
           dayOffset += 1440;
           base = mins + dayOffset;
-          safety++;
         }
       }
 
       // If it's STILL going backwards, assert-fail in console
       if (prevAbs !== null && base < prevAbs) {
-        console.assert(
+        const currentRowLabel = rowLabelText(rows[r]) || "current stop";
+        const previousRowLabel = prevRowLabel || "previous stop";
+        const detailParts = [
+          `${previousRowLabel}: ${prevText} to ${currentRowLabel}: ${rawText}`,
+        ];
+        if (headcode) detailParts.push(`headcode: ${headcode}`);
+        assertWithStatus(
           false,
-          "Time order assertion failed for service column",
-          {
-            svcIndex,
-            rowIndex: r,
-            previousAbsoluteMinutes: prevAbs,
-            currentAbsoluteMinutes: base,
-            currentCellValue: val,
-          },
+          "Timetable times go backwards in this corridor",
+          detailParts.join(", "),
         );
         break; // stop checking this service; we've already flagged it
       }
 
       prevAbs = base;
+      prevText = rawText;
+      prevRowLabel = rowLabelText(rows[r]);
     }
   });
 }
@@ -2440,7 +2539,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
 
   // Assert (in console) that times in each service column never decrease
   // as you go down the table, allowing for midnight rollovers.
-  checkMonotonicTimes(rows, orderedSvcIndices);
+  checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails);
 
   return {
     rows,
