@@ -2521,10 +2521,13 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     const serviceRealtimeActivated =
       serviceRealtimeFlags[serviceIdx] === true;
 
-    // Prefer dep; otherwise arr (even on "arr" rows).
+    // For stations with separate arr/dep rows, sort by dep time unless only
+    // an arrival exists (then use that). For merged/single rows, keep the
+    // existing dep-first behavior to match displayed times.
+    const preferDeparture = true;
     const timeStr = orderingTimeStrForLoc(
       loc,
-      true,
+      preferDeparture,
       serviceRealtimeActivated,
       realtimeToggleEnabled,
     );
@@ -2605,9 +2608,13 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
 
     if (earliestRow === null) return a - b;
 
-    // Overtake detection: if ordering flips, prioritise the earliest row.
-    if (flipDetected && earliestOrder !== 0) return earliestOrder;
+    // If ordering is consistent across rows, keep that order.
+    if (!flipDetected) {
+      if (earliestOrder !== 0) return earliestOrder;
+      return a - b;
+    }
 
+    // If ordering flips between rows, use weighted scores (earlier rows win).
     if (scoreAB !== scoreBA) return scoreAB - scoreBA;
     if (earliestOrder !== 0) return earliestOrder;
     return a - b;
