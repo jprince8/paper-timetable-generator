@@ -1599,14 +1599,19 @@ function splitServiceEntries(entries, corridorStations = []) {
     const locations = entry.detail.locations;
     const firstLocations = locations.slice(0, splitIndex + 1);
     const secondLocations = locations.slice(splitIndex);
+    const firstSvc = withServiceSuffix(entry.svc, "(1)");
+    firstSvc.splitContinuesToLocation =
+      secondLocations[secondLocations.length - 1] || null;
+    const secondSvc = withServiceSuffix(entry.svc, "(2)");
+    secondSvc.splitComesFromLocation = firstLocations[0] || null;
     splitEntries.push({
       ...entry,
-      svc: withServiceSuffix(entry.svc, "(1)"),
+      svc: firstSvc,
       detail: { ...entry.detail, locations: firstLocations },
     });
     splitEntries.push({
       ...entry,
-      svc: withServiceSuffix(entry.svc, "(2)"),
+      svc: secondSvc,
       detail: { ...entry.detail, locations: secondLocations },
     });
   });
@@ -2185,6 +2190,14 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   // We store:
   //  - display: CRS only
   //  - title: full name only (no "from/to")
+  function buildEndpointMeta(location) {
+    if (!location) return null;
+    const crs = location.crs || "";
+    const name = location.description || crs || location.tiploc || "";
+    const display = crs || location.tiploc || name;
+    return { display, title: name };
+  }
+
   const originMeta = new Array(numServices).fill(null);
   const destMeta = new Array(numServices).fill(null);
 
@@ -2198,19 +2211,24 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     if (firstLoc) {
       const crs = firstLoc.crs || "";
       if (!stationSet[crs]) {
-        const name = firstLoc.description || crs || firstLoc.tiploc || "";
-        const crsCode = crs || firstLoc.tiploc || name;
-        originMeta[idx] = { display: crsCode, title: name };
+        originMeta[idx] = buildEndpointMeta(firstLoc);
       }
     }
 
     if (lastLoc) {
       const crs = lastLoc.crs || "";
       if (!stationSet[crs]) {
-        const name = lastLoc.description || crs || lastLoc.tiploc || "";
-        const crsCode = crs || lastLoc.tiploc || name;
-        destMeta[idx] = { display: crsCode, title: name };
+        destMeta[idx] = buildEndpointMeta(lastLoc);
       }
+    }
+  });
+
+  servicesWithDetails.forEach(({ svc }, idx) => {
+    if (svc?.splitContinuesToLocation) {
+      destMeta[idx] = buildEndpointMeta(svc.splitContinuesToLocation);
+    }
+    if (svc?.splitComesFromLocation) {
+      originMeta[idx] = buildEndpointMeta(svc.splitComesFromLocation);
     }
   });
 
