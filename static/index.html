@@ -334,6 +334,18 @@
         box-shadow: none;
       }
 
+      .btn-toggle {
+        background: #fff7ea;
+        color: var(--accent);
+        border: 1px solid var(--accent);
+      }
+
+      .btn-toggle.is-active {
+        background: var(--accent);
+        color: #fff7ea;
+        box-shadow: 0 10px 20px rgba(161, 95, 43, 0.3);
+      }
+
       #addViaBtn {
         align-self: flex-start;
         transform: none;
@@ -502,6 +514,30 @@
 
       .time-empty {
         color: rgba(58, 47, 36, 0.2);
+      }
+
+      .time-italic {
+        font-style: italic;
+      }
+
+      .time-bold {
+        font-weight: 700;
+      }
+
+      .time-muted {
+        color: var(--ink-soft);
+      }
+
+      .time-early {
+        color: #2f7b3d;
+      }
+
+      .time-late {
+        color: var(--danger);
+      }
+
+      .time-cancelled {
+        text-decoration: line-through;
       }
 
       .service-header {
@@ -734,6 +770,15 @@
                 disabled
               >
                 Share
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-toggle"
+                id="realtimeBtn"
+                aria-pressed="false"
+                disabled
+              >
+                Realtime
               </button>
             </div>
             <div id="status" hidden>

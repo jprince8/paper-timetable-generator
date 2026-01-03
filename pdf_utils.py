@@ -20,6 +20,8 @@ from svglib.svglib import svg2rlg
 def _cell_text(value):
     if value is None:
         return ""
+    if hasattr(value, "getPlainText"):
+        return value.getPlainText()
     return str(value)
 
 
@@ -82,6 +84,12 @@ def _build_facilities_cell(value, icon_map, size, gap=2):
     return drawing
 
 
+def _maybe_paragraph(value, style):
+    if isinstance(value, str) and "<" in value and ">" in value:
+        return Paragraph(value, style)
+    return value
+
+
 def _split_columns(widths, available_width):
     if not widths:
         return []
@@ -123,6 +131,10 @@ def build_timetable_pdf(tables, meta=None):
     title_style = styles["Heading3"]
     title_style.fontName = "Helvetica-Bold"
     title_style.spaceAfter = 6
+    cell_style = styles["BodyText"].clone("Cell")
+    cell_style.fontName = "Helvetica"
+    cell_style.fontSize = 8
+    cell_style.leading = 9
 
     elements = []
     font_name = "Helvetica"
@@ -193,7 +205,10 @@ def build_timetable_pdf(tables, meta=None):
             chunk_rows = [[row[i] if i < len(row) else "" for i in chunk] for row in rows]
             data = [chunk_headers] + [
                 [
-                    _build_facilities_cell(cell, icon_map, icon_size)
+                    _maybe_paragraph(
+                        _build_facilities_cell(cell, icon_map, icon_size),
+                        cell_style,
+                    )
                     for cell in row
                 ]
                 for row in chunk_rows
