@@ -587,27 +587,63 @@ function cellToText(cell) {
   return String(cell);
 }
 
-function cellToPdfMarkup(cell) {
-  if (!cell) return "";
-  if (typeof cell !== "object") return String(cell);
-  const text = cell.text || "";
-  if (!text) return "";
+function formatDelayText(delayMins) {
+  if (!delayMins || Number.isNaN(delayMins)) return "";
+  const sign = delayMins > 0 ? "+" : "";
+  return `${sign}${delayMins}`;
+}
 
-  let result = htmlEscape(text);
-  const format = cell.format || {};
-  if (format.bold) result = `<b>${result}</b>`;
-  if (format.italic) result = `<i>${result}</i>`;
-  if (format.strike) result = `<strike>${result}</strike>`;
-  if (format.color) {
-    const colorMap = {
-      early: "#2f7b3d",
-      late: "#a33b32",
-      muted: "#6c5c4a",
-    };
-    const color = colorMap[format.color] || format.color;
-    result = `<font color="${color}">${result}</font>`;
+function hexToRgb(hex) {
+  const normalized = hex.replace("#", "");
+  if (normalized.length !== 6) return null;
+  const intVal = parseInt(normalized, 16);
+  if (Number.isNaN(intVal)) return null;
+  return {
+    r: (intVal >> 16) & 255,
+    g: (intVal >> 8) & 255,
+    b: intVal & 255,
+  };
+}
+
+function rgbToHex({ r, g, b }) {
+  const clamp = (val) => Math.max(0, Math.min(255, Math.round(val)));
+  return `#${[r, g, b]
+    .map((val) => clamp(val).toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+function interpolateHexColor(startHex, endHex, t) {
+  const start = hexToRgb(startHex);
+  const end = hexToRgb(endHex);
+  if (!start || !end) return endHex;
+  const mix = (a, b) => a + (b - a) * t;
+  return rgbToHex({
+    r: mix(start.r, end.r),
+    g: mix(start.g, end.g),
+    b: mix(start.b, end.b),
+  });
+}
+
+function delayToColor(delayMins) {
+  if (delayMins === null || delayMins === undefined) return null;
+  const absDelay = Math.abs(delayMins);
+  if (absDelay <= 1) return null;
+
+  const earlyDark = "#1f3a6f";
+  const earlyBright = "#2c6fbe";
+  const lateDark = "#7a1f1f";
+  const lateBright = "#e53935";
+
+  if (delayMins < 0) {
+    if (absDelay <= 5) return earlyDark;
+    return earlyBright;
   }
-  return result;
+
+  if (absDelay <= 5) return lateDark;
+  if (absDelay >= 20) return lateBright;
+
+  const t = (absDelay - 5) / (20 - 5);
+  return interpolateHexColor(lateDark, lateBright, t);
 }
 
 function chooseDisplayedTimeAndStatus(
@@ -648,17 +684,16 @@ function chooseDisplayedTimeAndStatus(
   if (rtDisplay) {
     const schedMins = rttTimeToMinutes(sched);
     const rtMins = rttTimeToMinutes(rt);
-    let color = null;
-    if (schedMins !== null && rtMins !== null) {
-      if (rtMins < schedMins) color = "early";
-      if (rtMins > schedMins) color = "late";
-    }
+    const delayMins =
+      schedMins !== null && rtMins !== null ? rtMins - schedMins : null;
+    const color = delayToColor(delayMins);
     return {
       text: rtDisplay,
       format: {
         bold: rtAct === true,
         italic: rtAct !== true,
         color,
+        delayMins: rtAct === true ? delayMins : null,
       },
     };
   }
@@ -771,8 +806,7 @@ function extractFirstTime(value) {
   return match ? match[0] : "";
 }
 
-function buildPdfTableData(model, options = {}) {
-  const { includeFormatting = false } = options;
+function buildPdfTableData(model) {
   const { rows, orderedSvcIndices, servicesMeta } = model;
   const headers = [
     "Operator",
@@ -791,10 +825,9 @@ function buildPdfTableData(model, options = {}) {
   ];
   const tableRows = rows.map((row) => {
     const label = rowLabelText(row);
-    const cells = orderedSvcIndices.map((svcIndex) => {
-      const cell = row.cells[svcIndex];
-      return includeFormatting ? cellToPdfMarkup(cell) : cellToText(cell);
-    });
+    const cells = orderedSvcIndices.map((svcIndex) =>
+      cellToText(row.cells[svcIndex]),
+    );
     return [label, ...cells];
   });
   const serviceTimes = orderedSvcIndices.map((svcIndex) => {
@@ -940,15 +973,16 @@ function renderTimetablesFromContext(context) {
     const modelAB = buildTimetableModel(stations, stationSet, servicesAB, {
       realtimeEnabled,
     });
+    const pdfModelAB = buildTimetableModel(stations, stationSet, servicesAB, {
+      realtimeEnabled: false,
+    });
     headingAB.textContent =
       forwardStopsLabel +
       " (" +
       modelAB.orderedSvcIndices.length +
       " services)";
     renderTimetable(modelAB, headerRowAB, headerIconsRowAB, bodyRowsAB);
-    const tableDataAB = buildPdfTableData(modelAB, {
-      includeFormatting: realtimeEnabled,
-    });
+    const tableDataAB = buildPdfTableData(pdfModelAB);
     pdfTables.push({
       title: `${fromName} → ${toName}`,
       dateLabel,
@@ -967,15 +1001,16 @@ function renderTimetablesFromContext(context) {
     const modelBA = buildTimetableModel(stationsRev, stationSet, servicesBA, {
       realtimeEnabled,
     });
+    const pdfModelBA = buildTimetableModel(stationsRev, stationSet, servicesBA, {
+      realtimeEnabled: false,
+    });
     headingBA.textContent =
       reverseStopsLabel +
       " (" +
       modelBA.orderedSvcIndices.length +
       " services)";
     renderTimetable(modelBA, headerRowBA, headerIconsRowBA, bodyRowsBA);
-    const tableDataBA = buildPdfTableData(modelBA, {
-      includeFormatting: realtimeEnabled,
-    });
+    const tableDataBA = buildPdfTableData(pdfModelBA);
     pdfTables.push({
       title: `${toName} → ${fromName}`,
       dateLabel,
@@ -2535,14 +2570,21 @@ function renderTimetable(
         } else {
           const span = document.createElement("span");
           span.textContent = text;
-          if (val.title) span.title = val.title;
           const format = val.format || {};
           if (format.bold) span.classList.add("time-bold");
           if (format.italic) span.classList.add("time-italic");
           if (format.strike) span.classList.add("time-cancelled");
-          if (format.color === "early") span.classList.add("time-early");
-          if (format.color === "late") span.classList.add("time-late");
-          if (format.color === "muted") span.classList.add("time-muted");
+          if (format.color === "muted") {
+            span.classList.add("time-muted");
+          } else if (format.color && format.color.startsWith("#")) {
+            span.style.color = format.color;
+          }
+          const titleParts = [];
+          if (val.title) titleParts.push(val.title);
+          if (format.bold && format.delayMins) {
+            titleParts.push(formatDelayText(format.delayMins));
+          }
+          if (titleParts.length) span.title = titleParts.join(" ");
           td.appendChild(span);
         }
       } else {
