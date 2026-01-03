@@ -38,7 +38,6 @@ const toCrsInput = document.getElementById("toCrs");
 const toSuggestBox = document.getElementById("toSuggest");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 const ENABLE_SORT_LOG_DOWNLOAD = false;
-let downloadSortLogBtn = null;
 const shareBtn = document.getElementById("shareBtn");
 const realtimeBtn = document.getElementById("realtimeBtn");
 const cookieBanner = document.getElementById("cookieBanner");
@@ -781,7 +780,6 @@ function resetOutputs() {
   headerIconsRowBA.innerHTML = "";
   bodyRowsBA.innerHTML = "";
   downloadPdfBtn.disabled = true;
-  if (downloadSortLogBtn) downloadSortLogBtn.disabled = true;
   shareBtn.disabled = true;
   lastPdfPayload = null;
   lastTimetableContext = null;
@@ -801,7 +799,6 @@ function clearTimetableOutputs() {
   headerIconsRowBA.innerHTML = "";
   bodyRowsBA.innerHTML = "";
   downloadPdfBtn.disabled = true;
-  if (downloadSortLogBtn) downloadSortLogBtn.disabled = true;
   shareBtn.disabled = true;
   lastPdfPayload = null;
   lastTimetableContext = null;
@@ -938,29 +935,6 @@ function downloadTextFile(filename, contents) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-}
-
-if (ENABLE_SORT_LOG_DOWNLOAD) {
-  const actionButtons = document.querySelector(".action-buttons");
-  if (actionButtons) {
-    downloadSortLogBtn = document.createElement("button");
-    downloadSortLogBtn.type = "button";
-    downloadSortLogBtn.className = "btn btn-secondary";
-    downloadSortLogBtn.id = "downloadSortLogBtn";
-    downloadSortLogBtn.textContent = "Download Sort Log";
-    downloadSortLogBtn.disabled = true;
-    actionButtons.insertBefore(downloadSortLogBtn, shareBtn);
-
-    downloadSortLogBtn.addEventListener("click", () => {
-      if (!lastSortLog) return;
-      downloadSortLogBtn.disabled = true;
-      try {
-        downloadTextFile("timetable-sort-log.txt", lastSortLog);
-      } finally {
-        downloadSortLogBtn.disabled = false;
-      }
-    });
-  }
 }
 
 downloadPdfBtn.addEventListener("click", async () => {
@@ -1124,10 +1098,11 @@ function renderTimetablesFromContext(context) {
 
   if (sortLogs.length > 0) {
     lastSortLog = sortLogs.join("\n\n");
-    if (downloadSortLogBtn) downloadSortLogBtn.disabled = false;
+    if (ENABLE_SORT_LOG_DOWNLOAD) {
+      downloadTextFile("timetable-sort-log.txt", lastSortLog);
+    }
   } else {
     lastSortLog = "";
-    if (downloadSortLogBtn) downloadSortLogBtn.disabled = true;
   }
 
   if (pdfTables.length > 0) {
