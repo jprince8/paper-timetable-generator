@@ -6,6 +6,9 @@ const DEBUG_STATIONS = false; // set true to log station selection / dwell detai
 // === Proxy endpoints ===
 const PROXY_SEARCH = "/rtt/search";
 const PROXY_SERVICE = "/rtt/service";
+const STATION_SEARCH = "/api/stations";
+const STATION_DEBOUNCE_MS = 180;
+const STATION_MIN_QUERY = 2;
 
 // === DOM references ===
 const form = document.getElementById("form");
@@ -24,6 +27,12 @@ const headerIconsRowBA = document.getElementById("header-icons-row-ba");
 const bodyRowsBA = document.getElementById("body-rows-ba");
 const addViaBtn = document.getElementById("addViaBtn");
 const viaScroll = document.getElementById("viaScroll");
+const fromStationInput = document.getElementById("fromStation");
+const fromCrsInput = document.getElementById("fromCrs");
+const fromSuggestBox = document.getElementById("fromSuggest");
+const toStationInput = document.getElementById("toStation");
+const toCrsInput = document.getElementById("toCrs");
+const toSuggestBox = document.getElementById("toSuggest");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 const shareBtn = document.getElementById("shareBtn");
 const cookieBanner = document.getElementById("cookieBanner");
@@ -31,7 +40,8 @@ const cookieAcceptBtn = document.getElementById("cookieAcceptBtn");
 const nowBtn = document.getElementById("nowBtn");
 
 // === Mutable state ===
-const viaInputs = [];
+const viaFields = [];
+const stationFields = [];
 
 let currentDate = "";
 let startMinutes = null;
@@ -71,52 +81,310 @@ if (nowBtn) {
   });
 }
 
-function createViaField(initialValue = "") {
+async function fetchStationMatches(query) {
+  if (!query || query.length < STATION_MIN_QUERY) {
+    return [];
+  }
+  const resp = await fetch(
+    `${STATION_SEARCH}?q=${encodeURIComponent(query)}`,
+  );
+  if (!resp.ok) {
+    return [];
+  }
+  return resp.json();
+}
+
+function updateStationValidity(field) {
+  const textValue = field.textInput.value.trim();
+  if (!textValue) {
+    field.textInput.setCustomValidity("");
+    return;
+  }
+  if (document.activeElement === field.textInput) {
+    field.textInput.setCustomValidity("");
+    return;
+  }
+  if (!field.crsInput.value) {
+    field.textInput.setCustomValidity("Select a station from the list.");
+    return;
+  }
+  field.textInput.setCustomValidity("");
+}
+
+function setupStationPicker(field) {
+  const { textInput, crsInput, suggestBox } = field;
+  let debounceTimer = null;
+  let results = [];
+  let activeIndex = -1;
+  let isOpen = false;
+  let scrollListenerAttached = false;
+
+  if (suggestBox.parentElement !== document.body) {
+    document.body.appendChild(suggestBox);
+  }
+
+  function clearSuggestions() {
+    suggestBox.innerHTML = "";
+    suggestBox.style.display = "none";
+    activeIndex = -1;
+    results = [];
+    isOpen = false;
+    if (scrollListenerAttached) {
+      window.removeEventListener("scroll", positionSuggestBox, true);
+      window.removeEventListener("resize", positionSuggestBox);
+      scrollListenerAttached = false;
+    }
+  }
+
+  function positionSuggestBox() {
+    const rect = textInput.getBoundingClientRect();
+    const left = Math.round(rect.left + window.scrollX);
+    const top = Math.round(rect.bottom + window.scrollY + 6);
+    suggestBox.style.left = `${left}px`;
+    suggestBox.style.top = `${top}px`;
+    suggestBox.style.minWidth = `${Math.round(rect.width)}px`;
+  }
+
+  function ensurePositioning() {
+    if (!scrollListenerAttached) {
+      window.addEventListener("scroll", positionSuggestBox, true);
+      window.addEventListener("resize", positionSuggestBox);
+      scrollListenerAttached = true;
+    }
+    positionSuggestBox();
+  }
+
+  function setActiveIndex(index) {
+    activeIndex = index;
+    const items = Array.from(
+      suggestBox.querySelectorAll(".station-suggest-item"),
+    );
+    items.forEach((item, idx) => {
+      item.classList.toggle("is-active", idx === activeIndex);
+      item.setAttribute("aria-selected", idx === activeIndex ? "true" : "false");
+    });
+  }
+
+  function selectResult(result) {
+    textInput.value = result.stationName;
+    crsInput.value = result.crsCode;
+    textInput.setCustomValidity("");
+    clearSuggestions();
+  }
+
+  async function resolveExactMatch(query) {
+    if (!query || query.length < STATION_MIN_QUERY) {
+      return null;
+    }
+    const matches = results.length ? results : await fetchStationMatches(query);
+    return findExactMatch(query, matches);
+  }
+
+  function findExactMatch(query, list) {
+    const normalized = query.trim().toLowerCase();
+    return (
+      list.find(
+        (item) =>
+          item.stationName.toLowerCase() === normalized ||
+          item.crsCode.toLowerCase() === normalized,
+      ) || null
+    );
+  }
+
+  function renderSuggestions(list) {
+    suggestBox.innerHTML = "";
+    list.forEach((result, index) => {
+      const option = document.createElement("div");
+      option.className = "station-suggest-item";
+      option.textContent = result.stationName;
+      option.setAttribute("role", "option");
+      option.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        selectResult(result);
+      });
+      if (index === activeIndex) {
+        option.classList.add("is-active");
+        option.setAttribute("aria-selected", "true");
+      }
+      suggestBox.appendChild(option);
+    });
+    ensurePositioning();
+    isOpen = true;
+    suggestBox.style.display = list.length ? "block" : "none";
+  }
+
+  textInput.addEventListener("input", () => {
+    crsInput.value = "";
+    updateStationValidity(field);
+    const q = textInput.value.trim();
+    clearTimeout(debounceTimer);
+    if (q.length < STATION_MIN_QUERY) {
+      clearSuggestions();
+      return;
+    }
+    debounceTimer = setTimeout(async () => {
+      const matches = await fetchStationMatches(q);
+      if (textInput.value.trim() !== q) {
+        return;
+      }
+      results = matches;
+      activeIndex = -1;
+      renderSuggestions(results);
+    }, STATION_DEBOUNCE_MS);
+  });
+
+  textInput.addEventListener("keydown", (event) => {
+    if (!results.length || suggestBox.style.display !== "block") {
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      const nextIndex = Math.min(activeIndex + 1, results.length - 1);
+      setActiveIndex(nextIndex);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      const nextIndex = Math.max(activeIndex - 1, 0);
+      setActiveIndex(nextIndex);
+    } else if (event.key === "Enter" && activeIndex >= 0) {
+      event.preventDefault();
+      selectResult(results[activeIndex]);
+    } else if (event.key === "Enter") {
+      const exactMatch = findExactMatch(textInput.value, results);
+      if (exactMatch) {
+        event.preventDefault();
+        selectResult(exactMatch);
+      }
+    } else if (event.key === "Escape") {
+      clearSuggestions();
+    }
+  });
+
+  textInput.addEventListener("blur", async () => {
+    if (!crsInput.value) {
+      const exactMatch = await resolveExactMatch(textInput.value);
+      if (exactMatch) {
+        selectResult(exactMatch);
+      }
+    }
+    updateStationValidity(field);
+    setTimeout(clearSuggestions, 120);
+  });
+
+  field.resolveExactMatch = resolveExactMatch;
+}
+
+function registerStationField(field) {
+  stationFields.push(field);
+  setupStationPicker(field);
+  return field;
+}
+
+async function hydrateStationField(field) {
+  const crs = normaliseCrs(field.crsInput.value);
+  if (!crs) {
+    return;
+  }
+  field.crsInput.value = crs;
+  try {
+    const matches = await fetchStationMatches(crs);
+    const exactMatch = matches.find(
+      (match) => normaliseCrs(match.crsCode) === crs,
+    );
+    const picked = exactMatch || matches[0];
+    if (picked) {
+      field.textInput.value = picked.stationName;
+      field.crsInput.value = picked.crsCode;
+      updateStationValidity(field);
+      return;
+    }
+  } catch (err) {
+    console.warn("Failed to hydrate station field", err);
+  }
+  field.textInput.value = crs;
+  updateStationValidity(field);
+}
+
+function createViaField(initialCrs = "") {
   const label = document.createElement("label");
+  label.className = "station-field";
 
   const input = document.createElement("input");
   input.type = "text";
-  input.maxLength = 3;
   input.required = false;
-  input.value = initialValue;
-  input.style.marginRight = "0.25rem";
+  input.className = "station-input";
+  input.autocomplete = "off";
+  input.setAttribute("aria-label", "Via station");
+
+  const crsInput = document.createElement("input");
+  crsInput.type = "hidden";
 
   // Small "×" button to remove this via
   const removeBtn = document.createElement("button");
   removeBtn.type = "button";
   removeBtn.textContent = "×";
   removeBtn.title = "Remove this via";
-  removeBtn.style.marginLeft = "0.25rem";
+  removeBtn.className = "via-remove";
+
+  const row = document.createElement("div");
+  row.className = "station-field-row";
+  row.appendChild(input);
+  row.appendChild(removeBtn);
+
+  const suggestBox = document.createElement("div");
+  suggestBox.className = "station-suggest";
+  suggestBox.setAttribute("role", "listbox");
 
   removeBtn.addEventListener("click", () => {
-    // Remove from DOM
     label.remove();
-    // Remove from tracking array
-    const idx = viaInputs.indexOf(input);
+    const idx = viaFields.findIndex((field) => field.textInput === input);
     if (idx !== -1) {
-      viaInputs.splice(idx, 1);
+      viaFields.splice(idx, 1);
     }
   });
 
-  label.appendChild(input);
-  label.appendChild(removeBtn);
+  label.appendChild(row);
+  label.appendChild(crsInput);
+  label.appendChild(suggestBox);
 
-  // Insert the new Via label before the Add Via button so vias scroll horizontally.
   if (viaScroll && addViaBtn) {
     viaScroll.insertBefore(label, addViaBtn);
   } else {
     form.insertBefore(label, addViaBtn);
   }
 
-  viaInputs.push(input);
+  const field = registerStationField({
+    textInput: input,
+    crsInput,
+    suggestBox,
+    required: false,
+  });
+  viaFields.push(field);
+
+  if (initialCrs) {
+    field.crsInput.value = normaliseCrs(initialCrs);
+    hydrateStationField(field);
+  }
 }
 
 function clearViaFields() {
-  viaInputs.forEach((input) => {
-    input.closest("label")?.remove();
+  viaFields.forEach((field) => {
+    field.textInput.closest("label")?.remove();
   });
-  viaInputs.length = 0;
+  viaFields.length = 0;
 }
+
+const fromField = registerStationField({
+  textInput: fromStationInput,
+  crsInput: fromCrsInput,
+  suggestBox: fromSuggestBox,
+  required: true,
+});
+const toField = registerStationField({
+  textInput: toStationInput,
+  crsInput: toCrsInput,
+  suggestBox: toSuggestBox,
+  required: true,
+});
 
 // === Cookie helpers ===
 function setCookie(name, value, days) {
@@ -153,8 +421,12 @@ function loadSavedInputsFromCookies() {
   const end = getCookie("corridor_endTime");
   const viasStr = getCookie("corridor_vias");
 
-  if (from) document.getElementById("fromCrs").value = from;
-  if (to) document.getElementById("toCrs").value = to;
+  if (from) {
+    fromField.crsInput.value = normaliseCrs(from);
+  }
+  if (to) {
+    toField.crsInput.value = normaliseCrs(to);
+  }
   if (date) document.getElementById("serviceDate").value = date;
   if (start) document.getElementById("startTime").value = start;
   if (end) document.getElementById("endTime").value = end;
@@ -173,6 +445,16 @@ function loadSavedInputsFromCookies() {
 // Run once when the script loads
 loadSavedInputsFromCookies();
 
+function hydratePrefilledStations() {
+  const hydrations = [];
+  stationFields.forEach((field) => {
+    if (field.crsInput.value) {
+      hydrations.push(hydrateStationField(field));
+    }
+  });
+  return Promise.all(hydrations);
+}
+
 function loadInputsFromQuery() {
   const params = new URLSearchParams(window.location.search);
   if (params.size === 0) return false;
@@ -184,8 +466,12 @@ function loadInputsFromQuery() {
   const end = padTime(params.get("end"));
   const viasRaw = params.get("vias");
 
-  if (from) document.getElementById("fromCrs").value = from;
-  if (to) document.getElementById("toCrs").value = to;
+  if (from) {
+    fromField.crsInput.value = from;
+  }
+  if (to) {
+    toField.crsInput.value = to;
+  }
   if (date) document.getElementById("serviceDate").value = date;
   if (start) document.getElementById("startTime").value = start;
   if (end) document.getElementById("endTime").value = end;
@@ -203,11 +489,13 @@ function loadInputsFromQuery() {
 }
 
 const shouldAutoSubmit = loadInputsFromQuery();
-if (shouldAutoSubmit) {
-  setTimeout(() => {
-    form.requestSubmit();
-  }, 0);
-}
+hydratePrefilledStations().then(() => {
+  if (shouldAutoSubmit) {
+    setTimeout(() => {
+      form.requestSubmit();
+    }, 0);
+  }
+});
 
 // === Formatting utilities ===
 function formatDateInput(date) {
@@ -466,13 +754,13 @@ downloadPdfBtn.addEventListener("click", async () => {
 
 function buildShareUrl() {
   const url = new URL(window.location.href);
-  const from = normaliseCrs(document.getElementById("fromCrs").value);
-  const to = normaliseCrs(document.getElementById("toCrs").value);
+  const from = normaliseCrs(fromCrsInput.value);
+  const to = normaliseCrs(toCrsInput.value);
   const date = document.getElementById("serviceDate").value;
   const start = document.getElementById("startTime").value;
   const end = document.getElementById("endTime").value;
-  const viaValues = viaInputs
-    .map((input) => normaliseCrs(input.value))
+  const viaValues = viaFields
+    .map((field) => normaliseCrs(field.crsInput.value))
     .filter((v) => v);
 
   url.searchParams.set("from", from);
@@ -520,6 +808,7 @@ form.addEventListener("submit", async (e) => {
   e.preventDefault();
 
   // Run HTML5 validation for "required" fields, min/max, etc.
+  stationFields.forEach((field) => updateStationValidity(field));
   if (!form.reportValidity()) {
     return;
   }
@@ -527,15 +816,15 @@ form.addEventListener("submit", async (e) => {
   resetOutputs();
   setStatus("Initialising timetable...", { progress: 0 });
 
-  const from = normaliseCrs(document.getElementById("fromCrs").value);
-  const to = normaliseCrs(document.getElementById("toCrs").value);
+  const from = normaliseCrs(fromCrsInput.value);
+  const to = normaliseCrs(toCrsInput.value);
   const dateInput = document.getElementById("serviceDate").value;
   const startInput = document.getElementById("startTime").value;
   const endInput = document.getElementById("endTime").value;
 
   // Collect via CRS values (non-empty only)
-  const viaValues = viaInputs
-    .map((input) => normaliseCrs(input.value))
+  const viaValues = viaFields
+    .map((field) => normaliseCrs(field.crsInput.value))
     .filter((v) => v);
 
   // Persist current form values + vias for next visit
@@ -551,7 +840,7 @@ form.addEventListener("submit", async (e) => {
   endMinutes = timeStrToMinutes(endInput);
 
   if (!from || !to) {
-    setStatus("Please enter both From and To CRS codes.", { isError: true });
+    setStatus("Please select both From and To stations.", { isError: true });
     return;
   }
   if (startMinutes === null || endMinutes === null) {
