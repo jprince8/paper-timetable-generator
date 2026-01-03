@@ -149,7 +149,7 @@ def build_timetable_pdf(tables, meta=None):
         elements.append(Paragraph(doc_subtitle, doc_subtitle_style))
         elements.append(Spacer(1, 6))
 
-    assets_dir = os.path.join(os.path.dirname(__file__), "static", "icons")
+    assets_dir = os.path.join(os.path.dirname(__file__), "docs", "icons")
     icon_size = 10
     icon_map = {
         "FC": _load_svg_icon(os.path.join(assets_dir, "first-class.svg"), icon_size),
