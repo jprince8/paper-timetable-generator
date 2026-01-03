@@ -1493,13 +1493,15 @@ form.addEventListener("submit", async (e) => {
       ...splitServiceEntries([entry], corridorStations),
     );
   }
+  const dedupedCandidateEntries =
+    dedupeServiceEntries(splitCandidateEntries);
 
   // Filter to services that:
   //  - have valid detail.locations
   //  - and call at >= 2 *distinct* non-PASS corridor stations.
   // This removes loops like CTR→CTR that only ever touch one station in the table.
   const allDetails = [];
-  for (const entry of splitCandidateEntries) {
+  for (const entry of dedupedCandidateEntries) {
     const detail = entry.detail;
     if (!detail || !Array.isArray(detail.locations)) continue;
 
@@ -1651,6 +1653,43 @@ function withServiceSuffix(svc, suffix) {
     updated.runningIdentity = `${updated.runningIdentity}${suffix}`;
   }
   return updated;
+}
+
+function dedupeServiceEntries(entries) {
+  const seen = new Set();
+  const deduped = [];
+  entries.forEach((entry) => {
+    if (!entry?.detail || !Array.isArray(entry.detail.locations)) {
+      deduped.push(entry);
+      return;
+    }
+    const svc = entry.svc || {};
+    const uid =
+      svc.serviceUid ||
+      svc.originalServiceUid ||
+      svc.trainIdentity ||
+      svc.runningIdentity ||
+      "";
+    const date = svc.runDate || entry.detail.runDate || "";
+    const locationKey = entry.detail.locations
+      .map((loc) => {
+        const crs = loc.crs || "";
+        const arr =
+          loc.gbttBookedArrival || loc.realtimeArrival || "";
+        const dep =
+          loc.gbttBookedDeparture || loc.realtimeDeparture || "";
+        const displayAs = loc.displayAs || "";
+        return `${crs}|${arr}|${dep}|${displayAs}`;
+      })
+      .join(">");
+    const key = `${uid}|${date}|${locationKey}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    deduped.push(entry);
+  });
+  return deduped;
 }
 
 // Build station union over a possibly multi-via corridor.
