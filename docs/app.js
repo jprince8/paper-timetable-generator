@@ -802,12 +802,36 @@ function clearTimetableOutputs() {
   setRealtimeToggleState({ enabled: false, active: false });
 }
 
+function formatAssertDetail(detail) {
+  if (!detail) return "";
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) return detail.join(", ");
+  if (typeof detail !== "object") return String(detail);
+
+  const parts = [];
+  Object.entries(detail).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") return;
+    let rendered = value;
+    if (Array.isArray(value)) {
+      rendered = value.join(" → ");
+    } else if (typeof value === "object") {
+      rendered = JSON.stringify(value);
+    }
+    parts.push(`${key}: ${rendered}`);
+  });
+  return parts.join(", ");
+}
+
 function assertWithStatus(condition, userMessage, detail = {}) {
   if (condition) return;
-  console.assert(false, userMessage, detail);
+  const detailText = formatAssertDetail(detail);
+  const fullMessage = detailText
+    ? `${userMessage} (${detailText})`
+    : userMessage;
+  console.assert(false, fullMessage, detail);
   clearTimetableOutputs();
-  setStatus(userMessage, { isError: true });
-  throw new Error(userMessage);
+  setStatus(fullMessage, { isError: true });
+  throw new Error(fullMessage);
 }
 
 function stripHtmlToText(value) {
@@ -1590,7 +1614,7 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         assertWithStatus(
           prevIndex < nextIndex,
           "Could not build a consistent station order for this corridor.",
-          { crs, prevKnown, nextKnown, orderedCrs },
+          { crs, prevKnown, nextKnown },
         );
         orderedCrs.splice(nextIndex, 0, crs);
       } else if (prevKnown) {
@@ -1611,7 +1635,7 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
       assertWithStatus(
         indices[i - 1] < indices[i],
         "Service calling pattern conflicts with the station order.",
-        { sequence: filteredSequence, orderedCrs },
+        { sequence: filteredSequence },
       );
     }
   }
@@ -1715,6 +1739,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
   orderedSvcIndices.forEach((svcIndex) => {
     let dayOffset = 0; // minutes added for midnight rollovers
     let prevAbs = null; // previous absolute time in minutes
+    let prevText = "";
 
     for (let r = 0; r < rows.length; r++) {
       const val = rows[r].cells[svcIndex];
@@ -1743,17 +1768,17 @@ function checkMonotonicTimes(rows, orderedSvcIndices) {
           false,
           "Timetable times go backwards in this corridor.",
           {
-            svcIndex,
-            rowIndex: r,
-            previousAbsoluteMinutes: prevAbs,
-            currentAbsoluteMinutes: base,
-            currentCellValue: val,
+            from: prevText,
+            to: rawText,
+            row: rowLabelText(rows[r]),
+            serviceIndex: svcIndex,
           },
         );
         break; // stop checking this service; we've already flagged it
       }
 
       prevAbs = base;
+      prevText = rawText;
     }
   });
 }
