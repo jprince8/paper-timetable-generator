@@ -2480,34 +2480,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   }
 
   // === Column ordering ===
-  // We insert services row-by-row based on firstRowForService.
-  // When inserting a service that starts on a given row, we compare it against
-  // existing columns using the *time on that same row*, with this preference:
-  //   - use departure time if available
-  //   - otherwise use arrival time
-  //
-  // (If a service has no time on that row at all, it sorts last for that row.)
-  function orderingTimeStrForLoc(
-    loc,
-    preferDeparture,
-    serviceRealtimeActivated,
-    realtimeToggleEnabled,
-  ) {
-    if (!loc) return "";
-
-    const useRealtime = serviceRealtimeActivated && realtimeToggleEnabled;
-    const dep = useRealtime
-      ? loc.realtimeDeparture || loc.gbttBookedDeparture
-      : loc.gbttBookedDeparture;
-    const arr = useRealtime
-      ? loc.realtimeArrival || loc.gbttBookedArrival
-      : loc.gbttBookedArrival;
-
-    if (preferDeparture && dep) return padTime(dep);
-    if (arr) return padTime(arr);
-    return dep ? padTime(dep) : "";
-  }
-
+  // Sort services by row times from bottom to top so lower rows take precedence.
+  // A row only affects ordering when both services have a time on that row.
   function preferredTimeMinsAtRow(serviceIdx, rowIdx) {
     const spec = rowSpecs[rowIdx];
     if (!spec || spec.kind !== "station") return null;
@@ -2521,16 +2495,29 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     const serviceRealtimeActivated =
       serviceRealtimeFlags[serviceIdx] === true;
 
+    const useRealtime = serviceRealtimeActivated && realtimeToggleEnabled;
+    const depRaw = useRealtime
+      ? loc.realtimeDeparture || loc.gbttBookedDeparture
+      : loc.gbttBookedDeparture;
+    const arrRaw = useRealtime
+      ? loc.realtimeArrival || loc.gbttBookedArrival
+      : loc.gbttBookedArrival;
+    const depStr = depRaw ? padTime(depRaw) : "";
+    const arrStr = arrRaw ? padTime(arrRaw) : "";
+
     // For stations with separate arr/dep rows, sort by dep time unless only
-    // an arrival exists (then use that). For merged/single rows, keep the
-    // existing dep-first behavior to match displayed times.
-    const preferDeparture = true;
-    const timeStr = orderingTimeStrForLoc(
-      loc,
-      preferDeparture,
-      serviceRealtimeActivated,
-      realtimeToggleEnabled,
-    );
+    // an arrival exists (then use that), and only once per station.
+    let timeStr = "";
+    if (stationModes[stationIndex] === "two") {
+      if (spec.mode === "dep") {
+        timeStr = depStr || arrStr;
+      } else if (spec.mode === "arr") {
+        timeStr = depStr ? "" : arrStr;
+      }
+    } else {
+      // For merged/single rows, keep dep-first behavior to match displayed times.
+      timeStr = depStr || arrStr;
+    }
     if (!timeStr) return null;
 
     const mins = timeStrToMinutes(timeStr);
@@ -2547,55 +2534,6 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     return rowTimes;
   });
 
-  // Phase B: compute an ordering that minimizes weighted out-of-order pairs.
-  const pairDataCache = new Map();
-  function pairKey(a, b) {
-    return a < b ? `${a}|${b}` : `${b}|${a}`;
-  }
-
-  function getPairData(a, b) {
-    const key = pairKey(a, b);
-    if (pairDataCache.has(key)) return pairDataCache.get(key);
-
-    let scoreAB = 0;
-    let scoreBA = 0;
-    let earliestRow = null;
-    let earliestOrder = 0;
-    let flipDetected = false;
-
-    for (let rowIdx = 0; rowIdx < totalRows; rowIdx++) {
-      const timeA = rowTimeMins[rowIdx][a];
-      const timeB = rowTimeMins[rowIdx][b];
-      if (timeA === null || timeB === null) continue;
-      if (timeA === timeB) continue;
-
-      const weight = totalRows - rowIdx;
-      if (timeA > timeB) {
-        scoreAB += weight;
-      } else {
-        scoreBA += weight;
-      }
-
-      const order = timeA < timeB ? -1 : 1;
-      if (earliestRow === null) {
-        earliestRow = rowIdx;
-        earliestOrder = order;
-      } else if (!flipDetected && order !== earliestOrder) {
-        flipDetected = true;
-      }
-    }
-
-    const data = {
-      scoreAB,
-      scoreBA,
-      earliestRow,
-      earliestOrder,
-      flipDetected,
-    };
-    pairDataCache.set(key, data);
-    return data;
-  }
-
   const orderedSvcIndices = Array.from(
     { length: numServices },
     (_, idx) => idx,
@@ -2603,20 +2541,13 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
 
   orderedSvcIndices.sort((a, b) => {
     if (a === b) return 0;
-    const { scoreAB, scoreBA, earliestRow, earliestOrder, flipDetected } =
-      getPairData(a, b);
-
-    if (earliestRow === null) return a - b;
-
-    // If ordering is consistent across rows, keep that order.
-    if (!flipDetected) {
-      if (earliestOrder !== 0) return earliestOrder;
-      return a - b;
+    for (let rowIdx = totalRows - 1; rowIdx >= 0; rowIdx--) {
+      const timeA = rowTimeMins[rowIdx][a];
+      const timeB = rowTimeMins[rowIdx][b];
+      if (timeA === null || timeB === null) continue;
+      if (timeA === timeB) continue;
+      return timeA - timeB;
     }
-
-    // If ordering flips between rows, use weighted scores (earlier rows win).
-    if (scoreAB !== scoreBA) return scoreAB - scoreBA;
-    if (earliestOrder !== 0) return earliestOrder;
     return a - b;
   });
 
