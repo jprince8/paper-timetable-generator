@@ -1311,7 +1311,10 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
-  const splitCorridorDetails = splitServiceEntries(corridorDetails);
+  const splitCorridorDetails = splitServiceEntries(
+    corridorDetails,
+    corridorStations,
+  );
   const okCorridorDetails = splitCorridorDetails.filter(
     (d) => d.detail && Array.isArray(d.detail.locations),
   );
@@ -1486,7 +1489,9 @@ form.addEventListener("submit", async (e) => {
 
   const splitCandidateEntries = [];
   for (const entry of candidateMap.values()) {
-    splitCandidateEntries.push(...splitServiceEntries([entry]));
+    splitCandidateEntries.push(
+      ...splitServiceEntries([entry], corridorStations),
+    );
   }
 
   // Filter to services that:
@@ -1569,7 +1574,8 @@ form.addEventListener("submit", async (e) => {
   hideStatus();
 });
 
-function splitServiceEntries(entries) {
+function splitServiceEntries(entries, corridorStations = []) {
+  const corridorSet = new Set(corridorStations.filter(Boolean));
   const splitEntries = [];
   entries.forEach((entry) => {
     if (!entry?.detail || !Array.isArray(entry.detail.locations)) {
@@ -1580,7 +1586,10 @@ function splitServiceEntries(entries) {
       splitEntries.push(entry);
       return;
     }
-    const splitIndex = findRepeatedStationSplitIndex(entry.detail.locations);
+    const splitIndex = findRepeatedStationSplitIndex(
+      entry.detail.locations,
+      corridorSet,
+    );
     if (splitIndex === null) {
       splitEntries.push(entry);
       return;
@@ -1602,18 +1611,27 @@ function splitServiceEntries(entries) {
   return splitEntries;
 }
 
-function findRepeatedStationSplitIndex(locations) {
-  const seen = new Set();
+function findRepeatedStationSplitIndex(locations, corridorSet) {
+  const seen = new Map();
   for (let i = 0; i < locations.length; i++) {
     const crs = locations[i]?.crs || "";
     if (!crs) continue;
     if (seen.has(crs)) {
-      if (i - 1 >= 0) {
-        return i - 1;
+      const firstIndex = seen.get(crs);
+      let splitIndex = i - 1;
+      for (let j = i - 1; j > firstIndex; j--) {
+        const corridorCrs = locations[j]?.crs || "";
+        if (corridorCrs && corridorSet.has(corridorCrs)) {
+          splitIndex = j;
+          break;
+        }
+      }
+      if (splitIndex >= 0) {
+        return splitIndex;
       }
       return null;
     }
-    seen.add(crs);
+    seen.set(crs, i);
   }
   return null;
 }
