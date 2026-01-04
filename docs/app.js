@@ -1,9 +1,28 @@
 // === Configuration ===
-const DEBUG_STATIONS = false; // set true to log station selection / dwell details
-const ENABLE_SORT_LOG_DOWNLOAD = false;
-const ENABLE_RTT_CACHE = false; // set true to cache RTT API responses locally
-const ALWAYS_SORT_CANCELLED_TIMES = true;
-const RTT_CACHE_FLAG_FILE = "rtt-cache-enabled.flag";
+// URL query flags:
+// - debug_stations=1/true enables station selection/dwell logging
+// - sort_log=1/true enables sort log downloads
+// - rtt_cache=1/true enables local RTT caching
+function hasEnabledQueryFlag(flag) {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has(flag)) return false;
+  const raw = params.get(flag);
+  return raw === "" || raw === "1" || raw === "true";
+}
+
+const DEBUG_STATIONS = hasEnabledQueryFlag("debug_stations");
+const ENABLE_SORT_LOG_DOWNLOAD = hasEnabledQueryFlag("sort_log");
+const RTT_CACHE_ENABLED = hasEnabledQueryFlag("rtt_cache");
+
+const ENABLED_OPTIONS = [
+  DEBUG_STATIONS ? "debug_stations" : null,
+  ENABLE_SORT_LOG_DOWNLOAD ? "sort_log" : null,
+  RTT_CACHE_ENABLED ? "rtt_cache" : null,
+].filter(Boolean);
+
+if (ENABLED_OPTIONS.length > 0) {
+  console.info(`Enabled options: ${ENABLED_OPTIONS.join(", ")}`);
+}
 // Apply the “must call at >=2 stops” rule *after* hiding stations
 // that have no public calls (and iterate to a stable result).
 
@@ -16,32 +35,54 @@ const PROXY_STATION = `${BACKEND_BASE}/api/stations`; // if you call this from J
 
 const STATION_DEBOUNCE_MS = 180;
 const STATION_MIN_QUERY = 2;
+const ALWAYS_SORT_CANCELLED_TIMES = true;
 
 const RTT_CACHE_PREFIX = "rttCache:";
-let rttCacheEnabled = ENABLE_RTT_CACHE;
-
-function checkRttCacheFlagFile() {
-  const base = (BACKEND_BASE || "").replace(/\/+$/, "");
-  const flagUrl = base ? `${base}/${RTT_CACHE_FLAG_FILE}` : RTT_CACHE_FLAG_FILE;
-  return fetch(flagUrl, { method: "HEAD", cache: "no-store" })
-    .then((resp) => {
-      if (resp.ok) {
-        rttCacheEnabled = true;
-        console.info("RTT cache enabled");
-      }
-    })
-    .catch(() => {
-      // ignore missing flag file or network errors
-    });
-}
-
-checkRttCacheFlagFile();
+let rttCacheEnabled = RTT_CACHE_ENABLED;
+const rttMemoryCache = new Map();
 
 function getRttCacheKey(url) {
   return `${RTT_CACHE_PREFIX}${url}`;
 }
 
+function normaliseRttCachePayload(payload) {
+  return {
+    text: payload?.text || "",
+    status: payload?.status || 200,
+    statusText: payload?.statusText || "OK",
+    storedAt: payload?.storedAt || Date.now(),
+  };
+}
+
+function listRttCacheEntries() {
+  const entries = [];
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (!key || !key.startsWith(RTT_CACHE_PREFIX)) continue;
+    let storedAt = 0;
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        storedAt = parsed?.storedAt || 0;
+      } catch {
+        storedAt = 0;
+      }
+    }
+    entries.push({ key, storedAt });
+  }
+  return entries;
+}
+
 function readRttCache(url) {
+  const memoryCached = rttMemoryCache.get(url);
+  if (memoryCached) {
+    return {
+      text: memoryCached.text,
+      status: memoryCached.status,
+      statusText: memoryCached.statusText,
+    };
+  }
   if (!rttCacheEnabled || !window.localStorage) return null;
   try {
     const raw = localStorage.getItem(getRttCacheKey(url));
@@ -60,10 +101,57 @@ function readRttCache(url) {
 }
 
 function writeRttCache(url, payload) {
-  if (!rttCacheEnabled || !window.localStorage) return;
+  const normalised = normaliseRttCachePayload(payload);
+  if (!rttCacheEnabled || !window.localStorage) {
+    rttMemoryCache.set(url, normalised);
+    return;
+  }
   try {
-    localStorage.setItem(getRttCacheKey(url), JSON.stringify(payload));
+    localStorage.setItem(getRttCacheKey(url), JSON.stringify(normalised));
   } catch (err) {
+    const isQuotaError =
+      err?.name === "QuotaExceededError" ||
+      err?.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+      err?.code === 22;
+    if (isQuotaError) {
+      try {
+        const entries = listRttCacheEntries().sort(
+          (a, b) => a.storedAt - b.storedAt,
+        );
+        for (const entry of entries) {
+          localStorage.removeItem(entry.key);
+          try {
+            localStorage.setItem(
+              getRttCacheKey(url),
+              JSON.stringify(normalised),
+            );
+            return;
+          } catch (retryErr) {
+            if (
+              retryErr?.name !== "QuotaExceededError" &&
+              retryErr?.name !== "NS_ERROR_DOM_QUOTA_REACHED" &&
+              retryErr?.code !== 22
+            ) {
+              throw retryErr;
+            }
+          }
+        }
+      } catch (retryErr) {
+        rttCacheEnabled = false;
+        rttMemoryCache.set(url, normalised);
+        console.warn(
+          "RTT cache disabled after quota errors while writing",
+          url,
+          retryErr,
+        );
+        return;
+      }
+      rttCacheEnabled = false;
+      rttMemoryCache.set(url, normalised);
+      console.warn("RTT cache disabled after repeated quota errors", url);
+      return;
+    }
+    rttMemoryCache.set(url, normalised);
     console.warn("Failed to write RTT cache for", url, err);
   }
 }
