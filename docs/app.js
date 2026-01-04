@@ -2,6 +2,7 @@
 const DEBUG_STATIONS = false; // set true to log station selection / dwell details
 const ENABLE_SORT_LOG_DOWNLOAD = false;
 const ENABLE_RTT_CACHE = false; // set true to cache RTT API responses locally
+const RTT_CACHE_FLAG_FILE = "rtt-cache-enabled.flag";
 // Apply the “must call at >=2 stops” rule *after* hiding stations
 // that have no public calls (and iterate to a stable result).
 
@@ -16,13 +17,30 @@ const STATION_DEBOUNCE_MS = 180;
 const STATION_MIN_QUERY = 2;
 
 const RTT_CACHE_PREFIX = "rttCache:";
+let rttCacheEnabled = ENABLE_RTT_CACHE;
+
+function checkRttCacheFlagFile() {
+  const base = (BACKEND_BASE || "").replace(/\/+$/, "");
+  const flagUrl = base ? `${base}/${RTT_CACHE_FLAG_FILE}` : RTT_CACHE_FLAG_FILE;
+  return fetch(flagUrl, { method: "HEAD", cache: "no-store" })
+    .then((resp) => {
+      if (resp.ok) {
+        rttCacheEnabled = true;
+      }
+    })
+    .catch(() => {
+      // ignore missing flag file or network errors
+    });
+}
+
+checkRttCacheFlagFile();
 
 function getRttCacheKey(url) {
   return `${RTT_CACHE_PREFIX}${url}`;
 }
 
 function readRttCache(url) {
-  if (!ENABLE_RTT_CACHE || !window.localStorage) return null;
+  if (!rttCacheEnabled || !window.localStorage) return null;
   try {
     const raw = localStorage.getItem(getRttCacheKey(url));
     if (!raw) return null;
@@ -40,7 +58,7 @@ function readRttCache(url) {
 }
 
 function writeRttCache(url, payload) {
-  if (!ENABLE_RTT_CACHE || !window.localStorage) return;
+  if (!rttCacheEnabled || !window.localStorage) return;
   try {
     localStorage.setItem(getRttCacheKey(url), JSON.stringify(payload));
   } catch (err) {
