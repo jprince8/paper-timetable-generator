@@ -4081,6 +4081,9 @@ function renderTableKey(model, keyEl) {
   };
 
   rows.forEach((row) => {
+    if (row.kind !== "station") {
+      return;
+    }
     orderedSvcIndices.forEach((svcIndex) => {
       const val = row.cells[svcIndex];
       if (!val || typeof val !== "object") return;

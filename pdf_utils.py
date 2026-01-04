@@ -91,6 +91,23 @@ def _strip_markup(text):
     return re.sub(r"<[^>]+>", "", text or "")
 
 
+def _format_cell_text(cell):
+    text = _cell_text(cell)
+    if not text or not isinstance(cell, dict):
+        return text
+    formatted = text
+    if cell.get("bold"):
+        formatted = f"<b>{formatted}</b>"
+    if cell.get("italic"):
+        formatted = f"<i>{formatted}</i>"
+    if cell.get("strike"):
+        formatted = f"<strike>{formatted}</strike>"
+    color = cell.get("color")
+    if color and color != "muted":
+        formatted = f"<font color=\"{color}\">{formatted}</font>"
+    return formatted
+
+
 def _build_key_item(
     icon, label, style, icon_size, gap=10, pill_padding=3, line_color=None
 ):
@@ -224,6 +241,8 @@ def build_timetable_pdf(tables, meta=None):
     title_style = styles["Heading3"]
     title_style.fontName = "Helvetica-Bold"
     title_style.spaceAfter = 6
+    font_name = "Helvetica"
+    font_size = 8
     key_style = ParagraphStyle(
         "Key",
         parent=styles["Normal"],
@@ -237,10 +256,15 @@ def build_timetable_pdf(tables, meta=None):
         fontName="Helvetica-Bold",
         spaceAfter=2,
     )
+    cell_style = ParagraphStyle(
+        "Cell",
+        parent=styles["Normal"],
+        fontName=font_name,
+        fontSize=font_size,
+        leading=font_size + 2,
+    )
 
     elements = []
-    font_name = "Helvetica"
-    font_size = 8
     meta = meta or {}
 
     def draw_footer(canvas, doc):
@@ -325,6 +349,9 @@ def build_timetable_pdf(tables, meta=None):
                 "dep_before_arrival": False,
             }
             for row in chunk_rows[1:]:
+                label = _cell_text(row[0]).strip() if row else ""
+                if label in {"Comes from", "Continues to"}:
+                    continue
                 for cell in row[1:]:
                     if not isinstance(cell, dict):
                         continue
@@ -381,10 +408,22 @@ def build_timetable_pdf(tables, meta=None):
             highlight_styles = []
             data_rows = []
             for row_idx, row in enumerate(chunk_rows):
+                row_label = _cell_text(row[0]).strip() if row else ""
+                is_crs_row = row_label in {"Comes from", "Continues to"}
                 row_cells = []
                 for col_idx, cell in enumerate(row):
                     if isinstance(cell, dict):
-                        row_cells.append(_cell_text(cell))
+                        plain = _cell_text(cell)
+                        if is_crs_row and col_idx > 0 and plain:
+                            row_cells.append(
+                                Paragraph(f"<i>{plain}</i>", cell_style)
+                            )
+                        else:
+                            formatted = _format_cell_text(cell)
+                            if formatted != plain:
+                                row_cells.append(Paragraph(formatted, cell_style))
+                            else:
+                                row_cells.append(plain)
                         bg_color = cell.get("bgColor")
                         if bg_color:
                             highlight_styles.append(
@@ -395,7 +434,15 @@ def build_timetable_pdf(tables, meta=None):
                                 )
                             )
                     else:
-                        row_cells.append(_build_facilities_cell(cell, icon_map, icon_size))
+                        plain = _cell_text(cell)
+                        if is_crs_row and col_idx > 0 and plain:
+                            row_cells.append(
+                                Paragraph(f"<i>{plain}</i>", cell_style)
+                            )
+                        else:
+                            row_cells.append(
+                                _build_facilities_cell(cell, icon_map, icon_size)
+                            )
                 data_rows.append(row_cells)
 
             data = [chunk_headers] + data_rows
