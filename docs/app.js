@@ -1336,16 +1336,18 @@ form.addEventListener("submit", async (e) => {
     fetch(url, { ...options, signal });
   const fetchRttText = async (url, options = {}) => {
     const cached = readRttCache(url);
-    if (cached) {
+    if (cached && cached.status >= 200 && cached.status < 300) {
       return cached;
     }
     const resp = await fetchWithSignal(url, options);
     const text = await resp.text();
-    writeRttCache(url, {
-      text,
-      status: resp.status,
-      statusText: resp.statusText,
-    });
+    if (resp.status >= 200 && resp.status < 300) {
+      writeRttCache(url, {
+        text,
+        status: resp.status,
+        statusText: resp.statusText,
+      });
+    }
     return { text, status: resp.status, statusText: resp.statusText };
   };
   const shouldAbort = () => signal.aborted || buildCancelled;
