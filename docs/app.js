@@ -488,7 +488,9 @@ function hydratePrefilledStations() {
 
 function loadInputsFromQuery() {
   const params = new URLSearchParams(window.location.search);
-  if (params.size === 0) return false;
+  if (params.size === 0) {
+    return { shouldAutoSubmit: false, autoBuildRequested: false };
+  }
 
   const from = normaliseCrs(params.get("from"));
   const to = normaliseCrs(params.get("to"));
@@ -496,6 +498,7 @@ function loadInputsFromQuery() {
   const start = padTime(params.get("start"));
   const end = padTime(params.get("end"));
   const viasRaw = params.get("vias");
+  const autoBuild = params.get("autobuild");
 
   if (from) {
     fromField.crsInput.value = from;
@@ -516,10 +519,13 @@ function loadInputsFromQuery() {
       .forEach((v) => createViaField(normaliseCrs(v)));
   }
 
-  return Boolean(from && to && date && start && end);
+  return {
+    shouldAutoSubmit: Boolean(autoBuild && from && to && date && start && end),
+    autoBuildRequested: Boolean(autoBuild),
+  };
 }
 
-const shouldAutoSubmit = loadInputsFromQuery();
+const { shouldAutoSubmit, autoBuildRequested } = loadInputsFromQuery();
 hydratePrefilledStations().then(() => {
   if (shouldAutoSubmit) {
     setTimeout(() => {
@@ -992,7 +998,7 @@ downloadPdfBtn.addEventListener("click", async () => {
   }
 });
 
-function buildShareUrl() {
+function buildUrlFromInputs({ includeAutoBuild = false } = {}) {
   const url = new URL(window.location.href);
   const from = normaliseCrs(fromCrsInput.value);
   const to = normaliseCrs(toCrsInput.value);
@@ -1013,8 +1019,17 @@ function buildShareUrl() {
   } else {
     url.searchParams.delete("vias");
   }
+  if (includeAutoBuild) {
+    url.searchParams.set("autobuild", "1");
+  } else {
+    url.searchParams.delete("autobuild");
+  }
 
-  return url.toString();
+  return url;
+}
+
+function buildShareUrl() {
+  return buildUrlFromInputs({ includeAutoBuild: true }).toString();
 }
 
 async function copyToClipboard(text) {
@@ -1192,6 +1207,11 @@ form.addEventListener("submit", async (e) => {
   setCookie("corridor_startTime", startInput, 365);
   setCookie("corridor_endTime", endInput, 365);
   setCookie("corridor_vias", viaValues.join(","), 365);
+  const updatedUrl = buildUrlFromInputs();
+  if (autoBuildRequested) {
+    updatedUrl.searchParams.delete("autobuild");
+  }
+  window.history.replaceState({}, "", updatedUrl.toString());
 
   currentDate = dateInput;
   startMinutes = timeStrToMinutes(startInput);
