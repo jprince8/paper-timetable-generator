@@ -118,52 +118,41 @@ def _build_key_item(icon, label, style, icon_size, gap=4):
     return item_table, icon_size + gap + label_width
 
 
-def _build_key_table(items, available_width, style, icon_size, gap=10):
+def _build_key_table(items, available_width, style, icon_size, cols=3, gap=10):
     if not items:
-        return [], 0
+        return None, 0
+
+    items_per_row = max(1, cols)
     rows = []
-    row_widths = []
-    current_row = []
-    current_widths = []
-    current_width = 0
-
+    row = []
     for icon, label in items:
-        flowable, width = _build_key_item(icon, label, style, icon_size)
-        next_width = width if not current_row else width + gap
-        if current_row and current_width + next_width > available_width:
-            rows.append(current_row)
-            row_widths.append(current_widths)
-            current_row = []
-            current_widths = []
-            current_width = 0
-            next_width = width
-        current_row.append(flowable)
-        current_widths.append(width)
-        current_width += next_width
+        flowable, _ = _build_key_item(icon, label, style, icon_size)
+        row.append(flowable)
+        if len(row) == items_per_row:
+            rows.append(row)
+            row = []
+    if row:
+        row += [""] * (items_per_row - len(row))
+        rows.append(row)
 
-    if current_row:
-        rows.append(current_row)
-        row_widths.append(current_widths)
-
-    row_tables = []
-    total_height = 0
-    for row, widths in zip(rows, row_widths):
-        row_table = Table([row], colWidths=widths, hAlign="LEFT")
-        row_table.setStyle(
-            TableStyle(
-                [
-                    ("LEFTPADDING", (0, 0), (-1, -1), 2),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), gap),
-                    ("TOPPADDING", (0, 0), (-1, -1), 2),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ]
-            )
+    col_width = available_width / items_per_row
+    key_table = Table(
+        rows,
+        colWidths=[col_width] * items_per_row,
+        hAlign="LEFT",
+    )
+    key_table.setStyle(
+        TableStyle(
+            [
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), gap),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
         )
-        row_tables.append(row_table)
-        total_height += row_table.wrap(available_width, 0)[1]
-
-    return row_tables, total_height
+    )
+    return key_table, key_table.wrap(available_width, 0)[1]
 
 
 def _split_columns(widths, available_width):
@@ -392,12 +381,12 @@ def build_timetable_pdf(tables, meta=None):
                 title_height = 0
 
             key_label_para = None
-            key_tables = []
+            key_table = None
             key_height = 0
             if key_items:
                 key_label_para = Paragraph("Key:", key_label_style)
                 key_label_height = key_label_para.wrap(doc.width, doc.height)[1]
-                key_tables, key_table_height = _build_key_table(
+                key_table, key_table_height = _build_key_table(
                     key_items, doc.width, key_style, icon_size
                 )
                 key_height = key_label_height + key_table_height
@@ -509,9 +498,9 @@ def build_timetable_pdf(tables, meta=None):
             )
             if title_para:
                 elements.append(title_para)
-            if key_label_para and key_tables:
+            if key_label_para and key_table:
                 elements.append(key_label_para)
-                elements.extend(key_tables)
+                elements.append(key_table)
             elements.append(pdf_table)
             if crs_label_para and crs_para:
                 elements.append(Spacer(1, 4))
