@@ -92,7 +92,7 @@ def _strip_markup(text):
 
 
 def _build_key_item(
-    icon, label, style, icon_size, gap=6, pill_padding=3, line_color=None
+    icon, label, style, icon_size, gap=10, pill_padding=3, line_color=None
 ):
     label_text = _strip_markup(label)
     label_width = pdfmetrics.stringWidth(
