@@ -529,6 +529,7 @@ def build_timetable_pdf(tables, meta=None):
             if key_label_para and key_table:
                 elements.append(key_label_para)
                 elements.append(key_table)
+                elements.append(Spacer(1, 6))
             elements.append(pdf_table)
             if crs_label_para and crs_para:
                 elements.append(Spacer(1, 4))
