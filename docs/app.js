@@ -35,6 +35,7 @@ const PROXY_STATION = `${BACKEND_BASE}/api/stations`; // if you call this from J
 
 const STATION_DEBOUNCE_MS = 180;
 const STATION_MIN_QUERY = 2;
+const ALWAYS_SORT_CANCELLED_TIMES = true;
 
 const RTT_CACHE_PREFIX = "rttCache:";
 let rttCacheEnabled = RTT_CACHE_ENABLED;
@@ -1439,16 +1440,18 @@ form.addEventListener("submit", async (e) => {
     fetch(url, { ...options, signal });
   const fetchRttText = async (url, options = {}) => {
     const cached = readRttCache(url);
-    if (cached) {
+    if (cached && cached.status >= 200 && cached.status < 300) {
       return cached;
     }
     const resp = await fetchWithSignal(url, options);
     const text = await resp.text();
-    writeRttCache(url, {
-      text,
-      status: resp.status,
-      statusText: resp.statusText,
-    });
+    if (resp.status >= 200 && resp.status < 300) {
+      writeRttCache(url, {
+        text,
+        status: resp.status,
+        statusText: resp.statusText,
+      });
+    }
     return { text, status: resp.status, statusText: resp.statusText };
   };
   const shouldAbort = () => signal.aborted || buildCancelled;
@@ -3071,7 +3074,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       serviceRealtimeActivated,
       realtimeToggleEnabled,
     );
-    const allowCancelled = serviceAllCancelled[serviceIdx] === true;
+    const allowCancelled =
+      ALWAYS_SORT_CANCELLED_TIMES || serviceAllCancelled[serviceIdx] === true;
     if (!chosen.text || (!allowCancelled && chosen.format?.strike)) {
       return { text: "", mins: null, format: chosen.format };
     }
@@ -4185,6 +4189,9 @@ function renderTableKey(model, keyEl) {
   };
 
   rows.forEach((row) => {
+    if (row.kind !== "station") {
+      return;
+    }
     orderedSvcIndices.forEach((svcIndex) => {
       const val = row.cells[svcIndex];
       if (!val || typeof val !== "object") return;
@@ -4250,7 +4257,7 @@ function renderTableKey(model, keyEl) {
     items.push({
       sampleHtml:
         '<span class="table-key-sample table-key-sample--out-of-order" title="Out of order example" aria-label="Out of order example">12:34</span>',
-      label: "Out of order",
+      label: "Incorrect order",
     });
   }
   if (formatFlags.depBeforeArrival) {
