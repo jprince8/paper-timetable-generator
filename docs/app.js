@@ -3659,6 +3659,25 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   });
 
   if (remainingServices.length > 0) {
+    sortLogLines.push("");
+    sortLogLines.push("Initial queue order (after pre-sort):");
+    remainingServices.forEach((svcIndex, position) => {
+      const info = firstTimeInfo(svcIndex);
+      const svc = servicesWithDetails[svcIndex]?.svc || {};
+      const headcode =
+        svc.trainIdentity ||
+        svc.runningIdentity ||
+        svc.serviceUid ||
+        `svc#${svcIndex + 1}`;
+      const minsLabel = info.firstMins === null ? "none" : info.firstMins;
+      const rowLabel = info.firstRow === null ? "none" : info.firstRow;
+      sortLogLines.push(
+        `${position + 1}. ${headcode}: first mins ${minsLabel}, first row ${rowLabel}`,
+      );
+    });
+  }
+
+  if (remainingServices.length > 0) {
     const seedService = remainingServices.shift();
     orderedSvcIndices.push(seedService);
     sortLogLines.push("");
