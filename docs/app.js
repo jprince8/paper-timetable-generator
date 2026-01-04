@@ -2614,6 +2614,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     arrOnlyStationIdx = null,
     modeOverride = null,
     ignoreFromStationIdx = null,
+    depOnlyStationIdx = null,
   ) {
     const t = stationTimes[stationIdx][serviceIdx];
     if (!t) return null;
@@ -2623,7 +2624,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     if (arrOnlyStationIdx === stationIdx || modeOverride === "arrOnly") {
       return t.arrMins !== null ? t.arrMins : null;
     }
-    if (modeOverride === "depOnly") {
+    if (depOnlyStationIdx === stationIdx || modeOverride === "depOnly") {
       return t.depMins !== null ? t.depMins : null;
     }
     if (modeOverride === "ignore") {
@@ -2657,6 +2658,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     arrOnlyStationIdx = null,
     modeOverride = null,
     ignoreFromStationIdx = null,
+    depOnlyStationIdx = null,
   ) {
     const t = stationTimes[stationIdx][serviceIdx];
     if (!t) return "";
@@ -2666,7 +2668,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     if (arrOnlyStationIdx === stationIdx || modeOverride === "arrOnly") {
       return t.arrStr || "";
     }
-    if (modeOverride === "depOnly") {
+    if (depOnlyStationIdx === stationIdx || modeOverride === "depOnly") {
       return t.depStr || "";
     }
     if (modeOverride === "ignore") {
@@ -2683,6 +2685,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       logEnabled = true,
       modeOverride = null,
       ignoreFromStationIdx = null,
+      depOnlyStationIdx = null,
     } = options;
     const label = serviceLabel(serviceIdx);
     if (logEnabled) {
@@ -2708,6 +2711,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         arrOnlyStationIdx,
         modeOverride,
         ignoreFromStationIdx,
+        depOnlyStationIdx,
       );
       if (time === null) continue;
       const timeLabel = stationTimeLabel(
@@ -2716,6 +2720,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         arrOnlyStationIdx,
         modeOverride,
         ignoreFromStationIdx,
+        depOnlyStationIdx,
       );
 
       let lastLE = -1;
@@ -2729,6 +2734,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           arrOnlyStationIdx,
           modeOverride,
           ignoreFromStationIdx,
+          depOnlyStationIdx,
         );
         if (otherTime === null) continue;
 
@@ -2759,6 +2765,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
               arrOnlyStationIdx,
               modeOverride,
               ignoreFromStationIdx,
+              depOnlyStationIdx,
             )
           : "";
       const firstTimeLabel =
@@ -2769,6 +2776,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
               arrOnlyStationIdx,
               modeOverride,
               ignoreFromStationIdx,
+              depOnlyStationIdx,
             )
           : "";
       const stationLower = lastLE + 1;
@@ -2951,8 +2959,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           const attemptDep = orderedSvcIndices.slice();
           if (
             attemptInsertService(svcIdx, attemptDep, {
-              modeOverride: "arrOnly",
-              ignoreFromStationIdx: stationIdx,
+              arrOnlyStationIdx: stationIdx,
+              ignoreFromStationIdx: stationIdx + 1,
             })
           ) {
             orderedSvcIndices.splice(
@@ -2972,8 +2980,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           const attemptArr = orderedSvcIndices.slice();
           if (
             attemptInsertService(svcIdx, attemptArr, {
-              modeOverride: "depOnly",
-              ignoreFromStationIdx: stationIdx,
+              ignoreFromStationIdx: stationIdx + 1,
+              depOnlyStationIdx: stationIdx,
             })
           ) {
             orderedSvcIndices.splice(
