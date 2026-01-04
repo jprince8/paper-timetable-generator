@@ -91,7 +91,6 @@ if (buildBtn) {
     }, 0);
     buildCancelled = true;
     buildAbortController.abort();
-    setStatus("Build cancelled.");
     setBuildInProgress(false);
     hideStatus();
   });
@@ -824,6 +823,10 @@ function hideStatus() {
 
 function setStatus(msg, options = {}) {
   if (!statusEl || !statusTextEl) return;
+  if (buildCancelled) {
+    hideStatus();
+    return;
+  }
   const { isError = false, progress = null } = options;
   if (!msg) {
     hideStatus();
@@ -839,6 +842,10 @@ function setStatus(msg, options = {}) {
 }
 
 function setProgressStatus(label, completed, total) {
+  if (buildCancelled) {
+    hideStatus();
+    return;
+  }
   const percent = total > 0 ? Math.round((completed / total) * 100) : 100;
   setStatus(`${label}`, { progress: percent });
 }
