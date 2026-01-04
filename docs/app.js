@@ -696,9 +696,10 @@ function chooseDisplayedTimeAndStatus(
   }
 
   if (loc.realtimePassNoReport === true) {
+    const unknownPass = schedDisplay ? `${schedDisplay}?` : "?";
     return {
-      text: schedDisplay,
-      format: { color: "muted" },
+      text: unknownPass,
+      format: { italic: true },
     };
   }
 
