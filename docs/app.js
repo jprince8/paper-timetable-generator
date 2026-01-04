@@ -85,10 +85,6 @@ if (buildBtn) {
     if (!buildInProgress || !buildAbortController) return;
     event.preventDefault();
     event.stopPropagation();
-    console.log("[build] cancel clicked", {
-      inProgress: buildInProgress,
-      cancelled: buildCancelled,
-    });
     suppressNextSubmit = true;
     setTimeout(() => {
       suppressNextSubmit = false;
@@ -97,6 +93,7 @@ if (buildBtn) {
     buildAbortController.abort();
     setStatus("Build cancelled.");
     setBuildInProgress(false);
+    hideStatus();
   });
 }
 
@@ -573,7 +570,6 @@ function loadInputsFromQuery() {
 const { shouldAutoSubmit, autoBuildRequested } = loadInputsFromQuery();
 hydratePrefilledStations().then(() => {
   if (shouldAutoSubmit) {
-    console.log("[build] auto-submit requested from URL params");
     setTimeout(() => {
       form.requestSubmit();
     }, 0);
@@ -1246,23 +1242,16 @@ function renderTimetablesFromContext(context) {
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   if (suppressNextSubmit) {
-    console.log("[build] submit suppressed after cancel");
     return;
   }
   if (buildInProgress) {
-    console.log("[build] submit ignored; build already in progress");
     return;
   }
 
   buildCancelled = false;
-  console.log("[build] submit start", {
-    autoBuildRequested,
-    shouldAutoSubmit,
-  });
   // Run HTML5 validation for "required" fields, min/max, etc.
   stationFields.forEach((field) => updateStationValidity(field));
   if (!form.reportValidity()) {
-    console.log("[build] submit blocked by form validity");
     return;
   }
 
@@ -1279,7 +1268,6 @@ form.addEventListener("submit", async (e) => {
     resetOutputs();
     setStatus("Initialising timetable...", { progress: 0 });
     if (shouldAbort()) {
-      console.log("[build] aborted after init");
       return;
     }
 
@@ -1423,7 +1411,6 @@ form.addEventListener("submit", async (e) => {
     await Promise.all(searchPromises);
   } catch (err) {
     if (isAbortError(err)) {
-      console.log("[build] aborted during corridor search", err);
       setStatus("Build cancelled.");
       return;
     }
@@ -1524,7 +1511,6 @@ form.addEventListener("submit", async (e) => {
     corridorDetails = await Promise.all(corridorDetailPromises);
   } catch (err) {
     if (isAbortError(err)) {
-      console.log("[build] aborted during corridor detail fetch", err);
       setStatus("Build cancelled.");
       return;
     }
@@ -1661,7 +1647,6 @@ form.addEventListener("submit", async (e) => {
     await Promise.all(stationSearchPromises);
   } catch (err) {
     if (isAbortError(err)) {
-      console.log("[build] aborted during station search", err);
       return;
     }
     console.warn("Error during station searches:", err);
@@ -1757,7 +1742,6 @@ form.addEventListener("submit", async (e) => {
     await Promise.all(detailFetchPromises);
   } catch (err) {
     if (isAbortError(err)) {
-      console.log("[build] aborted during candidate detail fetch", err);
       return;
     }
     console.warn("Error during candidate detail fetch:", err);
@@ -1870,10 +1854,6 @@ form.addEventListener("submit", async (e) => {
       hideStatus();
     }
   } finally {
-    console.log("[build] submit cleanup", {
-      cancelled: buildCancelled,
-      aborted: buildAbortController?.signal?.aborted,
-    });
     buildAbortController = null;
     setBuildInProgress(false);
   }
