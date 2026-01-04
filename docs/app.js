@@ -3423,6 +3423,106 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   // as you go down the table, allowing for midnight rollovers.
   checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails);
 
+  function tryResortForHighlighting() {
+    let movedAny = false;
+    let movedThisPass = true;
+    while (movedThisPass) {
+      movedThisPass = false;
+
+      for (let r = 0; r < rows.length; r++) {
+        let minTime = null;
+        let minTimeSvcIndex = null;
+        for (let colPos = orderedSvcIndices.length - 1; colPos >= 0; colPos--) {
+          const svcIndex = orderedSvcIndices[colPos];
+          const value = rows[r].cells[svcIndex];
+          const timeText = cellToText(value);
+          if (!timeText) continue;
+          if (value && typeof value === "object" && value.format?.strike) {
+            continue;
+          }
+          const mins = timeStrToMinutes(timeText);
+          if (mins === null) continue;
+          if (minTime === null || mins <= minTime) {
+            minTime = mins;
+            minTimeSvcIndex = svcIndex;
+            continue;
+          }
+          const attempt = orderedSvcIndices.filter((idx) => idx !== svcIndex);
+          if (
+            attempt.length !== orderedSvcIndices.length &&
+            attemptInsertService(svcIndex, attempt, { logEnabled: false })
+          ) {
+            orderedSvcIndices.splice(0, orderedSvcIndices.length, ...attempt);
+            movedAny = true;
+            movedThisPass = true;
+            break;
+          }
+        }
+        if (movedThisPass) break;
+      }
+
+      if (movedThisPass) continue;
+
+      const stationRowIndices = new Map();
+      for (let r = 0; r < rowSpecs.length; r++) {
+        const spec = rowSpecs[r];
+        if (spec.kind !== "station") continue;
+        if (!stationRowIndices.has(spec.stationIndex)) {
+          stationRowIndices.set(spec.stationIndex, {});
+        }
+        const entry = stationRowIndices.get(spec.stationIndex);
+        if (spec.mode === "arr") entry.arr = r;
+        if (spec.mode === "dep") entry.dep = r;
+      }
+
+      stationRowIndices.forEach((entry) => {
+        if (movedThisPass) return;
+        if (entry.arr === undefined || entry.dep === undefined) return;
+        let maxArr = null;
+        for (let colPos = 0; colPos < orderedSvcIndices.length; colPos++) {
+          const svcIndex = orderedSvcIndices[colPos];
+          const arrVal = rows[entry.arr].cells[svcIndex];
+          const arrText = cellToText(arrVal);
+          if (arrVal && typeof arrVal === "object" && arrVal.format?.strike) {
+            continue;
+          }
+          if (arrText) {
+            const arrMins = timeStrToMinutes(arrText);
+            if (arrMins !== null) {
+              if (maxArr === null || arrMins > maxArr) {
+                maxArr = arrMins;
+              }
+            }
+          }
+
+          const depVal = rows[entry.dep].cells[svcIndex];
+          const depText = cellToText(depVal);
+          if (depVal && typeof depVal === "object" && depVal.format?.strike) {
+            continue;
+          }
+          if (!depText || maxArr === null) continue;
+          const depMins = timeStrToMinutes(depText);
+          if (depMins === null) continue;
+          if (depMins < maxArr) {
+            const attempt = orderedSvcIndices.filter((idx) => idx !== svcIndex);
+            if (
+              attempt.length !== orderedSvcIndices.length &&
+              attemptInsertService(svcIndex, attempt, { logEnabled: false })
+            ) {
+              orderedSvcIndices.splice(0, orderedSvcIndices.length, ...attempt);
+              movedAny = true;
+              movedThisPass = true;
+              return;
+            }
+          }
+        }
+      });
+    }
+    return movedAny;
+  }
+
+  const resortedForHighlight = tryResortForHighlighting();
+
   let partialSort = null;
   let spacerIndex = null;
   if (unsortedServices && unsortedServices.length > 0) {
@@ -3446,6 +3546,17 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     partialSort = {
       unsortedLabels: unsortedLabels || [],
     };
+  }
+
+  if (resortedForHighlight) {
+    displayOrderedSvcIndices = orderedSvcIndices.slice();
+    if (spacerIndex !== null && unsortedServices && unsortedServices.length > 0) {
+      displayOrderedSvcIndices = [
+        ...orderedSvcIndices,
+        spacerIndex,
+        ...unsortedServices,
+      ];
+    }
   }
 
   const highlightCutoff =
