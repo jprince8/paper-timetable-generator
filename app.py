@@ -42,6 +42,10 @@ class RttTimeoutError(Exception):
     pass
 
 
+class RttConnectionError(Exception):
+    pass
+
+
 def norm_station_query(value):
     value = (value or "").lower()
     value = value.replace("&", "and")
@@ -83,6 +87,9 @@ def rtt_get(path, params=None):
     except requests.Timeout as exc:
         app.logger.warning("RTT timeout for %s", url)
         raise RttTimeoutError() from exc
+    except requests.ConnectionError as exc:
+        app.logger.error("RTT connection error for %s: %s", url, exc)
+        raise RttConnectionError() from exc
     try:
         resp.raise_for_status()
     except requests.HTTPError as e:
@@ -120,6 +127,8 @@ def api_search():
         data = rtt_get(path)
     except RttTimeoutError:
         return jsonify({"error": "timeout"}), 504
+    except RttConnectionError:
+        return jsonify({"error": "connection"}), 503
     return jsonify(data)
 
 @app.route("/rtt/service")
@@ -140,6 +149,8 @@ def api_service():
         data = rtt_get(path)
     except RttTimeoutError:
         return jsonify({"error": "timeout"}), 504
+    except RttConnectionError:
+        return jsonify({"error": "connection"}), 503
     locations = data.get("locations")
     if isinstance(locations, list):
         filtered_locations = []

@@ -1267,6 +1267,9 @@ form.addEventListener("submit", async (e) => {
   let invalidInputsDetected = false;
   let rttTimeoutDetected = false;
   const rttTimeoutMessage = "Error fetching data from RTT. Please try again.";
+  const rttConnectionMessage =
+    "Unable to reach RTT. Please check your connection and try again.";
+  let rttConnectionDetected = false;
 
   try {
     const searchPromises = corridorLegs.map(async (leg) => {
@@ -1300,6 +1303,10 @@ form.addEventListener("submit", async (e) => {
       }
       if (data && data.error === "timeout") {
         rttTimeoutDetected = true;
+        return;
+      }
+      if (data && data.error === "connection") {
+        rttConnectionDetected = true;
         return;
       }
       const fromNameCandidate =
@@ -1351,6 +1358,10 @@ form.addEventListener("submit", async (e) => {
 
   if (rttTimeoutDetected) {
     setStatus(rttTimeoutMessage, { isError: true });
+    return;
+  }
+  if (rttConnectionDetected) {
+    setStatus(rttConnectionMessage, { isError: true });
     return;
   }
 
@@ -1416,6 +1427,9 @@ form.addEventListener("submit", async (e) => {
     if (data && data.error === "timeout") {
       rttTimeoutDetected = true;
     }
+    if (data && data.error === "connection") {
+      rttConnectionDetected = true;
+    }
     return {
       svc,
       detail: data,
@@ -1435,6 +1449,10 @@ form.addEventListener("submit", async (e) => {
 
   if (rttTimeoutDetected) {
     setStatus(rttTimeoutMessage, { isError: true });
+    return;
+  }
+  if (rttConnectionDetected) {
+    setStatus(rttConnectionMessage, { isError: true });
     return;
   }
 
@@ -1522,6 +1540,10 @@ form.addEventListener("submit", async (e) => {
         rttTimeoutDetected = true;
         return;
       }
+      if (data && data.error === "connection") {
+        rttConnectionDetected = true;
+        return;
+      }
       const services = Array.isArray(data.services) ? data.services : [];
       services.forEach((svc) => {
         if (svc.isPassenger === false) return;
@@ -1551,6 +1573,10 @@ form.addEventListener("submit", async (e) => {
 
   if (rttTimeoutDetected) {
     setStatus(rttTimeoutMessage, { isError: true });
+    return;
+  }
+  if (rttConnectionDetected) {
+    setStatus(rttConnectionMessage, { isError: true });
     return;
   }
 
@@ -1590,6 +1616,10 @@ form.addEventListener("submit", async (e) => {
             rttTimeoutDetected = true;
             return;
           }
+          if (data && data.error === "connection") {
+            rttConnectionDetected = true;
+            return;
+          }
           entry.detail = data;
         }),
       )
@@ -1627,6 +1657,10 @@ form.addEventListener("submit", async (e) => {
 
   if (rttTimeoutDetected) {
     setStatus(rttTimeoutMessage, { isError: true });
+    return;
+  }
+  if (rttConnectionDetected) {
+    setStatus(rttConnectionMessage, { isError: true });
     return;
   }
 
