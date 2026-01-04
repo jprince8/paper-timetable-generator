@@ -2608,9 +2608,18 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     return "";
   }
 
-  function stationTimeMins(serviceIdx, stationIdx, arrOnlyStationIdx = null, modeOverride = null) {
+  function stationTimeMins(
+    serviceIdx,
+    stationIdx,
+    arrOnlyStationIdx = null,
+    modeOverride = null,
+    ignoreFromStationIdx = null,
+  ) {
     const t = stationTimes[stationIdx][serviceIdx];
     if (!t) return null;
+    if (ignoreFromStationIdx !== null && stationIdx >= ignoreFromStationIdx) {
+      return null;
+    }
     if (arrOnlyStationIdx === stationIdx || modeOverride === "arrOnly") {
       return t.arrMins !== null ? t.arrMins : null;
     }
@@ -2647,9 +2656,13 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     stationIdx,
     arrOnlyStationIdx = null,
     modeOverride = null,
+    ignoreFromStationIdx = null,
   ) {
     const t = stationTimes[stationIdx][serviceIdx];
     if (!t) return "";
+    if (ignoreFromStationIdx !== null && stationIdx >= ignoreFromStationIdx) {
+      return "";
+    }
     if (arrOnlyStationIdx === stationIdx || modeOverride === "arrOnly") {
       return t.arrStr || "";
     }
@@ -2669,6 +2682,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       arrOnlyStationIdx = null,
       logEnabled = true,
       modeOverride = null,
+      ignoreFromStationIdx = null,
     } = options;
     const label = serviceLabel(serviceIdx);
     if (logEnabled) {
@@ -2693,6 +2707,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         stationIdx,
         arrOnlyStationIdx,
         modeOverride,
+        ignoreFromStationIdx,
       );
       if (time === null) continue;
       const timeLabel = stationTimeLabel(
@@ -2700,6 +2715,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         stationIdx,
         arrOnlyStationIdx,
         modeOverride,
+        ignoreFromStationIdx,
       );
 
       let lastLE = -1;
@@ -2712,6 +2728,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           stationIdx,
           arrOnlyStationIdx,
           modeOverride,
+          ignoreFromStationIdx,
         );
         if (otherTime === null) continue;
 
@@ -2741,6 +2758,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
               stationIdx,
               arrOnlyStationIdx,
               modeOverride,
+              ignoreFromStationIdx,
             )
           : "";
       const firstTimeLabel =
@@ -2750,6 +2768,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
               stationIdx,
               arrOnlyStationIdx,
               modeOverride,
+              ignoreFromStationIdx,
             )
           : "";
       const stationLower = lastLE + 1;
@@ -2927,12 +2946,13 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           stationLabels[stationIdx] || `station#${stationIdx}`;
         if (t.depMins !== null) {
           sortLogLines.push(
-            `Resolution pass 2 for ${serviceLabel(svcIdx)} at ${stationName}: ignore dep time.`,
+            `Resolution pass 2 for ${serviceLabel(svcIdx)} at ${stationName}: ignore dep time and all rows below.`,
           );
           const attemptDep = orderedSvcIndices.slice();
           if (
             attemptInsertService(svcIdx, attemptDep, {
               modeOverride: "arrOnly",
+              ignoreFromStationIdx: stationIdx,
             })
           ) {
             orderedSvcIndices.splice(
@@ -2947,12 +2967,13 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
 
         if (t.arrMins !== null) {
           sortLogLines.push(
-            `Resolution pass 2 for ${serviceLabel(svcIdx)} at ${stationName}: ignore arr time.`,
+            `Resolution pass 2 for ${serviceLabel(svcIdx)} at ${stationName}: ignore arr time and all rows below.`,
           );
           const attemptArr = orderedSvcIndices.slice();
           if (
             attemptInsertService(svcIdx, attemptArr, {
               modeOverride: "depOnly",
+              ignoreFromStationIdx: stationIdx,
             })
           ) {
             orderedSvcIndices.splice(
