@@ -3022,7 +3022,6 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         : "unknown";
     const message = `Highlight ${rowLabel}: ${currentTime} (${currentSvc}) < ${compareTime} (${compareSvc}) because ${reason}`;
     sortLogLines.push(message);
-    console.log(message);
   }
 
   function serviceLabel(serviceIdx) {
