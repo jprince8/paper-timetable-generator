@@ -146,10 +146,10 @@ def _build_key_table(items, available_width, style, icon_size, gap=6):
     key_table.setStyle(
         TableStyle(
             [
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("LEFTPADDING", (0, 0), (-1, -1), 2),
                 ("RIGHTPADDING", (0, 0), (-1, -1), gap),
-                ("TOPPADDING", (0, 0), (-1, -1), 1),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ]
         )
@@ -202,13 +202,14 @@ def build_timetable_pdf(tables, meta=None):
         "Key",
         parent=styles["Normal"],
         fontName="Helvetica",
-        fontSize=7,
-        leading=8,
+        fontSize=8.5,
+        leading=10,
     )
     key_label_style = ParagraphStyle(
         "KeyLabel",
         parent=key_style,
         fontName="Helvetica-Bold",
+        spaceAfter=2,
     )
 
     elements = []
@@ -294,13 +295,13 @@ def build_timetable_pdf(tables, meta=None):
                 "strike": False,
                 "color": False,
                 "no_report": False,
-                "bg_color": False,
+                "out_of_order": False,
+                "dep_before_arrival": False,
             }
             for row in chunk_rows[1:]:
                 for cell in row[1:]:
                     if not isinstance(cell, dict):
                         continue
-                    cell_text = _cell_text(cell)
                     if cell.get("bold"):
                         format_flags["bold"] = True
                     if cell.get("italic"):
@@ -309,10 +310,14 @@ def build_timetable_pdf(tables, meta=None):
                         format_flags["strike"] = True
                     if cell.get("color") and cell.get("color") != "muted":
                         format_flags["color"] = True
-                    if cell.get("noReport") or cell_text.endswith("?"):
+                    if cell.get("noReport"):
                         format_flags["no_report"] = True
                     if cell.get("bgColor"):
-                        format_flags["bg_color"] = True
+                        bg_color = str(cell.get("bgColor")).lower()
+                        if bg_color == "#fce3b0":
+                            format_flags["out_of_order"] = True
+                        elif bg_color == "#e6d9ff":
+                            format_flags["dep_before_arrival"] = True
 
             key_items = []
             if "FC" in facilities_tokens:
@@ -322,15 +327,30 @@ def build_timetable_pdf(tables, meta=None):
             if "BUS" in facilities_tokens:
                 key_items.append((icon_map.get("BUS"), "Bus service"))
             if format_flags["bold"]:
-                key_items.append((None, "Bold = actual time"))
-            if format_flags["italic"] or format_flags["no_report"]:
-                key_items.append((None, "Italic / ? = estimated or no report"))
+                key_items.append((None, "<b>12:34</b> Actual time"))
+            if format_flags["italic"]:
+                key_items.append((None, "<i>12:34</i> Predicted time"))
+            if format_flags["no_report"]:
+                key_items.append((None, "<i>12:34?</i> No realtime report"))
             if format_flags["strike"]:
-                key_items.append((None, "Strikethrough = cancelled"))
+                key_items.append((None, "<strike>12:34</strike> Cancelled"))
             if format_flags["color"]:
-                key_items.append((None, "Color = early/late"))
-            if format_flags["bg_color"]:
-                key_items.append((None, "Shaded = out-of-order/dep-before-arrival"))
+                key_items.append((None, "<font color=\"#2c6fbe\">12:34</font> Early running"))
+                key_items.append((None, "<font color=\"#e53935\">12:34</font> Late running"))
+            if format_flags["out_of_order"]:
+                key_items.append(
+                    (
+                        None,
+                        "<font backColor=\"#fce3b0\">12:34</font> Out of order",
+                    )
+                )
+            if format_flags["dep_before_arrival"]:
+                key_items.append(
+                    (
+                        None,
+                        "<font backColor=\"#e6d9ff\">12:34</font> Departs before previous arrival",
+                    )
+                )
 
             highlight_styles = []
             data_rows = []
@@ -373,20 +393,32 @@ def build_timetable_pdf(tables, meta=None):
                 )
                 key_height = key_label_height + key_table_height
 
-            crs_codes = set()
+            crs_codes = {}
             for row in chunk_rows[1:]:
                 label = _cell_text(row[0]).strip()
                 if label not in {"Comes from", "Continues to"}:
                     continue
                 for cell in row[1:]:
-                    code = _cell_text(cell).strip()
+                    if isinstance(cell, dict):
+                        code = _cell_text(cell.get("text", "")).strip()
+                        title = _cell_text(cell.get("title", "")).strip()
+                    else:
+                        code = _cell_text(cell).strip()
+                        title = ""
                     if code:
-                        crs_codes.add(code)
+                        if code not in crs_codes:
+                            crs_codes[code] = title
             crs_para = None
             crs_height = 0
             if crs_codes:
-                crs_list = " \u2022 ".join(sorted(crs_codes))
-                crs_para = Paragraph(f"CRS: {crs_list}", key_style)
+                sorted_codes = sorted(crs_codes.items(), key=lambda item: item[0])
+                crs_list = " \u2022 ".join(
+                    [
+                        f"{code}: {title}" if title else code
+                        for code, title in sorted_codes
+                    ]
+                )
+                crs_para = Paragraph(f"Station codes:<br/>{crs_list}", key_style)
                 crs_height = crs_para.wrap(doc.width, doc.height)[1]
 
             pdf_table = Table(data, colWidths=chunk_widths, repeatRows=1, hAlign="LEFT")
