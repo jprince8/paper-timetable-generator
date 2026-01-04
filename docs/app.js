@@ -3105,6 +3105,53 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     }
   }
 
+  const stationRowIndices = new Map();
+  for (let r = 0; r < rowSpecs.length; r++) {
+    const spec = rowSpecs[r];
+    if (spec.kind !== "station") continue;
+    if (!stationRowIndices.has(spec.stationIndex)) {
+      stationRowIndices.set(spec.stationIndex, {});
+    }
+    const entry = stationRowIndices.get(spec.stationIndex);
+    if (spec.mode === "arr") entry.arr = r;
+    if (spec.mode === "dep") entry.dep = r;
+  }
+
+  stationRowIndices.forEach((entry) => {
+    if (entry.arr === undefined || entry.dep === undefined) return;
+    let maxArr = null;
+    for (let colPos = 0; colPos < highlightCutoff; colPos++) {
+      const svcIndex = displayOrderedSvcIndices[colPos];
+      const arrVal = rows[entry.arr].cells[svcIndex];
+      const arrText = cellToText(arrVal);
+      if (arrText) {
+        const arrMins = timeStrToMinutes(arrText);
+        if (arrMins !== null) {
+          if (maxArr === null || arrMins > maxArr) {
+            maxArr = arrMins;
+          }
+        }
+      }
+
+      const depVal = rows[entry.dep].cells[svcIndex];
+      const depText = cellToText(depVal);
+      if (!depText || maxArr === null) continue;
+      const depMins = timeStrToMinutes(depText);
+      if (depMins === null) continue;
+      if (depMins < maxArr) {
+        if (depVal && typeof depVal === "object") {
+          depVal.format = depVal.format || {};
+          depVal.format.bgColor = HIGHLIGHT_OUT_OF_ORDER_COLOR;
+        } else {
+          rows[entry.dep].cells[svcIndex] = {
+            text: depText,
+            format: { bgColor: HIGHLIGHT_OUT_OF_ORDER_COLOR },
+          };
+        }
+      }
+    }
+  });
+
   return {
     rows,
     orderedSvcIndices: displayOrderedSvcIndices,
