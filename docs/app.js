@@ -1,7 +1,17 @@
 // === Configuration ===
-const DEBUG_STATIONS = false; // set true to log station selection / dwell details
-const ENABLE_SORT_LOG_DOWNLOAD = false;
-const ENABLE_RTT_CACHE = false; // set true to cache RTT API responses locally
+// URL query flags:
+// - debug_stations=1/true enables station selection/dwell logging
+// - sort_log=1/true enables sort log downloads
+// - rtt_cache=1/true enables local RTT caching
+function hasEnabledQueryFlag(flag) {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has(flag)) return false;
+  const raw = params.get(flag);
+  return raw === "" || raw === "1" || raw === "true";
+}
+
+const DEBUG_STATIONS = hasEnabledQueryFlag("debug_stations");
+const ENABLE_SORT_LOG_DOWNLOAD = hasEnabledQueryFlag("sort_log");
 const RTT_CACHE_QUERY_FLAG = "rtt_cache";
 // Apply the “must call at >=2 stops” rule *after* hiding stations
 // that have no public calls (and iterate to a stable result).
@@ -17,18 +27,13 @@ const STATION_DEBOUNCE_MS = 180;
 const STATION_MIN_QUERY = 2;
 
 const RTT_CACHE_PREFIX = "rttCache:";
-let rttCacheEnabled = ENABLE_RTT_CACHE;
+let rttCacheEnabled = false;
 const rttMemoryCache = new Map();
 
 function checkRttCacheFlagFile() {
-  const params = new URLSearchParams(window.location.search);
-  if (params.has(RTT_CACHE_QUERY_FLAG)) {
-    const raw = params.get(RTT_CACHE_QUERY_FLAG);
-    const isEnabled = raw === "" || raw === "1" || raw === "true";
-    if (isEnabled) {
-      rttCacheEnabled = true;
-      console.info("RTT cache enabled");
-    }
+  if (hasEnabledQueryFlag(RTT_CACHE_QUERY_FLAG)) {
+    rttCacheEnabled = true;
+    console.info("RTT cache enabled");
   }
   return Promise.resolve();
 }
