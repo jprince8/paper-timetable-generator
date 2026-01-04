@@ -695,10 +695,11 @@ function chooseDisplayedTimeAndStatus(
     return { text: schedDisplay, format: null };
   }
 
-  const noReport =
-    loc.realtimePassNoReport === true ||
-    loc.realtimeDepartureNoReport === true ||
-    loc.realtimeArrivalNoReport === true;
+  const noReport = isArrival
+    ? loc.realtimePassNoReport === true ||
+      loc.realtimeArrivalNoReport === true
+    : loc.realtimePassNoReport === true ||
+      loc.realtimeDepartureNoReport === true;
   if (noReport) {
     const baseDisplay = rtDisplay || schedDisplay;
     const unknownPass = baseDisplay ? `${baseDisplay}?` : "?";
