@@ -1,5 +1,6 @@
 // === Configuration ===
 const DEBUG_STATIONS = false; // set true to log station selection / dwell details
+const ENABLE_SORT_LOG_DOWNLOAD = false;
 // Apply the “must call at >=2 stops” rule *after* hiding stations
 // that have no public calls (and iterate to a stable result).
 
@@ -37,7 +38,6 @@ const toStationInput = document.getElementById("toStation");
 const toCrsInput = document.getElementById("toCrs");
 const toSuggestBox = document.getElementById("toSuggest");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
-const ENABLE_SORT_LOG_DOWNLOAD = true;
 const shareBtn = document.getElementById("shareBtn");
 const realtimeBtn = document.getElementById("realtimeBtn");
 const cookieBanner = document.getElementById("cookieBanner");
