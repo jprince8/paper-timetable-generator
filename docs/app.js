@@ -26,6 +26,7 @@ function checkRttCacheFlagFile() {
     .then((resp) => {
       if (resp.ok) {
         rttCacheEnabled = true;
+        console.info("RTT cache enabled");
       }
     })
     .catch(() => {
