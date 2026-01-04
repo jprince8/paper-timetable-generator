@@ -684,7 +684,20 @@ function chooseDisplayedTimeAndStatus(
   const schedDisplay = sched ? padTime(sched) : "";
   const rtDisplay = rt ? padTime(rt) : "";
 
-  if ((loc.displayAs || "").toUpperCase() === "CANCELLED_CALL") {
+  const displayAs = (loc.displayAs || "").toUpperCase();
+  if (displayAs === "CANCELLED_CALL") {
+    return {
+      text: schedDisplay,
+      format: { strike: true },
+    };
+  }
+  if (isArrival && displayAs === "STARTS") {
+    return {
+      text: schedDisplay,
+      format: { strike: true },
+    };
+  }
+  if (!isArrival && displayAs === "ENDS") {
     return {
       text: schedDisplay,
       format: { strike: true },
