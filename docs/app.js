@@ -41,8 +41,6 @@ const buildBtn = document.getElementById("buildBtn");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 const shareBtn = document.getElementById("shareBtn");
 const realtimeBtn = document.getElementById("realtimeBtn");
-const cookieBanner = document.getElementById("cookieBanner");
-const cookieAcceptBtn = document.getElementById("cookieAcceptBtn");
 const nowBtn = document.getElementById("nowBtn");
 
 // === Mutable state ===
@@ -100,20 +98,6 @@ if (buildBtn) {
 addViaBtn.addEventListener("click", () => {
   createViaField("");
 });
-
-if (cookieAcceptBtn && cookieBanner) {
-  const cookieKey = "cookieConsentAccepted";
-  const isAccepted = localStorage.getItem(cookieKey) === "true";
-  if (!isAccepted) {
-    cookieBanner.hidden = false;
-  } else {
-    cookieBanner.hidden = true;
-  }
-  cookieAcceptBtn.addEventListener("click", () => {
-    localStorage.setItem(cookieKey, "true");
-    cookieBanner.hidden = true;
-  });
-}
 
 if (nowBtn) {
   nowBtn.addEventListener("click", () => {
@@ -456,40 +440,14 @@ const toField = registerStationField({
   required: true,
 });
 
-// === Cookie helpers ===
-function setCookie(name, value, days) {
-  const d = new Date();
-  d.setTime(d.getTime() + days * 24 * 60 * 60 * 1000);
-  const expires = "expires=" + d.toUTCString();
-  document.cookie =
-    name +
-    "=" +
-    encodeURIComponent(value) +
-    ";" +
-    expires +
-    ";path=/;SameSite=Lax";
-}
-
-function getCookie(name) {
-  const decoded = decodeURIComponent(document.cookie || "");
-  const parts = decoded.split(";");
-  const prefix = name + "=";
-  for (let c of parts) {
-    c = c.trim();
-    if (c.indexOf(prefix) === 0) {
-      return c.substring(prefix.length);
-    }
-  }
-  return "";
-}
-
-function loadSavedInputsFromCookies() {
-  const from = getCookie("corridor_fromCrs");
-  const to = getCookie("corridor_toCrs");
-  const date = getCookie("corridor_serviceDate");
-  const start = getCookie("corridor_startTime");
-  const end = getCookie("corridor_endTime");
-  const viasStr = getCookie("corridor_vias");
+// === Local storage helpers ===
+function loadSavedInputsFromStorage() {
+  const from = localStorage.getItem("corridor_fromCrs") || "";
+  const to = localStorage.getItem("corridor_toCrs") || "";
+  const date = localStorage.getItem("corridor_serviceDate") || "";
+  const start = localStorage.getItem("corridor_startTime") || "";
+  const end = localStorage.getItem("corridor_endTime") || "";
+  const viasStr = localStorage.getItem("corridor_vias") || "";
 
   if (from) {
     fromField.crsInput.value = normaliseCrs(from);
@@ -509,11 +467,10 @@ function loadSavedInputsFromCookies() {
       .map((v) => v.trim())
       .filter((v) => v)
       .forEach((v) => createViaField(v));
+  } else {
+    clearViaFields();
   }
 }
-
-// Run once when the script loads
-loadSavedInputsFromCookies();
 
 function hydratePrefilledStations() {
   const hydrations = [];
@@ -527,8 +484,10 @@ function hydratePrefilledStations() {
 
 function loadInputsFromQuery() {
   const params = new URLSearchParams(window.location.search);
+  const autoBuildRequested = window.location.hash === "#autobuild";
+
   if (params.size === 0) {
-    return { shouldAutoSubmit: false, autoBuildRequested: false };
+    return { shouldAutoSubmit: false, autoBuildRequested };
   }
 
   const from = normaliseCrs(params.get("from"));
@@ -537,8 +496,6 @@ function loadInputsFromQuery() {
   const start = padTime(params.get("start"));
   const end = padTime(params.get("end"));
   const viasRaw = params.get("vias");
-  const autoBuild = params.get("autobuild");
-
   if (from) {
     fromField.crsInput.value = from;
   }
@@ -549,7 +506,7 @@ function loadInputsFromQuery() {
   if (start) document.getElementById("startTime").value = start;
   if (end) document.getElementById("endTime").value = end;
 
-  if (from && to && viasRaw === null) {
+  if (viasRaw === null) {
     clearViaFields();
   } else if (viasRaw !== null) {
     clearViaFields();
@@ -561,12 +518,17 @@ function loadInputsFromQuery() {
   }
 
   return {
-    shouldAutoSubmit: Boolean(autoBuild && from && to && date && start && end),
-    autoBuildRequested: Boolean(autoBuild),
+    shouldAutoSubmit: Boolean(
+      autoBuildRequested && from && to && date && start && end,
+    ),
+    autoBuildRequested,
   };
 }
 
 const { shouldAutoSubmit, autoBuildRequested } = loadInputsFromQuery();
+if (new URLSearchParams(window.location.search).size === 0) {
+  loadSavedInputsFromStorage();
+}
 hydratePrefilledStations().then(() => {
   if (shouldAutoSubmit) {
     setTimeout(() => {
@@ -1088,11 +1050,7 @@ function buildUrlFromInputs({ includeAutoBuild = false } = {}) {
   } else {
     url.searchParams.delete("vias");
   }
-  if (includeAutoBuild) {
-    url.searchParams.set("autobuild", "1");
-  } else {
-    url.searchParams.delete("autobuild");
-  }
+  url.hash = includeAutoBuild ? "#autobuild" : "";
 
   return url;
 }
@@ -1290,15 +1248,15 @@ form.addEventListener("submit", async (e) => {
     .filter((v) => v);
 
   // Persist current form values + vias for next visit
-  setCookie("corridor_fromCrs", from, 365);
-  setCookie("corridor_toCrs", to, 365);
-  setCookie("corridor_serviceDate", dateInput, 365);
-  setCookie("corridor_startTime", startInput, 365);
-  setCookie("corridor_endTime", endInput, 365);
-  setCookie("corridor_vias", viaValues.join(","), 365);
+  localStorage.setItem("corridor_fromCrs", from);
+  localStorage.setItem("corridor_toCrs", to);
+  localStorage.setItem("corridor_serviceDate", dateInput);
+  localStorage.setItem("corridor_startTime", startInput);
+  localStorage.setItem("corridor_endTime", endInput);
+  localStorage.setItem("corridor_vias", viaValues.join(","));
   const updatedUrl = buildUrlFromInputs();
   if (autoBuildRequested) {
-    updatedUrl.searchParams.delete("autobuild");
+    updatedUrl.hash = "";
   }
   window.history.replaceState({}, "", updatedUrl.toString());
 
