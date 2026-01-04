@@ -1620,7 +1620,9 @@ form.addEventListener("submit", async (e) => {
     generatedTimestamp: formatGeneratedTimestamp(),
   };
   renderTimetablesFromContext(lastTimetableContext);
-  hideStatus();
+  if (!statusEl?.classList.contains("is-error")) {
+    hideStatus();
+  }
 });
 
 function splitServiceEntries(entries, corridorStations = []) {
@@ -2578,6 +2580,23 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     return null;
   }
 
+  function firstTimeInfo(serviceIdx) {
+    let firstMins = null;
+    let firstRow = null;
+    for (let rowIdx = 0; rowIdx < rowSpecs.length; rowIdx++) {
+      const spec = rowSpecs[rowIdx];
+      if (!spec || spec.kind !== "station") continue;
+      const stationIdx = spec.stationIndex;
+      const mins = stationTimeMins(serviceIdx, stationIdx);
+      if (mins === null) continue;
+      if (firstMins === null || mins < firstMins) {
+        firstMins = mins;
+        firstRow = rowIdx;
+      }
+    }
+    return { firstMins, firstRow };
+  }
+
   function stationTimeLabel(serviceIdx, stationIdx, arrOnlyStationIdx = null) {
     const t = stationTimes[stationIdx][serviceIdx];
     if (!t) return "";
@@ -2812,6 +2831,23 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     { length: numServices },
     (_, idx) => idx,
   );
+  remainingServices.sort((a, b) => {
+    const infoA = firstTimeInfo(a);
+    const infoB = firstTimeInfo(b);
+    if (infoA.firstMins === null && infoB.firstMins === null) return a - b;
+    if (infoA.firstMins === null) return 1;
+    if (infoB.firstMins === null) return -1;
+    if (infoA.firstMins !== infoB.firstMins) {
+      return infoA.firstMins - infoB.firstMins;
+    }
+    if (infoA.firstRow === null && infoB.firstRow === null) return a - b;
+    if (infoA.firstRow === null) return 1;
+    if (infoB.firstRow === null) return -1;
+    if (infoA.firstRow !== infoB.firstRow) {
+      return infoA.firstRow - infoB.firstRow;
+    }
+    return a - b;
+  });
 
   if (remainingServices.length > 0) {
     const seedService = remainingServices.shift();
