@@ -2919,7 +2919,6 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       let attemptedStation = false;
 
       for (let stationIdx = numStations - 1; stationIdx >= 0; stationIdx--) {
-        if (stationModes[stationIdx] !== "two") continue;
         const t = stationTimes[stationIdx][svcIdx];
         if (!t) continue;
         attemptedStation = true;
