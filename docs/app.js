@@ -2899,6 +2899,27 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   }
 
   function resolveUnboundedServices(remainingServices, orderedSvcIndices) {
+    sortLogLines.push("Resolution pass 0: start");
+    for (let idx = 0; idx < remainingServices.length; idx++) {
+      const svcIdx = remainingServices[idx];
+      const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
+        svcIdx,
+        orderedSvcIndices,
+        { logEnabled: false },
+      );
+      const maxPos = orderedSvcIndices.length;
+      const candidateStart = hasConstraint ? lowerBound : 0;
+      const candidateEnd = hasConstraint ? upperBound : maxPos;
+      if (candidateEnd > candidateStart) {
+        orderedSvcIndices.splice(candidateStart, 0, svcIdx);
+        remainingServices.splice(idx, 1);
+        sortLogLines.push(
+          `Resolution pass 0: selected first position ${candidateStart} (bounds ${candidateStart}-${candidateEnd}) for ${serviceLabel(svcIdx)}`,
+        );
+        return true;
+      }
+    }
+
     sortLogLines.push("Resolution pass 1: start");
     for (let idx = 0; idx < remainingServices.length; idx++) {
       const svcIdx = remainingServices[idx];
