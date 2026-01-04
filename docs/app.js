@@ -2852,6 +2852,30 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     return false;
   }
 
+  function logNoStrictBounds(serviceIdx, orderedSvcIndices, options = {}) {
+    const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
+      serviceIdx,
+      orderedSvcIndices,
+      { ...options, logEnabled: false },
+    );
+    const maxPos = orderedSvcIndices.length;
+    const candidateStart = hasConstraint ? lowerBound : 0;
+    const candidateEnd = hasConstraint ? upperBound : maxPos;
+    const candidates =
+      candidateStart <= candidateEnd
+        ? Array.from(
+            { length: candidateEnd - candidateStart + 1 },
+            (_, idx) => candidateStart + idx,
+          ).join(", ")
+        : "(none)";
+    const reason = hasConstraint
+      ? `conflicting bounds ${lowerBound}-${upperBound}`
+      : "no station constraints";
+    sortLogLines.push(
+      `No strict bounds (${reason}); possible positions: ${candidates}. Moved to end of queue.`,
+    );
+  }
+
   function resolveUnboundedServices(remainingServices, orderedSvcIndices) {
     sortLogLines.push("Resolution pass 1: start");
     for (let idx = 0; idx < remainingServices.length; idx++) {
@@ -2985,6 +3009,10 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
             remainingServices.splice(idx, 1);
             return true;
           }
+          logNoStrictBounds(svcIdx, attemptDep, {
+            arrOnlyStationIdx: stationIdx,
+            ignoreFromStationIdx: stationIdx + 1,
+          });
         }
 
         if (t.arrMins !== null) {
@@ -3006,6 +3034,10 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
             remainingServices.splice(idx, 1);
             return true;
           }
+          logNoStrictBounds(svcIdx, attemptArr, {
+            ignoreFromStationIdx: stationIdx + 1,
+            depOnlyStationIdx: stationIdx,
+          });
 
           sortLogLines.push(
             `Resolution pass 2 for ${serviceLabel(svcIdx)} at ${stationName}: ignore arr+dep time and all rows below.`,
@@ -3025,6 +3057,10 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
             remainingServices.splice(idx, 1);
             return true;
           }
+          logNoStrictBounds(svcIdx, attemptArrDep, {
+            ignoreFromStationIdx: stationIdx + 1,
+            ignoreStationIdx: stationIdx,
+          });
         }
       }
 
