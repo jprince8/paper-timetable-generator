@@ -2038,7 +2038,7 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         const nextIndex = orderedCrs.indexOf(nextKnown);
         assertWithStatus(
           prevIndex < nextIndex,
-          "Could not build a consistent station order for this corridor",
+          "Could not build a consistent station order for this route",
           `inserting ${crs} between ${prevKnown} and ${nextKnown}`,
         );
         orderedCrs.splice(nextIndex, 0, crs);
@@ -2204,7 +2204,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         if (headcode) detailParts.push(`headcode: ${headcode}`);
         assertWithStatus(
           false,
-          "Timetable times go backwards in this corridor",
+          "Timetable times go backwards in this route",
           detailParts.join(", "),
           { keepOutputs: true, allowContinue: true },
         );
