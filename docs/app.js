@@ -1,6 +1,7 @@
 // === Configuration ===
 const DEBUG_STATIONS = false; // set true to log station selection / dwell details
 const ENABLE_SORT_LOG_DOWNLOAD = false;
+const ENABLE_RTT_CACHE = false; // set true to cache RTT API responses locally
 // Apply the “must call at >=2 stops” rule *after* hiding stations
 // that have no public calls (and iterate to a stable result).
 
@@ -13,6 +14,39 @@ const PROXY_STATION = `${BACKEND_BASE}/api/stations`; // if you call this from J
 
 const STATION_DEBOUNCE_MS = 180;
 const STATION_MIN_QUERY = 2;
+
+const RTT_CACHE_PREFIX = "rttCache:";
+
+function getRttCacheKey(url) {
+  return `${RTT_CACHE_PREFIX}${url}`;
+}
+
+function readRttCache(url) {
+  if (!ENABLE_RTT_CACHE || !window.localStorage) return null;
+  try {
+    const raw = localStorage.getItem(getRttCacheKey(url));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.text !== "string") return null;
+    return {
+      text: parsed.text,
+      status: parsed.status || 200,
+      statusText: parsed.statusText || "OK",
+    };
+  } catch (err) {
+    console.warn("Failed to read RTT cache for", url, err);
+    return null;
+  }
+}
+
+function writeRttCache(url, payload) {
+  if (!ENABLE_RTT_CACHE || !window.localStorage) return;
+  try {
+    localStorage.setItem(getRttCacheKey(url), JSON.stringify(payload));
+  } catch (err) {
+    console.warn("Failed to write RTT cache for", url, err);
+  }
+}
 
 // === DOM references ===
 const form = document.getElementById("form");
@@ -1226,6 +1260,20 @@ form.addEventListener("submit", async (e) => {
     err?.name === "AbortError" || signal.aborted || buildCancelled;
   const fetchWithSignal = (url, options = {}) =>
     fetch(url, { ...options, signal });
+  const fetchRttText = async (url, options = {}) => {
+    const cached = readRttCache(url);
+    if (cached) {
+      return cached;
+    }
+    const resp = await fetchWithSignal(url, options);
+    const text = await resp.text();
+    writeRttCache(url, {
+      text,
+      status: resp.status,
+      statusText: resp.statusText,
+    });
+    return { text, status: resp.status, statusText: resp.statusText };
+  };
   const shouldAbort = () => signal.aborted || buildCancelled;
 
   setBuildInProgress(true);
@@ -1306,10 +1354,9 @@ form.addEventListener("submit", async (e) => {
         encodeURIComponent(leg.to) +
         "&date=" +
         encodeURIComponent(currentDate);
-      const resp = await fetchWithSignal(url, {
+      const { text } = await fetchRttText(url, {
         headers: { Accept: "application/json" },
       });
-      const text = await resp.text();
       let data;
       try {
         data = JSON.parse(text);
@@ -1440,10 +1487,9 @@ form.addEventListener("submit", async (e) => {
       encodeURIComponent(uid) +
       "&date=" +
       encodeURIComponent(date);
-    const resp = await fetchWithSignal(url, {
+    const { text, status, statusText } = await fetchRttText(url, {
       headers: { Accept: "application/json" },
     });
-    const text = await resp.text();
     let data;
     try {
       data = JSON.parse(text);
@@ -1465,8 +1511,8 @@ form.addEventListener("submit", async (e) => {
     return {
       svc,
       detail: data,
-      status: resp.status,
-      statusText: resp.statusText,
+      status,
+      statusText,
       seed: true,
     };
   });
@@ -1563,10 +1609,9 @@ form.addEventListener("submit", async (e) => {
         encodeURIComponent(st.crs) +
         "&date=" +
         encodeURIComponent(currentDate);
-      const resp = await fetchWithSignal(url, {
+      const { text } = await fetchRttText(url, {
         headers: { Accept: "application/json" },
       });
-      const text = await resp.text();
       let data;
       try {
         data = JSON.parse(text);
@@ -1647,33 +1692,31 @@ form.addEventListener("submit", async (e) => {
       encodeURIComponent(uid) +
       "&date=" +
       encodeURIComponent(date);
-    const p = fetchWithSignal(url, {
+    const p = fetchRttText(url, {
       headers: { Accept: "application/json" },
     })
-      .then((resp) =>
-        resp.text().then((text) => {
-          let data = null;
-          try {
-            data = JSON.parse(text);
-          } catch (e) {
-            console.warn(
-              "Failed to parse candidate service JSON for",
-              uid,
-              e,
-              text,
-            );
-          }
-          if (data && data.error === "timeout") {
-            rttTimeoutDetected = true;
-            return;
-          }
-          if (data && data.error === "connection") {
-            rttConnectionDetected = true;
-            return;
-          }
-          entry.detail = data;
-        }),
-      )
+      .then(({ text }) => {
+        let data = null;
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          console.warn(
+            "Failed to parse candidate service JSON for",
+            uid,
+            e,
+            text,
+          );
+        }
+        if (data && data.error === "timeout") {
+          rttTimeoutDetected = true;
+          return;
+        }
+        if (data && data.error === "connection") {
+          rttConnectionDetected = true;
+          return;
+        }
+        entry.detail = data;
+      })
       .catch((err) => {
         if (isAbortError(err)) {
           throw err;
