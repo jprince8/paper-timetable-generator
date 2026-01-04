@@ -3454,14 +3454,35 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
             `Highlight resort trigger: row ${r + 1} ${rowLabelText(rows[r]) || ""} service ${serviceLabel(svcIndex)} time ${timeText} (min ${minutesToTimeStr(minTime)})`,
           );
           const attempt = orderedSvcIndices.filter((idx) => idx !== svcIndex);
-          if (
-            attempt.length !== orderedSvcIndices.length &&
-            attemptInsertService(svcIndex, attempt, { logEnabled: true })
-          ) {
-            orderedSvcIndices.splice(0, orderedSvcIndices.length, ...attempt);
-            movedAny = true;
-            movedThisPass = true;
-            break;
+          if (attempt.length !== orderedSvcIndices.length) {
+            if (attemptInsertService(svcIndex, attempt, { logEnabled: true })) {
+              orderedSvcIndices.splice(
+                0,
+                orderedSvcIndices.length,
+                ...attempt,
+              );
+              movedAny = true;
+              movedThisPass = true;
+              break;
+            }
+            logNoStrictBounds(svcIndex, attempt, { logEnabled: false });
+            if (
+              insertFirstCandidate(
+                svcIndex,
+                attempt,
+                {},
+                "Highlight resort",
+              )
+            ) {
+              orderedSvcIndices.splice(
+                0,
+                orderedSvcIndices.length,
+                ...attempt,
+              );
+              movedAny = true;
+              movedThisPass = true;
+              break;
+            }
           }
         }
         if (movedThisPass) break;
@@ -3514,14 +3535,37 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
               `Highlight resort trigger: station ${rowLabelText(rows[entry.dep]) || ""} service ${serviceLabel(svcIndex)} dep ${depText} before max arr ${minutesToTimeStr(maxArr)}`,
             );
             const attempt = orderedSvcIndices.filter((idx) => idx !== svcIndex);
-            if (
-              attempt.length !== orderedSvcIndices.length &&
-              attemptInsertService(svcIndex, attempt, { logEnabled: true })
-            ) {
-              orderedSvcIndices.splice(0, orderedSvcIndices.length, ...attempt);
-              movedAny = true;
-              movedThisPass = true;
-              return;
+            if (attempt.length !== orderedSvcIndices.length) {
+              if (
+                attemptInsertService(svcIndex, attempt, { logEnabled: true })
+              ) {
+                orderedSvcIndices.splice(
+                  0,
+                  orderedSvcIndices.length,
+                  ...attempt,
+                );
+                movedAny = true;
+                movedThisPass = true;
+                return;
+              }
+              logNoStrictBounds(svcIndex, attempt, { logEnabled: false });
+              if (
+                insertFirstCandidate(
+                  svcIndex,
+                  attempt,
+                  {},
+                  "Highlight resort",
+                )
+              ) {
+                orderedSvcIndices.splice(
+                  0,
+                  orderedSvcIndices.length,
+                  ...attempt,
+                );
+                movedAny = true;
+                movedThisPass = true;
+                return;
+              }
             }
           }
         }
