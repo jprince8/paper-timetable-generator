@@ -3165,8 +3165,9 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails);
 
   let partialSort = null;
+  let spacerIndex = null;
   if (unsortedServices && unsortedServices.length > 0) {
-    const spacerIndex = servicesMeta.length;
+    spacerIndex = servicesMeta.length;
     servicesMeta.push({
       visible: "UNSORTED >",
       tooltip: "Unsorted services",
@@ -3189,7 +3190,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   }
 
   const highlightCutoff =
-    unsortedServices && unsortedServices.length > 0
+    spacerIndex !== null
       ? displayOrderedSvcIndices.indexOf(spacerIndex)
       : displayOrderedSvcIndices.length;
 
