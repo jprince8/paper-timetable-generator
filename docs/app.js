@@ -2756,6 +2756,15 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         }
       }
 
+      let stationLower = lastLE + 1;
+      let stationUpper =
+        firstGE === orderedSvcIndices.length ? orderedSvcIndices.length : firstGE;
+
+      if (stationLower > stationUpper) {
+        firstGE = orderedSvcIndices.length;
+        stationUpper = orderedSvcIndices.length;
+      }
+
       if (lastLE !== -1 || firstGE !== orderedSvcIndices.length) {
         hasConstraint = true;
         lowerBound = Math.max(lowerBound, lastLE + 1);
@@ -2793,9 +2802,6 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
               ignoreStationIdx,
             )
           : "";
-      const stationLower = lastLE + 1;
-      const stationUpper =
-        firstGE === orderedSvcIndices.length ? orderedSvcIndices.length : firstGE;
       if (logEnabled) {
         const leftTime = lastLE >= 0 ? lastTimeLabel || "?" : "start";
         const rightTime =
