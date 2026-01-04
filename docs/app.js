@@ -2083,41 +2083,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   const serviceRealtimeFlags = servicesWithDetails.map(
     ({ detail }) => detail && detail.realtimeActivated === true,
   );
-  const serviceAllCancelled = servicesWithDetails.map(({ detail }, svcIndex) => {
-    const locs = detail?.locations || [];
-    let hasAny = false;
-    let hasNonStrike = false;
-    for (const loc of locs) {
-      if (hasNonStrike) break;
-      const hasArr = loc.gbttBookedArrival || loc.realtimeArrival;
-      const hasDep = loc.gbttBookedDeparture || loc.realtimeDeparture;
-      if (hasArr) {
-        const chosen = chooseDisplayedTimeAndStatus(
-          loc,
-          true,
-          serviceRealtimeFlags[svcIndex] === true,
-          realtimeToggleEnabled,
-        );
-        if (chosen.text) {
-          hasAny = true;
-          if (!chosen.format?.strike) hasNonStrike = true;
-        }
-      }
-      if (hasDep) {
-        const chosen = chooseDisplayedTimeAndStatus(
-          loc,
-          false,
-          serviceRealtimeFlags[svcIndex] === true,
-          realtimeToggleEnabled,
-        );
-        if (chosen.text) {
-          hasAny = true;
-          if (!chosen.format?.strike) hasNonStrike = true;
-        }
-      }
-    }
-    return hasAny && !hasNonStrike;
-  });
+  const serviceAllCancelled = new Array(numServices).fill(false);
 
   // --- Precompute per-station, per-service arrival/departure times ---
   // stationTimes[stationIndex][svcIndex] = { arrStr, arrMins, depStr, depMins }
@@ -2158,6 +2124,43 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       };
     });
   });
+
+  for (let svcIndex = 0; svcIndex < numServices; svcIndex++) {
+    let hasAny = false;
+    let hasNonStrike = false;
+    for (let stationIndex = 0; stationIndex < numStations; stationIndex++) {
+      const t = stationTimes[stationIndex][svcIndex];
+      if (!t?.loc) continue;
+      if (hasNonStrike) break;
+      const hasArr = t.loc.gbttBookedArrival || t.loc.realtimeArrival;
+      const hasDep = t.loc.gbttBookedDeparture || t.loc.realtimeDeparture;
+      if (hasArr) {
+        const chosen = chooseDisplayedTimeAndStatus(
+          t.loc,
+          true,
+          serviceRealtimeFlags[svcIndex] === true,
+          realtimeToggleEnabled,
+        );
+        if (chosen.text) {
+          hasAny = true;
+          if (!chosen.format?.strike) hasNonStrike = true;
+        }
+      }
+      if (hasDep) {
+        const chosen = chooseDisplayedTimeAndStatus(
+          t.loc,
+          false,
+          serviceRealtimeFlags[svcIndex] === true,
+          realtimeToggleEnabled,
+        );
+        if (chosen.text) {
+          hasAny = true;
+          if (!chosen.format?.strike) hasNonStrike = true;
+        }
+      }
+    }
+    serviceAllCancelled[svcIndex] = hasAny && !hasNonStrike;
+  }
 
   // --- Decide row mode per station (merged vs two rows vs single) ---
   const stationModes = [];
