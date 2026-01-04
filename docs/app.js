@@ -37,6 +37,7 @@ const fromSuggestBox = document.getElementById("fromSuggest");
 const toStationInput = document.getElementById("toStation");
 const toCrsInput = document.getElementById("toCrs");
 const toSuggestBox = document.getElementById("toSuggest");
+const buildBtn = document.getElementById("buildBtn");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 const shareBtn = document.getElementById("shareBtn");
 const realtimeBtn = document.getElementById("realtimeBtn");
@@ -56,6 +57,34 @@ let lastTimetableContext = null;
 let lastSortLog = "";
 let realtimeEnabled = false;
 let realtimeAvailable = false;
+let buildAbortController = null;
+let buildInProgress = false;
+
+function setBuildInProgress(active) {
+  buildInProgress = active;
+  if (!buildBtn) return;
+  if (active) {
+    buildBtn.textContent = "Cancel Build";
+    buildBtn.classList.remove("btn-primary");
+    buildBtn.classList.add("btn-secondary");
+    buildBtn.type = "button";
+    buildBtn.setAttribute("aria-busy", "true");
+  } else {
+    buildBtn.textContent = "Build Timetable";
+    buildBtn.classList.add("btn-primary");
+    buildBtn.classList.remove("btn-secondary");
+    buildBtn.type = "submit";
+    buildBtn.removeAttribute("aria-busy");
+  }
+}
+
+if (buildBtn) {
+  buildBtn.addEventListener("click", () => {
+    if (!buildInProgress || !buildAbortController) return;
+    buildAbortController.abort();
+    setStatus("Cancelling build...");
+  });
+}
 
 // === Form helpers ===
 addViaBtn.addEventListener("click", () => {
@@ -1201,6 +1230,9 @@ function renderTimetablesFromContext(context) {
 // === Main form submit ===
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (buildInProgress) {
+    return;
+  }
 
   // Run HTML5 validation for "required" fields, min/max, etc.
   stationFields.forEach((field) => updateStationValidity(field));
@@ -1208,8 +1240,17 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
-  resetOutputs();
-  setStatus("Initialising timetable...", { progress: 0 });
+  buildAbortController = new AbortController();
+  const { signal } = buildAbortController;
+  const isAbortError = (err) =>
+    err?.name === "AbortError" || signal.aborted;
+  const fetchWithSignal = (url, options = {}) =>
+    fetch(url, { ...options, signal });
+
+  setBuildInProgress(true);
+  try {
+    resetOutputs();
+    setStatus("Initialising timetable...", { progress: 0 });
 
   const from = normaliseCrs(fromCrsInput.value);
   const to = normaliseCrs(toCrsInput.value);
@@ -1281,7 +1322,7 @@ form.addEventListener("submit", async (e) => {
         encodeURIComponent(leg.to) +
         "&date=" +
         encodeURIComponent(currentDate);
-      const resp = await fetch(url, {
+      const resp = await fetchWithSignal(url, {
         headers: { Accept: "application/json" },
       });
       const text = await resp.text();
@@ -1350,6 +1391,10 @@ form.addEventListener("submit", async (e) => {
 
     await Promise.all(searchPromises);
   } catch (err) {
+    if (isAbortError(err)) {
+      setStatus("Build cancelled.");
+      return;
+    }
     setStatus("Error fetching initial service search results: " + err, {
       isError: true,
     });
@@ -1408,7 +1453,7 @@ form.addEventListener("submit", async (e) => {
       encodeURIComponent(uid) +
       "&date=" +
       encodeURIComponent(date);
-    const resp = await fetch(url, {
+    const resp = await fetchWithSignal(url, {
       headers: { Accept: "application/json" },
     });
     const text = await resp.text();
@@ -1443,6 +1488,10 @@ form.addEventListener("submit", async (e) => {
   try {
     corridorDetails = await Promise.all(corridorDetailPromises);
   } catch (err) {
+    if (isAbortError(err)) {
+      setStatus("Build cancelled.");
+      return;
+    }
     setStatus("Error fetching service details: " + err, { isError: true });
     return;
   }
@@ -1520,7 +1569,7 @@ form.addEventListener("submit", async (e) => {
         encodeURIComponent(st.crs) +
         "&date=" +
         encodeURIComponent(currentDate);
-      const resp = await fetch(url, {
+      const resp = await fetchWithSignal(url, {
         headers: { Accept: "application/json" },
       });
       const text = await resp.text();
@@ -1568,6 +1617,10 @@ form.addEventListener("submit", async (e) => {
   try {
     await Promise.all(stationSearchPromises);
   } catch (err) {
+    if (isAbortError(err)) {
+      setStatus("Build cancelled.");
+      return;
+    }
     console.warn("Error during station searches:", err);
   }
 
@@ -1598,7 +1651,9 @@ form.addEventListener("submit", async (e) => {
       encodeURIComponent(uid) +
       "&date=" +
       encodeURIComponent(date);
-    const p = fetch(url, { headers: { Accept: "application/json" } })
+    const p = fetchWithSignal(url, {
+      headers: { Accept: "application/json" },
+    })
       .then((resp) =>
         resp.text().then((text) => {
           let data = null;
@@ -1624,6 +1679,9 @@ form.addEventListener("submit", async (e) => {
         }),
       )
       .catch((err) => {
+        if (isAbortError(err)) {
+          return;
+        }
         console.warn(
           "Error fetching candidate service detail for",
           uid,
@@ -1652,6 +1710,10 @@ form.addEventListener("submit", async (e) => {
   try {
     await Promise.all(detailFetchPromises);
   } catch (err) {
+    if (isAbortError(err)) {
+      setStatus("Build cancelled.");
+      return;
+    }
     console.warn("Error during candidate detail fetch:", err);
   }
 
@@ -1751,9 +1813,13 @@ form.addEventListener("submit", async (e) => {
     dateLabel,
     generatedTimestamp: formatGeneratedTimestamp(),
   };
-  renderTimetablesFromContext(lastTimetableContext);
-  if (!statusEl?.classList.contains("is-error")) {
-    hideStatus();
+    renderTimetablesFromContext(lastTimetableContext);
+    if (!statusEl?.classList.contains("is-error")) {
+      hideStatus();
+    }
+  } finally {
+    buildAbortController = null;
+    setBuildInProgress(false);
   }
 });
 
