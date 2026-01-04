@@ -1265,6 +1265,11 @@ form.addEventListener("submit", async (e) => {
   const stationNameByCrs = {};
   let noServicesLeg = null;
   let invalidInputsDetected = false;
+  let rttTimeoutDetected = false;
+  const rttTimeoutMessage = "Error fetching data from RTT. Please try again.";
+  const rttConnectionMessage =
+    "Unable to reach RTT. Please check your connection and try again.";
+  let rttConnectionDetected = false;
 
   try {
     const searchPromises = corridorLegs.map(async (leg) => {
@@ -1294,6 +1299,14 @@ form.addEventListener("submit", async (e) => {
       }
       if (data && data.error === "unknown error occurred") {
         invalidInputsDetected = true;
+        return;
+      }
+      if (data && data.error === "timeout") {
+        rttTimeoutDetected = true;
+        return;
+      }
+      if (data && data.error === "connection") {
+        rttConnectionDetected = true;
         return;
       }
       const fromNameCandidate =
@@ -1340,6 +1353,15 @@ form.addEventListener("submit", async (e) => {
     setStatus("Error fetching initial service search results: " + err, {
       isError: true,
     });
+    return;
+  }
+
+  if (rttTimeoutDetected) {
+    setStatus(rttTimeoutMessage, { isError: true });
+    return;
+  }
+  if (rttConnectionDetected) {
+    setStatus(rttConnectionMessage, { isError: true });
     return;
   }
 
@@ -1402,6 +1424,12 @@ form.addEventListener("submit", async (e) => {
       );
       data = null;
     }
+    if (data && data.error === "timeout") {
+      rttTimeoutDetected = true;
+    }
+    if (data && data.error === "connection") {
+      rttConnectionDetected = true;
+    }
     return {
       svc,
       detail: data,
@@ -1416,6 +1444,15 @@ form.addEventListener("submit", async (e) => {
     corridorDetails = await Promise.all(corridorDetailPromises);
   } catch (err) {
     setStatus("Error fetching service details: " + err, { isError: true });
+    return;
+  }
+
+  if (rttTimeoutDetected) {
+    setStatus(rttTimeoutMessage, { isError: true });
+    return;
+  }
+  if (rttConnectionDetected) {
+    setStatus(rttConnectionMessage, { isError: true });
     return;
   }
 
@@ -1499,6 +1536,14 @@ form.addEventListener("submit", async (e) => {
         );
         return;
       }
+      if (data && data.error === "timeout") {
+        rttTimeoutDetected = true;
+        return;
+      }
+      if (data && data.error === "connection") {
+        rttConnectionDetected = true;
+        return;
+      }
       const services = Array.isArray(data.services) ? data.services : [];
       services.forEach((svc) => {
         if (svc.isPassenger === false) return;
@@ -1524,6 +1569,15 @@ form.addEventListener("submit", async (e) => {
     await Promise.all(stationSearchPromises);
   } catch (err) {
     console.warn("Error during station searches:", err);
+  }
+
+  if (rttTimeoutDetected) {
+    setStatus(rttTimeoutMessage, { isError: true });
+    return;
+  }
+  if (rttConnectionDetected) {
+    setStatus(rttConnectionMessage, { isError: true });
+    return;
   }
 
   // Fetch details for candidates that don't already have them.
@@ -1558,6 +1612,14 @@ form.addEventListener("submit", async (e) => {
               text,
             );
           }
+          if (data && data.error === "timeout") {
+            rttTimeoutDetected = true;
+            return;
+          }
+          if (data && data.error === "connection") {
+            rttConnectionDetected = true;
+            return;
+          }
           entry.detail = data;
         }),
       )
@@ -1591,6 +1653,15 @@ form.addEventListener("submit", async (e) => {
     await Promise.all(detailFetchPromises);
   } catch (err) {
     console.warn("Error during candidate detail fetch:", err);
+  }
+
+  if (rttTimeoutDetected) {
+    setStatus(rttTimeoutMessage, { isError: true });
+    return;
+  }
+  if (rttConnectionDetected) {
+    setStatus(rttConnectionMessage, { isError: true });
+    return;
   }
 
   setStatus("Building timetable...");
