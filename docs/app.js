@@ -2812,6 +2812,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   }
 
   function resolveUnboundedServices(remainingServices, orderedSvcIndices) {
+    sortLogLines.push("Resolution pass 1: start");
     for (let idx = 0; idx < remainingServices.length; idx++) {
       const svcIdx = remainingServices[idx];
 
@@ -2890,6 +2891,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       }
     }
 
+    sortLogLines.push("Resolution pass 1: no resolution found");
     return false;
   }
 
@@ -2897,6 +2899,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     remainingServices,
     orderedSvcIndices,
   ) {
+    sortLogLines.push("Resolution pass 2: start");
     for (let idx = 0; idx < remainingServices.length; idx++) {
       const svcIdx = remainingServices[idx];
 
@@ -2949,6 +2952,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       }
     }
 
+    sortLogLines.push("Resolution pass 2: no resolution found");
     return false;
   }
 
