@@ -817,6 +817,20 @@ function serviceAtStationInRange(service) {
   return serviceInTimeRange(ld);
 }
 
+function serviceCallsAllStationsInRange(detail, crsSet) {
+  if (!detail || !Array.isArray(detail.locations)) return false;
+
+  return detail.locations.every((loc) => {
+    const crs = loc.crs || "";
+    if (!crsSet.has(crs)) return true;
+
+    const disp = (loc.displayAs || "").toUpperCase();
+    if (disp === "PASS" || disp === "CANCELLED_PASS") return true;
+
+    return serviceInTimeRange(loc);
+  });
+}
+
 function safePairText(pairs) {
   if (!Array.isArray(pairs) || !pairs[0]) return "";
   const p = pairs[0];
@@ -1473,7 +1487,6 @@ form.addEventListener("submit", async (e) => {
       const eligibleServices = services.filter((svc) => {
         if (svc.isPassenger === false) return;
         if (svc.plannedCancel) return;
-        if (!serviceAtStationInRange(svc)) return;
         return true;
       });
       if (eligibleServices.length === 0 && !noServicesLeg) {
@@ -1525,7 +1538,7 @@ form.addEventListener("submit", async (e) => {
 
   if (noServicesLeg) {
     setStatus(
-      "No passenger services in this time range between " +
+      "No passenger services between " +
         noServicesLeg.fromName +
         " and " +
         noServicesLeg.toName +
@@ -1541,7 +1554,7 @@ form.addEventListener("submit", async (e) => {
     const fromLabel = stationNameByCrs[from] || from;
     const toLabel = stationNameByCrs[to] || to;
     setStatus(
-      "No passenger services in this time range between " +
+      "No passenger services between " +
         fromLabel +
         " and " +
         toLabel +
@@ -2343,8 +2356,10 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       const displaySet = new Set(displayStations.map((s) => s.crs).filter(Boolean));
 
       // Filter services based on what would actually be visible (post-hide)
-      const filtered = workingServices.filter(({ detail }) =>
-        serviceCallsAtLeastTwoInSet(detail, displaySet),
+      const filtered = workingServices.filter(
+        ({ detail }) =>
+          serviceCallsAtLeastTwoInSet(detail, displaySet) &&
+          serviceCallsAllStationsInRange(detail, displaySet),
       );
 
       const key = displayStations.map((s) => s.crs).join(",") + "|" + filtered.length;
