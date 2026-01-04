@@ -2612,6 +2612,26 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     return "";
   }
 
+  function getDisplayedTimeInfo(serviceIdx, stationIdx, isArrival) {
+    const t = stationTimes[stationIdx][serviceIdx];
+    if (!t || !t.loc) return { text: "", mins: null, format: null };
+    const serviceRealtimeActivated = serviceRealtimeFlags[serviceIdx] === true;
+    const chosen = chooseDisplayedTimeAndStatus(
+      t.loc,
+      isArrival,
+      serviceRealtimeActivated,
+      realtimeToggleEnabled,
+    );
+    if (!chosen.text || chosen.format?.strike) {
+      return { text: "", mins: null, format: chosen.format };
+    }
+    return {
+      text: chosen.text,
+      mins: timeStrToMinutes(chosen.text),
+      format: chosen.format,
+    };
+  }
+
   function stationTimeMins(
     serviceIdx,
     stationIdx,
@@ -2630,17 +2650,17 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       return null;
     }
     if (arrOnlyStationIdx === stationIdx || modeOverride === "arrOnly") {
-      return t.arrMins !== null ? t.arrMins : null;
+      return getDisplayedTimeInfo(serviceIdx, stationIdx, true).mins;
     }
     if (depOnlyStationIdx === stationIdx || modeOverride === "depOnly") {
-      return t.depMins !== null ? t.depMins : null;
+      return getDisplayedTimeInfo(serviceIdx, stationIdx, false).mins;
     }
     if (modeOverride === "ignore") {
       return null;
     }
-    if (t.depMins !== null) return t.depMins;
-    if (t.arrMins !== null) return t.arrMins;
-    return null;
+    const hasDeparture = t.loc?.gbttBookedDeparture || t.loc?.realtimeDeparture;
+    const isArrival = !hasDeparture;
+    return getDisplayedTimeInfo(serviceIdx, stationIdx, isArrival).mins;
   }
 
   function firstTimeInfo(serviceIdx) {
@@ -2678,17 +2698,17 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       return "";
     }
     if (arrOnlyStationIdx === stationIdx || modeOverride === "arrOnly") {
-      return t.arrStr || "";
+      return getDisplayedTimeInfo(serviceIdx, stationIdx, true).text;
     }
     if (depOnlyStationIdx === stationIdx || modeOverride === "depOnly") {
-      return t.depStr || "";
+      return getDisplayedTimeInfo(serviceIdx, stationIdx, false).text;
     }
     if (modeOverride === "ignore") {
       return "";
     }
-    if (t.depStr) return t.depStr;
-    if (t.arrStr) return t.arrStr;
-    return "";
+    const hasDeparture = t.loc?.gbttBookedDeparture || t.loc?.realtimeDeparture;
+    const isArrival = !hasDeparture;
+    return getDisplayedTimeInfo(serviceIdx, stationIdx, isArrival).text;
   }
 
   function findInsertBounds(serviceIdx, orderedSvcIndices, options = {}) {
