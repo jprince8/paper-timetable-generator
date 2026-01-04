@@ -700,7 +700,8 @@ function chooseDisplayedTimeAndStatus(
     loc.realtimeDepartureNoReport === true ||
     loc.realtimeArrivalNoReport === true;
   if (noReport) {
-    const unknownPass = schedDisplay ? `${schedDisplay}?` : "?";
+    const baseDisplay = rtDisplay || schedDisplay;
+    const unknownPass = baseDisplay ? `${baseDisplay}?` : "?";
     return {
       text: unknownPass,
       format: { italic: true, noReport: true },
@@ -2111,6 +2112,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     ({ detail }) => detail && detail.realtimeActivated === true,
   );
   const serviceAllCancelled = new Array(numServices).fill(false);
+  const serviceAllNoReport = new Array(numServices).fill(false);
 
   // --- Precompute per-station, per-service arrival/departure times ---
   // stationTimes[stationIndex][svcIndex] = { arrStr, arrMins, depStr, depMins }
@@ -2155,6 +2157,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   for (let svcIndex = 0; svcIndex < numServices; svcIndex++) {
     let hasAny = false;
     let hasNonStrike = false;
+    let hasAnyTime = false;
+    let hasNonNoReport = false;
     for (let stationIndex = 0; stationIndex < numStations; stationIndex++) {
       const t = stationTimes[stationIndex][svcIndex];
       if (!t?.loc) continue;
@@ -2169,6 +2173,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           realtimeToggleEnabled,
         );
         if (chosen.text) {
+          hasAnyTime = true;
+          if (!chosen.format?.noReport) hasNonNoReport = true;
           hasAny = true;
           if (!chosen.format?.strike) hasNonStrike = true;
         }
@@ -2181,12 +2187,15 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           realtimeToggleEnabled,
         );
         if (chosen.text) {
+          hasAnyTime = true;
+          if (!chosen.format?.noReport) hasNonNoReport = true;
           hasAny = true;
           if (!chosen.format?.strike) hasNonStrike = true;
         }
       }
     }
     serviceAllCancelled[svcIndex] = hasAny && !hasNonStrike;
+    serviceAllNoReport[svcIndex] = hasAnyTime && !hasNonNoReport;
   }
 
   // --- Decide row mode per station (merged vs two rows vs single) ---
@@ -2691,9 +2700,18 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     if (!chosen.text || (!allowCancelled && chosen.format?.strike)) {
       return { text: "", mins: null, format: chosen.format };
     }
+    const allowNoReportMins =
+      chosen.format?.noReport && serviceAllNoReport[serviceIdx] === true;
+    const minsText = allowNoReportMins
+      ? chosen.text.replace(/\?$/, "")
+      : chosen.text;
     return {
       text: chosen.text,
-      mins: chosen.format?.noReport ? null : timeStrToMinutes(chosen.text),
+      mins: chosen.format?.noReport
+        ? allowNoReportMins
+          ? timeStrToMinutes(minsText)
+          : null
+        : timeStrToMinutes(minsText),
       format: chosen.format,
     };
   }
