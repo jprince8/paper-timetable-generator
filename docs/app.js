@@ -3195,27 +3195,27 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       : displayOrderedSvcIndices.length;
 
   for (let r = 0; r < rows.length; r++) {
-    let maxTime = null;
-    let maxTimeSvcIndex = null;
-    for (let colPos = 0; colPos < highlightCutoff; colPos++) {
+    let minTime = null;
+    let minTimeSvcIndex = null;
+    for (let colPos = highlightCutoff - 1; colPos >= 0; colPos--) {
       const svcIndex = displayOrderedSvcIndices[colPos];
       const value = rows[r].cells[svcIndex];
       const timeText = cellToText(value);
       if (!timeText) continue;
       const mins = timeStrToMinutes(timeText);
       if (mins === null) continue;
-      if (maxTime === null || mins >= maxTime) {
-        maxTime = mins;
-        maxTimeSvcIndex = svcIndex;
+      if (minTime === null || mins <= minTime) {
+        minTime = mins;
+        minTimeSvcIndex = svcIndex;
         continue;
       }
       logHighlight(
-        "time earlier than max in row",
+        "time later than min to the right",
         r,
         svcIndex,
         timeText,
-        minutesToTimeStr(maxTime),
-        maxTimeSvcIndex,
+        minutesToTimeStr(minTime),
+        minTimeSvcIndex,
       );
       if (value && typeof value === "object") {
         value.format = value.format || {};
