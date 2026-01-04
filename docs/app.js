@@ -1068,7 +1068,8 @@ downloadPdfBtn.addEventListener("click", async () => {
 
     if (!resp.ok) {
       const text = await resp.text();
-      throw new Error(text || "PDF build failed");
+      const friendly = stripHtmlToText(text).trim();
+      throw new Error(friendly || "PDF build failed");
     }
 
     const blob = await resp.blob();

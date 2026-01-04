@@ -160,18 +160,22 @@ def _build_key_table(items, available_width, style, icon_size, cols=3, gap=10):
         rows.append(row)
 
     col_width = available_width / items_per_row
+    pill_padding = 3
+    row_height = max(icon_size, style.leading) + (pill_padding * 2) + 2
+    row_heights = [row_height] * len(rows)
     key_table = Table(
         rows,
         colWidths=[col_width] * items_per_row,
+        rowHeights=row_heights,
         hAlign="LEFT",
     )
     key_table.setStyle(
         TableStyle(
             [
-                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
                 ("RIGHTPADDING", (0, 0), (-1, -1), gap),
-                ("TOPPADDING", (0, 0), (-1, -1), 3),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ]
         )
