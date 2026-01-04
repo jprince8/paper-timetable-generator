@@ -2653,8 +2653,16 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       const stationUpper =
         firstGE === orderedSvcIndices.length ? orderedSvcIndices.length : firstGE;
       if (logEnabled) {
+        const leftText =
+          lastLE >= 0
+            ? `${lastTimeLabel || "?"} (${lastLabel})`
+            : "start";
+        const rightText =
+          firstGE < orderedSvcIndices.length
+            ? `${firstTimeLabel || "?"} (${firstLabel})`
+            : "end";
         sortLogLines.push(
-          `  ${stationLabel} @ ${timeLabel || "?"}: last<${lastLabel} (${lastTimeLabel || "?"}), first>${firstLabel} (${firstTimeLabel || "?"}), bounds ${stationLower}-${stationUpper}`,
+          `  ${stationLabel}: ${leftText} < ${timeLabel || "?"} < ${rightText}, bounds ${stationLower}-${stationUpper}`,
         );
       }
     }
@@ -2702,16 +2710,17 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     for (let idx = 0; idx < remainingServices.length; idx++) {
       const svcIdx = remainingServices[idx];
 
-      for (let stationIdx = 0; stationIdx < numStations; stationIdx++) {
+      for (let stationIdx = numStations - 1; stationIdx >= 0; stationIdx--) {
         if (stationModes[stationIdx] !== "two") continue;
         const t = stationTimes[stationIdx][svcIdx];
         if (!t || t.arrMins === null) continue;
 
         sortLogLines.push(
-          `Resolution attempt for ${serviceLabel(svcIdx)} at ${stationLabels[stationIdx] || `station#${stationIdx}`} (arr-only)`,
+          `Resolution attempt for ${serviceLabel(svcIdx)} at ${stationLabels[stationIdx] || `station#${stationIdx}`} (arr-only station, scan backwards)`,
         );
 
         const attemptA = orderedSvcIndices.slice();
+        sortLogLines.push("  Option A: insert service with arr-only at station.");
         if (
           attemptInsertService(svcIdx, attemptA, {
             arrOnlyStationIdx: stationIdx,
@@ -2729,6 +2738,9 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         );
 
         if (lastPos >= 0) {
+          sortLogLines.push(
+            `  Option B: remove lower-bound ${serviceLabel(orderedSvcIndices[lastPos])}, insert service normally, then reinsert lower-bound with arr-only.`,
+          );
           const attemptB = orderedSvcIndices.slice();
           const [removedSvc] = attemptB.splice(lastPos, 1);
           if (attemptInsertService(svcIdx, attemptB)) {
@@ -2749,6 +2761,9 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         }
 
         if (firstPos >= 0) {
+          sortLogLines.push(
+            `  Option C: remove upper-bound ${serviceLabel(orderedSvcIndices[firstPos])}, insert service normally, then reinsert upper-bound with arr-only.`,
+          );
           const attemptC = orderedSvcIndices.slice();
           const [removedSvc] = attemptC.splice(firstPos, 1);
           if (attemptInsertService(svcIdx, attemptC)) {
