@@ -4215,7 +4215,7 @@ function renderCrsKey(model, crsKeyEl) {
   crsKeyEl.classList.remove("is-empty");
   const label = document.createElement("span");
   label.classList.add("table-key-label");
-  label.textContent = "Key:";
+  label.textContent = "Station codes:";
   crsKeyEl.appendChild(label);
   const lineBreak = document.createElement("span");
   lineBreak.classList.add("table-key-break");
