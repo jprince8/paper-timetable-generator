@@ -2083,6 +2083,41 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   const serviceRealtimeFlags = servicesWithDetails.map(
     ({ detail }) => detail && detail.realtimeActivated === true,
   );
+  const serviceAllCancelled = servicesWithDetails.map(({ detail }, svcIndex) => {
+    const locs = detail?.locations || [];
+    let hasAny = false;
+    let hasNonStrike = false;
+    for (const loc of locs) {
+      if (hasNonStrike) break;
+      const hasArr = loc.gbttBookedArrival || loc.realtimeArrival;
+      const hasDep = loc.gbttBookedDeparture || loc.realtimeDeparture;
+      if (hasArr) {
+        const chosen = chooseDisplayedTimeAndStatus(
+          loc,
+          true,
+          serviceRealtimeFlags[svcIndex] === true,
+          realtimeToggleEnabled,
+        );
+        if (chosen.text) {
+          hasAny = true;
+          if (!chosen.format?.strike) hasNonStrike = true;
+        }
+      }
+      if (hasDep) {
+        const chosen = chooseDisplayedTimeAndStatus(
+          loc,
+          false,
+          serviceRealtimeFlags[svcIndex] === true,
+          realtimeToggleEnabled,
+        );
+        if (chosen.text) {
+          hasAny = true;
+          if (!chosen.format?.strike) hasNonStrike = true;
+        }
+      }
+    }
+    return hasAny && !hasNonStrike;
+  });
 
   // --- Precompute per-station, per-service arrival/departure times ---
   // stationTimes[stationIndex][svcIndex] = { arrStr, arrMins, depStr, depMins }
@@ -2622,7 +2657,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       serviceRealtimeActivated,
       realtimeToggleEnabled,
     );
-    if (!chosen.text || chosen.format?.strike) {
+    const allowCancelled = serviceAllCancelled[serviceIdx] === true;
+    if (!chosen.text || (!allowCancelled && chosen.format?.strike)) {
       return { text: "", mins: null, format: chosen.format };
     }
     return {
