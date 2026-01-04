@@ -1,5 +1,6 @@
 // === Configuration ===
 const DEBUG_STATIONS = false; // set true to log station selection / dwell details
+const ENABLE_SORT_LOG_DOWNLOAD = false;
 // Apply the “must call at >=2 stops” rule *after* hiding stations
 // that have no public calls (and iterate to a stable result).
 
@@ -52,6 +53,7 @@ let startMinutes = null;
 let endMinutes = null;
 let lastPdfPayload = null;
 let lastTimetableContext = null;
+let lastSortLog = "";
 let realtimeEnabled = false;
 let realtimeAvailable = false;
 
@@ -582,6 +584,14 @@ function timeStrToMinutes(hhmm) {
   return h * 60 + m;
 }
 
+function minutesToTimeStr(mins) {
+  if (mins === null || mins === undefined) return "";
+  const m = Math.max(0, mins);
+  const h = Math.floor(m / 60) % 24;
+  const mm = m % 60;
+  return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
 function rttTimeToMinutes(hhmm) {
   if (!hhmm) return null;
   const s = String(hhmm);
@@ -789,6 +799,7 @@ function resetOutputs() {
   shareBtn.disabled = true;
   lastPdfPayload = null;
   lastTimetableContext = null;
+  lastSortLog = "";
   setRealtimeToggleState({ enabled: false, active: false });
 }
 
@@ -807,6 +818,7 @@ function clearTimetableOutputs() {
   shareBtn.disabled = true;
   lastPdfPayload = null;
   lastTimetableContext = null;
+  lastSortLog = "";
   setRealtimeToggleState({ enabled: false, active: false });
 }
 
@@ -830,16 +842,20 @@ function formatAssertDetail(detail) {
   return parts.join(", ");
 }
 
-function assertWithStatus(condition, userMessage, detail = {}) {
+function assertWithStatus(condition, userMessage, detail = {}, options = {}) {
   if (condition) return;
   const detailText = formatAssertDetail(detail);
   const fullMessage = detailText
     ? `${userMessage} (${detailText})`
     : userMessage;
   console.assert(false, fullMessage, detail);
-  clearTimetableOutputs();
+  if (!options.keepOutputs) {
+    clearTimetableOutputs();
+  }
   setStatus(fullMessage, { isError: true });
-  throw new Error(fullMessage);
+  if (!options.allowContinue) {
+    throw new Error(fullMessage);
+  }
 }
 
 function stripHtmlToText(value) {
@@ -886,9 +902,18 @@ function buildPdfTableData(model) {
   ];
   const tableRows = rows.map((row) => {
     const label = rowLabelText(row);
-    const cells = orderedSvcIndices.map((svcIndex) =>
-      cellToText(row.cells[svcIndex]),
-    );
+    const cells = orderedSvcIndices.map((svcIndex) => {
+      const val = row.cells[svcIndex];
+      if (val && typeof val === "object") {
+        const text = cellToText(val);
+        const bgColor = val.format?.bgColor;
+        if (bgColor) {
+          return { text, bgColor };
+        }
+        return text;
+      }
+      return cellToText(val);
+    });
     return [label, ...cells];
   });
   const serviceTimes = orderedSvcIndices.map((svcIndex) => {
@@ -927,6 +952,18 @@ function formatGeneratedTimestamp(dateObj = new Date()) {
     parts.map((part) => [part.type, part.value]),
   );
   return `${lookup.day}/${lookup.month}/${lookup.year} ${lookup.hour}:${lookup.minute}`;
+}
+
+function downloadTextFile(filename, contents) {
+  const blob = new Blob([contents], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 downloadPdfBtn.addEventListener("click", async () => {
@@ -1038,6 +1075,8 @@ function renderTimetablesFromContext(context) {
     generatedTimestamp,
   } = context;
   const pdfTables = [];
+  const sortLogs = [];
+  context.partialSort = null;
 
   if (servicesAB.length > 0) {
     const modelAB = buildTimetableModel(stations, stationSet, servicesAB, {
@@ -1047,11 +1086,13 @@ function renderTimetablesFromContext(context) {
       realtimeEnabled: false,
     });
     headingAB.textContent =
-      forwardStopsLabel +
-      " (" +
-      modelAB.orderedSvcIndices.length +
-      " services)";
+      forwardStopsLabel + " (" + modelAB.serviceCount + " services)";
+    if (modelAB.sortLog) sortLogs.push(modelAB.sortLog);
     renderTimetable(modelAB, headerRowAB, headerIconsRowAB, bodyRowsAB);
+    if (modelAB.partialSort) {
+      context.partialSort = context.partialSort || { unsorted: [] };
+      context.partialSort.unsorted.push(...modelAB.partialSort.unsortedLabels);
+    }
     const tableDataAB = buildPdfTableData(pdfModelAB);
     pdfTables.push({
       title: `${fromName} → ${toName}`,
@@ -1075,11 +1116,13 @@ function renderTimetablesFromContext(context) {
       realtimeEnabled: false,
     });
     headingBA.textContent =
-      reverseStopsLabel +
-      " (" +
-      modelBA.orderedSvcIndices.length +
-      " services)";
+      reverseStopsLabel + " (" + modelBA.serviceCount + " services)";
+    if (modelBA.sortLog) sortLogs.push(modelBA.sortLog);
     renderTimetable(modelBA, headerRowBA, headerIconsRowBA, bodyRowsBA);
+    if (modelBA.partialSort) {
+      context.partialSort = context.partialSort || { unsorted: [] };
+      context.partialSort.unsorted.push(...modelBA.partialSort.unsortedLabels);
+    }
     const tableDataBA = buildPdfTableData(pdfModelBA);
     pdfTables.push({
       title: `${toName} → ${fromName}`,
@@ -1092,6 +1135,15 @@ function renderTimetablesFromContext(context) {
     headingBA.textContent =
       reverseStopsLabel + ": no through services in this time range";
     tableCardBA?.classList.remove("has-data");
+  }
+
+  if (sortLogs.length > 0) {
+    lastSortLog = sortLogs.join("\n\n");
+    if (ENABLE_SORT_LOG_DOWNLOAD) {
+      downloadTextFile("timetable-sort-log.txt", lastSortLog);
+    }
+  } else {
+    lastSortLog = "";
   }
 
   if (pdfTables.length > 0) {
@@ -1110,6 +1162,20 @@ function renderTimetablesFromContext(context) {
     downloadPdfBtn.disabled = true;
     shareBtn.disabled = true;
   }
+
+  if (context.partialSort?.unsorted?.length) {
+    try {
+      assertWithStatus(
+        false,
+        "Unable to sort some services",
+        { services: context.partialSort.unsorted.join(", ") },
+        { keepOutputs: true },
+      );
+    } catch (err) {
+      // keep rendered timetable despite the assertion
+    }
+  }
+
 }
 
 // === Main form submit ===
@@ -1595,7 +1661,9 @@ form.addEventListener("submit", async (e) => {
     generatedTimestamp: formatGeneratedTimestamp(),
   };
   renderTimetablesFromContext(lastTimetableContext);
-  hideStatus();
+  if (!statusEl?.classList.contains("is-error")) {
+    hideStatus();
+  }
 });
 
 function splitServiceEntries(entries, corridorStations = []) {
@@ -1906,6 +1974,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
 
       const rawText = cellToText(val);
       if (!rawText) continue;
+      if (val && typeof val === "object" && val.format?.strike) continue;
 
       const mins = timeStrToMinutes(rawText); // "HH:MM" -> 0..1439
       if (mins === null) continue;
@@ -1934,6 +2003,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           false,
           "Timetable times go backwards in this corridor",
           detailParts.join(", "),
+          { keepOutputs: true, allowContinue: true },
         );
         break; // stop checking this service; we've already flagged it
       }
@@ -2035,6 +2105,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   const serviceRealtimeFlags = servicesWithDetails.map(
     ({ detail }) => detail && detail.realtimeActivated === true,
   );
+  const serviceAllCancelled = new Array(numServices).fill(false);
 
   // --- Precompute per-station, per-service arrival/departure times ---
   // stationTimes[stationIndex][svcIndex] = { arrStr, arrMins, depStr, depMins }
@@ -2075,6 +2146,43 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       };
     });
   });
+
+  for (let svcIndex = 0; svcIndex < numServices; svcIndex++) {
+    let hasAny = false;
+    let hasNonStrike = false;
+    for (let stationIndex = 0; stationIndex < numStations; stationIndex++) {
+      const t = stationTimes[stationIndex][svcIndex];
+      if (!t?.loc) continue;
+      if (hasNonStrike) break;
+      const hasArr = t.loc.gbttBookedArrival || t.loc.realtimeArrival;
+      const hasDep = t.loc.gbttBookedDeparture || t.loc.realtimeDeparture;
+      if (hasArr) {
+        const chosen = chooseDisplayedTimeAndStatus(
+          t.loc,
+          true,
+          serviceRealtimeFlags[svcIndex] === true,
+          realtimeToggleEnabled,
+        );
+        if (chosen.text) {
+          hasAny = true;
+          if (!chosen.format?.strike) hasNonStrike = true;
+        }
+      }
+      if (hasDep) {
+        const chosen = chooseDisplayedTimeAndStatus(
+          t.loc,
+          false,
+          serviceRealtimeFlags[svcIndex] === true,
+          realtimeToggleEnabled,
+        );
+        if (chosen.text) {
+          hasAny = true;
+          if (!chosen.format?.strike) hasNonStrike = true;
+        }
+      }
+    }
+    serviceAllCancelled[svcIndex] = hasAny && !hasNonStrike;
+  }
 
   // --- Decide row mode per station (merged vs two rows vs single) ---
   const stationModes = [];
@@ -2502,108 +2610,735 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   }
 
   // === Column ordering ===
-  // We insert services row-by-row based on firstRowForService.
-  // When inserting a service that starts on a given row, we compare it against
-  // existing columns using the *time on that same row*, with this preference:
-  //   - use departure time if available
-  //   - otherwise use arrival time
-  //
-  // (If a service has no time on that row at all, it sorts last for that row.)
-  function orderingTimeStrForLoc(
-    loc,
-    preferDeparture,
-    serviceRealtimeActivated,
-    realtimeToggleEnabled,
-  ) {
-    if (!loc) return "";
+  // Sort columns by inserting one service at a time, keeping each station's
+  // times in order. For each station, we prefer departure time when available,
+  // otherwise arrival time. Empty times are ignored.
+  const sortLogLines = [];
+  const stationLabels = displayStations.map(
+    (station) => station.name || station.crs || "?",
+  );
+  sortLogLines.push("Column sort log");
+  sortLogLines.push(`Stations: ${stationLabels.join(" → ")}`);
+  sortLogLines.push(`Services: ${numServices}`);
 
-    const useRealtime = serviceRealtimeActivated && realtimeToggleEnabled;
-    const dep = useRealtime
-      ? loc.realtimeDeparture || loc.gbttBookedDeparture
-      : loc.gbttBookedDeparture;
-    const arr = useRealtime
-      ? loc.realtimeArrival || loc.gbttBookedArrival
-      : loc.gbttBookedArrival;
-
-    if (preferDeparture && dep) return padTime(dep);
-    if (arr) return padTime(arr);
-    return dep ? padTime(dep) : "";
+  function logHighlight(reason, rowIdx, svcIndex, currentTime, compareTime, compareSvcIndex) {
+    const rowLabel = rowLabelText(rows[rowIdx]) || `row#${rowIdx}`;
+    const currentSvc = serviceShortLabel(svcIndex);
+    const compareSvc =
+      compareSvcIndex !== null && compareSvcIndex !== undefined
+        ? serviceShortLabel(compareSvcIndex)
+        : "unknown";
+    const message = `Highlight ${rowLabel}: ${currentTime} (${currentSvc}) < ${compareTime} (${compareSvc}) because ${reason}`;
+    sortLogLines.push(message);
+    console.log(message);
   }
 
-  function preferredTimeMinsAtRow(serviceIdx, rowIdx) {
-    const spec = rowSpecs[rowIdx];
-    if (!spec || spec.kind !== "station") return null;
+  function serviceLabel(serviceIdx) {
+    const svc = servicesWithDetails[serviceIdx]?.svc || {};
+    const detail = servicesWithDetails[serviceIdx]?.detail || {};
+    const headcode =
+      svc.trainIdentity || svc.runningIdentity || svc.serviceUid || "";
+    const originText = safePairText(detail.origin);
+    const destText = safePairText(detail.destination);
+    const route =
+      originText || destText ? `${originText} → ${destText}` : "";
+    const labelBase = headcode || svc.serviceUid || `svc#${serviceIdx + 1}`;
+    return route ? `${labelBase} (${route})` : labelBase;
+  }
 
-    const stationIndex = spec.stationIndex;
-    const t = stationTimes[stationIndex][serviceIdx];
+  function serviceShortLabel(serviceIdx) {
+    const svc = servicesWithDetails[serviceIdx]?.svc || {};
+    return (
+      svc.trainIdentity ||
+      svc.runningIdentity ||
+      svc.serviceUid ||
+      `svc#${serviceIdx + 1}`
+    );
+  }
+
+  function preferredTimeMinsAtStation(serviceIdx, stationIdx) {
+    const t = stationTimes[stationIdx][serviceIdx];
     if (!t) return null;
-    const loc = t.loc;
-    if (!loc) return null;
+    if (t.depMins !== null) return t.depMins;
+    if (t.arrMins !== null) return t.arrMins;
+    return null;
+  }
 
-    const serviceRealtimeActivated =
-      serviceRealtimeFlags[serviceIdx] === true;
+  function preferredTimeLabelAtStation(serviceIdx, stationIdx) {
+    const t = stationTimes[stationIdx][serviceIdx];
+    if (!t) return "";
+    if (t.depStr) return t.depStr;
+    if (t.arrStr) return t.arrStr;
+    return "";
+  }
 
-    // Prefer dep; otherwise arr (even on "arr" rows).
-    const timeStr = orderingTimeStrForLoc(
-      loc,
-      true,
+  function getDisplayedTimeInfo(serviceIdx, stationIdx, isArrival) {
+    const t = stationTimes[stationIdx][serviceIdx];
+    if (!t || !t.loc) return { text: "", mins: null, format: null };
+    const serviceRealtimeActivated = serviceRealtimeFlags[serviceIdx] === true;
+    const chosen = chooseDisplayedTimeAndStatus(
+      t.loc,
+      isArrival,
       serviceRealtimeActivated,
       realtimeToggleEnabled,
     );
-    if (!timeStr) return null;
-
-    const mins = timeStrToMinutes(timeStr);
-    return mins === null ? null : mins;
+    const allowCancelled = serviceAllCancelled[serviceIdx] === true;
+    if (!chosen.text || (!allowCancelled && chosen.format?.strike)) {
+      return { text: "", mins: null, format: chosen.format };
+    }
+    return {
+      text: chosen.text,
+      mins: timeStrToMinutes(chosen.text),
+      format: chosen.format,
+    };
   }
 
-  const orderedSvcIndices = [];
+  function stationTimeMins(
+    serviceIdx,
+    stationIdx,
+    arrOnlyStationIdx = null,
+    modeOverride = null,
+    ignoreFromStationIdx = null,
+    depOnlyStationIdx = null,
+    ignoreStationIdx = null,
+  ) {
+    const t = stationTimes[stationIdx][serviceIdx];
+    if (!t) return null;
+    if (ignoreStationIdx === stationIdx) {
+      return null;
+    }
+    if (ignoreFromStationIdx !== null && stationIdx >= ignoreFromStationIdx) {
+      return null;
+    }
+    if (arrOnlyStationIdx === stationIdx || modeOverride === "arrOnly") {
+      return getDisplayedTimeInfo(serviceIdx, stationIdx, true).mins;
+    }
+    if (depOnlyStationIdx === stationIdx || modeOverride === "depOnly") {
+      return getDisplayedTimeInfo(serviceIdx, stationIdx, false).mins;
+    }
+    if (modeOverride === "ignore") {
+      return null;
+    }
+    const hasDeparture = t.loc?.gbttBookedDeparture || t.loc?.realtimeDeparture;
+    const isArrival = !hasDeparture;
+    return getDisplayedTimeInfo(serviceIdx, stationIdx, isArrival).mins;
+  }
 
-  for (let r = 0; r < totalRows; r++) {
-    // Services whose first corridor timing row is exactly this row.
-    const startingHere = [];
-    for (let s = 0; s < numServices; s++) {
-      if (firstRowForService[s] === r) {
-        startingHere.push({
-          index: s,
-          timeMins: preferredTimeMinsAtRow(s, r),
-        });
+  function firstTimeInfo(serviceIdx) {
+    let firstMins = null;
+    let firstRow = null;
+    for (let rowIdx = 0; rowIdx < rowSpecs.length; rowIdx++) {
+      const spec = rowSpecs[rowIdx];
+      if (!spec || spec.kind !== "station") continue;
+      const stationIdx = spec.stationIndex;
+      const mins = stationTimeMins(serviceIdx, stationIdx);
+      if (mins === null) continue;
+      if (firstMins === null || mins < firstMins) {
+        firstMins = mins;
+        firstRow = rowIdx;
       }
     }
+    return { firstMins, firstRow };
+  }
 
-    // Sort those by preferred row-time (nulls last, then by original index)
-    startingHere.sort((a, b) => {
-      if (a.timeMins === null && b.timeMins === null)
-        return a.index - b.index;
-      if (a.timeMins === null) return 1;
-      if (b.timeMins === null) return -1;
-      if (a.timeMins !== b.timeMins) return a.timeMins - b.timeMins;
-      return a.index - b.index;
-    });
+  function stationTimeLabel(
+    serviceIdx,
+    stationIdx,
+    arrOnlyStationIdx = null,
+    modeOverride = null,
+    ignoreFromStationIdx = null,
+    depOnlyStationIdx = null,
+    ignoreStationIdx = null,
+  ) {
+    const t = stationTimes[stationIdx][serviceIdx];
+    if (!t) return "";
+    if (ignoreStationIdx === stationIdx) {
+      return "";
+    }
+    if (ignoreFromStationIdx !== null && stationIdx >= ignoreFromStationIdx) {
+      return "";
+    }
+    if (arrOnlyStationIdx === stationIdx || modeOverride === "arrOnly") {
+      return getDisplayedTimeInfo(serviceIdx, stationIdx, true).text;
+    }
+    if (depOnlyStationIdx === stationIdx || modeOverride === "depOnly") {
+      return getDisplayedTimeInfo(serviceIdx, stationIdx, false).text;
+    }
+    if (modeOverride === "ignore") {
+      return "";
+    }
+    const hasDeparture = t.loc?.gbttBookedDeparture || t.loc?.realtimeDeparture;
+    const isArrival = !hasDeparture;
+    return getDisplayedTimeInfo(serviceIdx, stationIdx, isArrival).text;
+  }
 
-    // Insert into orderedSvcIndices relative to existing services, comparing
-    // against the existing services' preferred time on *this same row*.
-    for (const { index: sIdx, timeMins } of startingHere) {
-      if (orderedSvcIndices.length === 0 || timeMins === null) {
-        orderedSvcIndices.push(sIdx);
-        continue;
-      }
+  function findInsertBounds(serviceIdx, orderedSvcIndices, options = {}) {
+    const {
+      arrOnlyStationIdx = null,
+      logEnabled = true,
+      modeOverride = null,
+      ignoreFromStationIdx = null,
+      depOnlyStationIdx = null,
+      ignoreStationIdx = null,
+    } = options;
+    const label = serviceLabel(serviceIdx);
+    if (logEnabled) {
+      sortLogLines.push("");
+      sortLogLines.push(`Service: ${label}`);
+      sortLogLines.push(
+        `Current order: ${
+          orderedSvcIndices.length > 0
+            ? orderedSvcIndices.map(serviceLabel).join(", ")
+            : "(none)"
+        }`,
+      );
+    }
 
-      let inserted = false;
+    let lowerBound = 0;
+    let upperBound = orderedSvcIndices.length;
+    let hasConstraint = false;
+
+    for (let stationIdx = 0; stationIdx < numStations; stationIdx++) {
+      const time = stationTimeMins(
+        serviceIdx,
+        stationIdx,
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
+      if (time === null) continue;
+      const timeLabel = stationTimeLabel(
+        serviceIdx,
+        stationIdx,
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
+
+      let lastLE = -1;
+      let firstGE = orderedSvcIndices.length;
+      const greaterPositions = [];
+
       for (let pos = 0; pos < orderedSvcIndices.length; pos++) {
-        const existingIdx = orderedSvcIndices[pos];
-        const existingTime = preferredTimeMinsAtRow(existingIdx, r);
-        if (existingTime === null) continue; // can't compare at this row
+        const otherSvc = orderedSvcIndices[pos];
+        const otherTime = stationTimeMins(
+          otherSvc,
+          stationIdx,
+          arrOnlyStationIdx,
+          modeOverride,
+          ignoreFromStationIdx,
+          depOnlyStationIdx,
+          ignoreStationIdx,
+        );
+        if (otherTime === null) continue;
 
-        if (timeMins <= existingTime) {
-          orderedSvcIndices.splice(pos, 0, sIdx);
-          inserted = true;
-          break;
+        if (otherTime < time) lastLE = pos;
+        if (otherTime > time) {
+          greaterPositions.push(pos);
+          if (firstGE === orderedSvcIndices.length) {
+            firstGE = pos;
+          }
         }
       }
 
-      if (!inserted) orderedSvcIndices.push(sIdx);
+      let stationLower = lastLE + 1;
+      let stationUpper =
+        firstGE === orderedSvcIndices.length ? orderedSvcIndices.length : firstGE;
+
+      if (stationLower > stationUpper) {
+        const nextGreater = greaterPositions.find((pos) => pos > lastLE);
+        if (nextGreater !== undefined) {
+          firstGE = nextGreater;
+          stationUpper = nextGreater;
+        } else {
+          firstGE = orderedSvcIndices.length;
+          stationUpper = orderedSvcIndices.length;
+        }
+      }
+
+      if (lastLE !== -1 || firstGE !== orderedSvcIndices.length) {
+        hasConstraint = true;
+        lowerBound = Math.max(lowerBound, lastLE + 1);
+        upperBound = Math.min(upperBound, firstGE);
+      }
+
+      const stationLabel = stationLabels[stationIdx] || `station#${stationIdx}`;
+      const lastLabel =
+        lastLE >= 0 ? serviceLabel(orderedSvcIndices[lastLE]) : "none";
+      const firstLabel =
+        firstGE < orderedSvcIndices.length
+          ? serviceLabel(orderedSvcIndices[firstGE])
+          : "none";
+      const lastTimeLabel =
+        lastLE >= 0
+          ? stationTimeLabel(
+              orderedSvcIndices[lastLE],
+              stationIdx,
+              arrOnlyStationIdx,
+              modeOverride,
+              ignoreFromStationIdx,
+              depOnlyStationIdx,
+              ignoreStationIdx,
+            )
+          : "";
+      const firstTimeLabel =
+        firstGE < orderedSvcIndices.length
+          ? stationTimeLabel(
+              orderedSvcIndices[firstGE],
+              stationIdx,
+              arrOnlyStationIdx,
+              modeOverride,
+              ignoreFromStationIdx,
+              depOnlyStationIdx,
+              ignoreStationIdx,
+            )
+          : "";
+      if (logEnabled) {
+        const leftTime = lastLE >= 0 ? lastTimeLabel || "?" : "start";
+        const rightTime =
+          firstGE < orderedSvcIndices.length ? firstTimeLabel || "?" : "end";
+        const leftSvc =
+          lastLE >= 0 ? serviceShortLabel(orderedSvcIndices[lastLE]) : "start";
+        const rightSvc =
+          firstGE < orderedSvcIndices.length
+            ? serviceShortLabel(orderedSvcIndices[firstGE])
+            : "end";
+        const currentSvc = serviceShortLabel(serviceIdx);
+        sortLogLines.push(
+          `  ${stationLabel}: ${leftTime} < ${timeLabel || "?"} < ${rightTime} (${leftSvc} < ${currentSvc} < ${rightSvc}), bounds ${stationLower}-${stationUpper}`,
+        );
+      }
+    }
+
+    return { hasConstraint, lowerBound, upperBound };
+  }
+
+  function computeStationBounds(serviceIdx, orderedSvcIndices, stationIdx) {
+    const time = stationTimeMins(serviceIdx, stationIdx, stationIdx);
+    if (time === null) return { lastPos: -1, firstPos: -1 };
+
+    let lastPos = -1;
+    let firstPos = -1;
+
+    for (let pos = 0; pos < orderedSvcIndices.length; pos++) {
+      const otherSvc = orderedSvcIndices[pos];
+      const otherTime = stationTimeMins(otherSvc, stationIdx, stationIdx);
+      if (otherTime === null) continue;
+      if (otherTime < time) lastPos = pos;
+      if (firstPos === -1 && otherTime > time) {
+        firstPos = pos;
+      }
+    }
+
+    return { lastPos, firstPos };
+  }
+
+  function attemptInsertService(
+    serviceIdx,
+    orderedSvcIndices,
+    options = {},
+  ) {
+    const bounds = findInsertBounds(serviceIdx, orderedSvcIndices, options);
+    if (
+      bounds.hasConstraint &&
+      bounds.lowerBound <= bounds.upperBound &&
+      bounds.lowerBound === bounds.upperBound
+    ) {
+      orderedSvcIndices.splice(bounds.lowerBound, 0, serviceIdx);
+      sortLogLines.push(
+        `Chosen position: ${bounds.lowerBound} (bounds ${bounds.lowerBound}-${bounds.upperBound})`,
+      );
+      return true;
+    }
+    return false;
+  }
+
+  function insertFirstCandidate(
+    serviceIdx,
+    orderedSvcIndices,
+    options = {},
+    logPrefix = "Resolution pass 0",
+  ) {
+    const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
+      serviceIdx,
+      orderedSvcIndices,
+      { ...options, logEnabled: false },
+    );
+    const maxPos = orderedSvcIndices.length;
+    const candidateStart = hasConstraint ? lowerBound : 0;
+    const candidateEnd = hasConstraint ? upperBound : maxPos;
+    if (candidateEnd > candidateStart) {
+      orderedSvcIndices.splice(candidateStart, 0, serviceIdx);
+      sortLogLines.push(
+        `${logPrefix}: selected first position ${candidateStart} (bounds ${candidateStart}-${candidateEnd}) for ${serviceLabel(serviceIdx)}`,
+      );
+      return true;
+    }
+    return false;
+  }
+
+  function logNoStrictBounds(serviceIdx, orderedSvcIndices, options = {}) {
+    const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
+      serviceIdx,
+      orderedSvcIndices,
+      { ...options, logEnabled: false },
+    );
+    const maxPos = orderedSvcIndices.length;
+    const candidateStart = hasConstraint ? lowerBound : 0;
+    const candidateEnd = hasConstraint ? lowerBound : maxPos;
+    const candidates =
+      candidateStart <= candidateEnd
+        ? Array.from(
+            { length: candidateEnd - candidateStart + 1 },
+            (_, idx) => candidateStart + idx,
+          ).join(", ")
+        : "(none)";
+    const reason = hasConstraint
+      ? lowerBound <= upperBound
+        ? `${lowerBound}-${upperBound}`
+        : `conflicting bounds ${lowerBound}-${upperBound}`
+      : "no station constraints";
+    sortLogLines.push(
+      `No strict bounds (${reason}); possible positions: ${candidates}. Moved to end of queue.`,
+    );
+  }
+
+  function resolveUnboundedServices(remainingServices, orderedSvcIndices) {
+    sortLogLines.push("Resolution pass 0: start");
+    for (let idx = 0; idx < remainingServices.length; idx++) {
+      const svcIdx = remainingServices[idx];
+      if (insertFirstCandidate(svcIdx, orderedSvcIndices)) {
+        remainingServices.splice(idx, 1);
+        return true;
+      }
+    }
+
+    sortLogLines.push("Resolution pass 1: start");
+    for (let idx = 0; idx < remainingServices.length; idx++) {
+      const svcIdx = remainingServices[idx];
+      sortLogLines.push(
+        `Resolution pass 1: evaluating ${serviceLabel(svcIdx)} for arr-only fixes`,
+      );
+      let attemptedStation = false;
+
+      for (let stationIdx = numStations - 1; stationIdx >= 0; stationIdx--) {
+        if (stationModes[stationIdx] !== "two") continue;
+        const t = stationTimes[stationIdx][svcIdx];
+        if (!t || t.arrMins === null) continue;
+        attemptedStation = true;
+
+        sortLogLines.push(
+          `Resolution attempt for ${serviceLabel(svcIdx)} at ${stationLabels[stationIdx] || `station#${stationIdx}`} (arr-only station, scan backwards)`,
+        );
+
+        const attemptA = orderedSvcIndices.slice();
+        sortLogLines.push("  Option A: insert service with arr-only at station.");
+        const attemptAInserted = attemptInsertService(svcIdx, attemptA, {
+          arrOnlyStationIdx: stationIdx,
+        });
+        if (
+          attemptAInserted ||
+          insertFirstCandidate(
+            svcIdx,
+            attemptA,
+            { arrOnlyStationIdx: stationIdx },
+            "Resolution pass 1",
+          )
+        ) {
+          orderedSvcIndices.splice(0, orderedSvcIndices.length, ...attemptA);
+          remainingServices.splice(idx, 1);
+          return true;
+        }
+
+        const { lastPos, firstPos } = computeStationBounds(
+          svcIdx,
+          orderedSvcIndices,
+          stationIdx,
+        );
+
+        if (lastPos >= 0) {
+          sortLogLines.push(
+            `  Option B: remove lower-bound ${serviceLabel(orderedSvcIndices[lastPos])}, insert service normally, then reinsert lower-bound with arr-only.`,
+          );
+          const attemptB = orderedSvcIndices.slice();
+          const [removedSvc] = attemptB.splice(lastPos, 1);
+          const attemptBInserted = attemptInsertService(svcIdx, attemptB);
+          if (
+            attemptBInserted ||
+            insertFirstCandidate(svcIdx, attemptB, {}, "Resolution pass 1")
+          ) {
+            if (
+              attemptInsertService(removedSvc, attemptB, {
+                arrOnlyStationIdx: stationIdx,
+              })
+            ) {
+              orderedSvcIndices.splice(
+                0,
+                orderedSvcIndices.length,
+                ...attemptB,
+              );
+              remainingServices.splice(idx, 1);
+              return true;
+            }
+          }
+        }
+
+        if (firstPos >= 0) {
+          sortLogLines.push(
+            `  Option C: remove upper-bound ${serviceLabel(orderedSvcIndices[firstPos])}, insert service normally, then reinsert upper-bound with arr-only.`,
+          );
+          const attemptC = orderedSvcIndices.slice();
+          const [removedSvc] = attemptC.splice(firstPos, 1);
+          const attemptCInserted = attemptInsertService(svcIdx, attemptC);
+          if (
+            attemptCInserted ||
+            insertFirstCandidate(svcIdx, attemptC, {}, "Resolution pass 1")
+          ) {
+            if (
+              attemptInsertService(removedSvc, attemptC, {
+                arrOnlyStationIdx: stationIdx,
+              })
+            ) {
+              orderedSvcIndices.splice(
+                0,
+                orderedSvcIndices.length,
+                ...attemptC,
+              );
+              remainingServices.splice(idx, 1);
+              return true;
+            }
+          }
+        }
+      }
+
+      if (!attemptedStation) {
+        sortLogLines.push(
+          `Resolution pass 1: no eligible arr-only stations for ${serviceLabel(svcIdx)}`,
+        );
+      }
+    }
+
+    sortLogLines.push("Resolution pass 1: no resolution found");
+    return false;
+  }
+
+  function resolveUnboundedServicesByIgnoringValue(
+    remainingServices,
+    orderedSvcIndices,
+  ) {
+    sortLogLines.push("Resolution pass 2: start");
+    for (let idx = 0; idx < remainingServices.length; idx++) {
+      const svcIdx = remainingServices[idx];
+      sortLogLines.push(
+        `Resolution pass 2: evaluating ${serviceLabel(svcIdx)} for ignore-value fixes`,
+      );
+      let attemptedStation = false;
+
+      for (let stationIdx = numStations - 1; stationIdx >= 0; stationIdx--) {
+        const t = stationTimes[stationIdx][svcIdx];
+        if (!t) continue;
+        attemptedStation = true;
+
+        const stationName =
+          stationLabels[stationIdx] || `station#${stationIdx}`;
+        if (t.depMins !== null) {
+          sortLogLines.push(
+            `Resolution pass 2 for ${serviceLabel(svcIdx)} at ${stationName}: ignore dep time and all rows below.`,
+          );
+          const attemptDep = orderedSvcIndices.slice();
+          const attemptDepInserted = attemptInsertService(svcIdx, attemptDep, {
+            arrOnlyStationIdx: stationIdx,
+            ignoreFromStationIdx: stationIdx + 1,
+          });
+          if (
+            attemptDepInserted ||
+            insertFirstCandidate(
+              svcIdx,
+              attemptDep,
+              {
+                arrOnlyStationIdx: stationIdx,
+                ignoreFromStationIdx: stationIdx + 1,
+              },
+              "Resolution pass 2",
+            )
+          ) {
+            orderedSvcIndices.splice(
+              0,
+              orderedSvcIndices.length,
+              ...attemptDep,
+            );
+            remainingServices.splice(idx, 1);
+            return true;
+          }
+          logNoStrictBounds(svcIdx, attemptDep, {
+            arrOnlyStationIdx: stationIdx,
+            ignoreFromStationIdx: stationIdx + 1,
+          });
+        }
+
+        if (t.arrMins !== null) {
+          sortLogLines.push(
+            `Resolution pass 2 for ${serviceLabel(svcIdx)} at ${stationName}: ignore arr+dep time and all rows below.`,
+          );
+          const attemptArrDep = orderedSvcIndices.slice();
+          const attemptArrDepInserted = attemptInsertService(
+            svcIdx,
+            attemptArrDep,
+            {
+              ignoreFromStationIdx: stationIdx + 1,
+              ignoreStationIdx: stationIdx,
+            },
+          );
+          if (
+            attemptArrDepInserted ||
+            insertFirstCandidate(
+              svcIdx,
+              attemptArrDep,
+              {
+                ignoreFromStationIdx: stationIdx + 1,
+                ignoreStationIdx: stationIdx,
+              },
+              "Resolution pass 2",
+            )
+          ) {
+            orderedSvcIndices.splice(
+              0,
+              orderedSvcIndices.length,
+              ...attemptArrDep,
+            );
+            remainingServices.splice(idx, 1);
+            return true;
+          }
+          logNoStrictBounds(svcIdx, attemptArrDep, {
+            ignoreFromStationIdx: stationIdx + 1,
+            ignoreStationIdx: stationIdx,
+          });
+        }
+      }
+
+      if (!attemptedStation) {
+        sortLogLines.push(
+          `Resolution pass 2: no eligible stations for ${serviceLabel(svcIdx)}`,
+        );
+      }
+    }
+
+    sortLogLines.push("Resolution pass 2: no resolution found");
+    return false;
+  }
+
+  const orderedSvcIndices = [];
+  let unsortedServices = null;
+  let unsortedLabels = null;
+  const remainingServices = Array.from(
+    { length: numServices },
+    (_, idx) => idx,
+  );
+  remainingServices.sort((a, b) => {
+    const infoA = firstTimeInfo(a);
+    const infoB = firstTimeInfo(b);
+    if (infoA.firstMins === null && infoB.firstMins === null) return a - b;
+    if (infoA.firstMins === null) return 1;
+    if (infoB.firstMins === null) return -1;
+    if (infoA.firstMins !== infoB.firstMins) {
+      return infoA.firstMins - infoB.firstMins;
+    }
+    if (infoA.firstRow === null && infoB.firstRow === null) return a - b;
+    if (infoA.firstRow === null) return 1;
+    if (infoB.firstRow === null) return -1;
+    if (infoA.firstRow !== infoB.firstRow) {
+      return infoA.firstRow - infoB.firstRow;
+    }
+    return a - b;
+  });
+
+  if (remainingServices.length > 0) {
+    const seedService = remainingServices.shift();
+    orderedSvcIndices.push(seedService);
+    sortLogLines.push("");
+    sortLogLines.push(`Seed service: ${serviceLabel(seedService)}`);
+  }
+
+  let rotationsWithoutInsert = 0;
+  while (remainingServices.length > 0) {
+    if (rotationsWithoutInsert >= remainingServices.length) {
+      const resolved = resolveUnboundedServices(
+        remainingServices,
+        orderedSvcIndices,
+      );
+      if (resolved) {
+        rotationsWithoutInsert = 0;
+        continue;
+      }
+      const resolvedSecondPass = resolveUnboundedServicesByIgnoringValue(
+        remainingServices,
+        orderedSvcIndices,
+      );
+      if (resolvedSecondPass) {
+        rotationsWithoutInsert = 0;
+        continue;
+      }
+
+      unsortedLabels = remainingServices.map(serviceLabel);
+      unsortedServices = remainingServices.slice();
+      sortLogLines.push(
+        `Assertion: unable to determine strict bounds for remaining services: ${unsortedLabels.join(
+          ", ",
+        )}`,
+      );
+      if (ENABLE_SORT_LOG_DOWNLOAD) {
+        downloadTextFile("timetable-sort-log.txt", sortLogLines.join("\n"));
+      }
+      break;
+    }
+
+    const svcIdx = remainingServices.shift();
+    if (attemptInsertService(svcIdx, orderedSvcIndices)) {
+      rotationsWithoutInsert = 0;
+    } else {
+      const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
+        svcIdx,
+        orderedSvcIndices,
+        { logEnabled: false },
+      );
+      const maxPos = orderedSvcIndices.length;
+      const candidateStart = hasConstraint ? lowerBound : 0;
+      const candidateEnd = hasConstraint ? lowerBound : maxPos;
+      const candidates =
+        candidateStart <= candidateEnd
+          ? Array.from(
+              { length: candidateEnd - candidateStart + 1 },
+              (_, idx) => candidateStart + idx,
+            ).join(", ")
+          : "(none)";
+      const reason = hasConstraint
+        ? lowerBound <= upperBound
+          ? `${lowerBound}-${upperBound}`
+          : `conflicting bounds ${lowerBound}-${upperBound}`
+        : "no station constraints";
+      remainingServices.push(svcIdx);
+      rotationsWithoutInsert += 1;
+      sortLogLines.push(
+        `No strict bounds (${reason}); possible positions: ${candidates}. Moved to end of queue.`,
+      );
     }
   }
+
+  sortLogLines.push("");
+  sortLogLines.push(
+    `Final order: ${
+      orderedSvcIndices.length > 0
+        ? orderedSvcIndices.map(serviceLabel).join(", ")
+        : "(none)"
+    }`,
+  );
+
+  let displayOrderedSvcIndices = orderedSvcIndices.slice();
+  const HIGHLIGHT_OUT_OF_ORDER_COLOR = "#fce3b0";
 
   // --- ATOC code -> display name override (updated LUT) ---
   const ATOC_NAME_BY_CODE = {
@@ -2710,10 +3445,299 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   // as you go down the table, allowing for midnight rollovers.
   checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails);
 
+  function tryResortForHighlighting() {
+    let movedAny = false;
+    let attemptRound = 0;
+    attemptRound += 1;
+    sortLogLines.push(`Highlight resort pass ${attemptRound}: start`);
+
+    for (let r = 0; r < rows.length; r++) {
+      let minTime = null;
+      let minTimeSvcIndex = null;
+      for (let colPos = orderedSvcIndices.length - 1; colPos >= 0; colPos--) {
+        const svcIndex = orderedSvcIndices[colPos];
+        const value = rows[r].cells[svcIndex];
+        const timeText = cellToText(value);
+        if (!timeText) continue;
+        if (value && typeof value === "object" && value.format?.strike) {
+          continue;
+        }
+        const mins = timeStrToMinutes(timeText);
+        if (mins === null) continue;
+        if (minTime === null || mins <= minTime) {
+          minTime = mins;
+          minTimeSvcIndex = svcIndex;
+          continue;
+        }
+        sortLogLines.push(
+          `Highlight resort trigger: row ${r + 1} ${rowLabelText(rows[r]) || ""} service ${serviceLabel(svcIndex)} time ${timeText} (min ${minutesToTimeStr(minTime)})`,
+        );
+        const attempt = orderedSvcIndices.filter((idx) => idx !== svcIndex);
+        if (attempt.length !== orderedSvcIndices.length) {
+          if (attemptInsertService(svcIndex, attempt, { logEnabled: true })) {
+            orderedSvcIndices.splice(
+              0,
+              orderedSvcIndices.length,
+              ...attempt,
+            );
+            movedAny = true;
+            break;
+          }
+          logNoStrictBounds(svcIndex, attempt, { logEnabled: false });
+          if (
+            insertFirstCandidate(
+              svcIndex,
+              attempt,
+              {},
+              "Highlight resort",
+            )
+          ) {
+            orderedSvcIndices.splice(
+              0,
+              orderedSvcIndices.length,
+              ...attempt,
+            );
+            movedAny = true;
+            break;
+          }
+        }
+      }
+      if (movedAny) break;
+    }
+
+    const stationRowIndices = new Map();
+    for (let r = 0; r < rowSpecs.length; r++) {
+      const spec = rowSpecs[r];
+      if (spec.kind !== "station") continue;
+      if (!stationRowIndices.has(spec.stationIndex)) {
+        stationRowIndices.set(spec.stationIndex, {});
+      }
+      const entry = stationRowIndices.get(spec.stationIndex);
+      if (spec.mode === "arr") entry.arr = r;
+      if (spec.mode === "dep") entry.dep = r;
+    }
+
+    stationRowIndices.forEach((entry) => {
+      if (movedAny) return;
+      if (entry.arr === undefined || entry.dep === undefined) return;
+      let maxArr = null;
+      for (let colPos = 0; colPos < orderedSvcIndices.length; colPos++) {
+        const svcIndex = orderedSvcIndices[colPos];
+        const arrVal = rows[entry.arr].cells[svcIndex];
+        const arrText = cellToText(arrVal);
+        if (arrVal && typeof arrVal === "object" && arrVal.format?.strike) {
+          continue;
+        }
+        if (arrText) {
+          const arrMins = timeStrToMinutes(arrText);
+          if (arrMins !== null) {
+            if (maxArr === null || arrMins > maxArr) {
+              maxArr = arrMins;
+            }
+          }
+        }
+
+        const depVal = rows[entry.dep].cells[svcIndex];
+        const depText = cellToText(depVal);
+        if (depVal && typeof depVal === "object" && depVal.format?.strike) {
+          continue;
+        }
+        if (!depText || maxArr === null) continue;
+        const depMins = timeStrToMinutes(depText);
+        if (depMins === null) continue;
+        if (depMins < maxArr) {
+          sortLogLines.push(
+            `Highlight resort trigger: station ${rowLabelText(rows[entry.dep]) || ""} service ${serviceLabel(svcIndex)} dep ${depText} before max arr ${minutesToTimeStr(maxArr)}`,
+          );
+          const attempt = orderedSvcIndices.filter((idx) => idx !== svcIndex);
+          if (attempt.length !== orderedSvcIndices.length) {
+            if (attemptInsertService(svcIndex, attempt, { logEnabled: true })) {
+              orderedSvcIndices.splice(
+                0,
+                orderedSvcIndices.length,
+                ...attempt,
+              );
+              movedAny = true;
+              return;
+            }
+            logNoStrictBounds(svcIndex, attempt, { logEnabled: false });
+            if (
+              insertFirstCandidate(
+                svcIndex,
+                attempt,
+                {},
+                "Highlight resort",
+              )
+            ) {
+              orderedSvcIndices.splice(
+                0,
+                orderedSvcIndices.length,
+                ...attempt,
+              );
+              movedAny = true;
+              return;
+            }
+          }
+        }
+      }
+    });
+    if (!movedAny) {
+      sortLogLines.push(`Highlight resort pass ${attemptRound}: no moves`);
+    }
+    return movedAny;
+  }
+
+  const resortedForHighlight = tryResortForHighlighting();
+
+  let partialSort = null;
+  let spacerIndex = null;
+  if (unsortedServices && unsortedServices.length > 0) {
+    spacerIndex = servicesMeta.length;
+    servicesMeta.push({
+      visible: "UNSORTED >",
+      tooltip: "Unsorted services",
+      href: "",
+      firstClassAvailable: false,
+      isSleeper: false,
+      isBus: false,
+    });
+    rows.forEach((row) => {
+      row.cells[spacerIndex] = "";
+    });
+    displayOrderedSvcIndices = [
+      ...orderedSvcIndices,
+      spacerIndex,
+      ...unsortedServices,
+    ];
+    partialSort = {
+      unsortedLabels: unsortedLabels || [],
+    };
+  }
+
+  if (resortedForHighlight) {
+    displayOrderedSvcIndices = orderedSvcIndices.slice();
+    if (spacerIndex !== null && unsortedServices && unsortedServices.length > 0) {
+      displayOrderedSvcIndices = [
+        ...orderedSvcIndices,
+        spacerIndex,
+        ...unsortedServices,
+      ];
+    }
+  }
+
+  const highlightCutoff =
+    spacerIndex !== null
+      ? displayOrderedSvcIndices.indexOf(spacerIndex)
+      : displayOrderedSvcIndices.length;
+
+  for (let r = 0; r < rows.length; r++) {
+    let minTime = null;
+    let minTimeSvcIndex = null;
+    for (let colPos = highlightCutoff - 1; colPos >= 0; colPos--) {
+      const svcIndex = displayOrderedSvcIndices[colPos];
+      const value = rows[r].cells[svcIndex];
+      const timeText = cellToText(value);
+      if (!timeText) continue;
+      if (value && typeof value === "object" && value.format?.strike) {
+        continue;
+      }
+      const mins = timeStrToMinutes(timeText);
+      if (mins === null) continue;
+      if (minTime === null || mins <= minTime) {
+        minTime = mins;
+        minTimeSvcIndex = svcIndex;
+        continue;
+      }
+      logHighlight(
+        "time later than min to the right",
+        r,
+        svcIndex,
+        timeText,
+        minutesToTimeStr(minTime),
+        minTimeSvcIndex,
+      );
+      if (value && typeof value === "object") {
+        value.format = value.format || {};
+        value.format.bgColor = HIGHLIGHT_OUT_OF_ORDER_COLOR;
+      } else {
+        rows[r].cells[svcIndex] = {
+          text: timeText,
+          format: { bgColor: HIGHLIGHT_OUT_OF_ORDER_COLOR },
+        };
+      }
+    }
+  }
+
+  const stationRowIndices = new Map();
+  for (let r = 0; r < rowSpecs.length; r++) {
+    const spec = rowSpecs[r];
+    if (spec.kind !== "station") continue;
+    if (!stationRowIndices.has(spec.stationIndex)) {
+      stationRowIndices.set(spec.stationIndex, {});
+    }
+    const entry = stationRowIndices.get(spec.stationIndex);
+    if (spec.mode === "arr") entry.arr = r;
+    if (spec.mode === "dep") entry.dep = r;
+  }
+
+  stationRowIndices.forEach((entry) => {
+    if (entry.arr === undefined || entry.dep === undefined) return;
+    let maxArr = null;
+    let maxArrSvcIndex = null;
+    for (let colPos = 0; colPos < highlightCutoff; colPos++) {
+      const svcIndex = displayOrderedSvcIndices[colPos];
+      const arrVal = rows[entry.arr].cells[svcIndex];
+      const arrText = cellToText(arrVal);
+      if (arrVal && typeof arrVal === "object" && arrVal.format?.strike) {
+        continue;
+      }
+      if (arrText) {
+        const arrMins = timeStrToMinutes(arrText);
+        if (arrMins !== null) {
+          if (maxArr === null || arrMins > maxArr) {
+            maxArr = arrMins;
+            maxArrSvcIndex = svcIndex;
+          }
+        }
+      }
+
+      const depVal = rows[entry.dep].cells[svcIndex];
+      const depText = cellToText(depVal);
+      if (depVal && typeof depVal === "object" && depVal.format?.strike) {
+        continue;
+      }
+      if (!depText || maxArr === null) continue;
+      const depMins = timeStrToMinutes(depText);
+      if (depMins === null) continue;
+      if (depMins < maxArr) {
+        logHighlight(
+          "departure earlier than max arrival at station",
+          entry.dep,
+          svcIndex,
+          depText,
+          minutesToTimeStr(maxArr),
+          maxArrSvcIndex,
+        );
+        if (depVal && typeof depVal === "object") {
+          depVal.format = depVal.format || {};
+          depVal.format.bgColor = HIGHLIGHT_OUT_OF_ORDER_COLOR;
+        } else {
+          rows[entry.dep].cells[svcIndex] = {
+            text: depText,
+            format: { bgColor: HIGHLIGHT_OUT_OF_ORDER_COLOR },
+          };
+        }
+      }
+    }
+  });
+
   return {
     rows,
-    orderedSvcIndices,
+    orderedSvcIndices: displayOrderedSvcIndices,
     servicesMeta,
+    sortLog: sortLogLines.join("\n"),
+    partialSort,
+    serviceCount: numServices,
   };
 }
 
@@ -2880,6 +3904,9 @@ function renderTimetable(
             span.classList.add("time-muted");
           } else if (format.color && format.color.startsWith("#")) {
             span.style.color = format.color;
+          }
+          if (format.bgColor) {
+            td.style.backgroundColor = format.bgColor;
           }
           const titleParts = [];
           if (val.title) titleParts.push(val.title);
