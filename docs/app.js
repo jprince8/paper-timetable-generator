@@ -2736,6 +2736,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
 
       let lastLE = -1;
       let firstGE = orderedSvcIndices.length;
+      const greaterPositions = [];
 
       for (let pos = 0; pos < orderedSvcIndices.length; pos++) {
         const otherSvc = orderedSvcIndices[pos];
@@ -2751,8 +2752,11 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         if (otherTime === null) continue;
 
         if (otherTime < time) lastLE = pos;
-        if (firstGE === orderedSvcIndices.length && otherTime > time) {
-          firstGE = pos;
+        if (otherTime > time) {
+          greaterPositions.push(pos);
+          if (firstGE === orderedSvcIndices.length) {
+            firstGE = pos;
+          }
         }
       }
 
@@ -2761,8 +2765,14 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         firstGE === orderedSvcIndices.length ? orderedSvcIndices.length : firstGE;
 
       if (stationLower > stationUpper) {
-        firstGE = orderedSvcIndices.length;
-        stationUpper = orderedSvcIndices.length;
+        const nextGreater = greaterPositions.find((pos) => pos > lastLE);
+        if (nextGreater !== undefined) {
+          firstGE = nextGreater;
+          stationUpper = nextGreater;
+        } else {
+          firstGE = orderedSvcIndices.length;
+          stationUpper = orderedSvcIndices.length;
+        }
       }
 
       if (lastLE !== -1 || firstGE !== orderedSvcIndices.length) {
