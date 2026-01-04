@@ -576,6 +576,14 @@ function timeStrToMinutes(hhmm) {
   return h * 60 + m;
 }
 
+function minutesToTimeStr(mins) {
+  if (mins === null || mins === undefined) return "";
+  const m = Math.max(0, mins);
+  const h = Math.floor(m / 60) % 24;
+  const mm = m % 60;
+  return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
 function rttTimeToMinutes(hhmm) {
   if (!hhmm) return null;
   const s = String(hhmm);
@@ -2549,6 +2557,18 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   sortLogLines.push(`Stations: ${stationLabels.join(" → ")}`);
   sortLogLines.push(`Services: ${numServices}`);
 
+  function logHighlight(reason, rowIdx, svcIndex, currentTime, compareTime, compareSvcIndex) {
+    const rowLabel = rowLabelText(rows[rowIdx]) || `row#${rowIdx}`;
+    const currentSvc = serviceShortLabel(svcIndex);
+    const compareSvc =
+      compareSvcIndex !== null && compareSvcIndex !== undefined
+        ? serviceShortLabel(compareSvcIndex)
+        : "unknown";
+    const message = `Highlight ${rowLabel}: ${currentTime} (${currentSvc}) < ${compareTime} (${compareSvc}) because ${reason}`;
+    sortLogLines.push(message);
+    console.log(message);
+  }
+
   function serviceLabel(serviceIdx) {
     const svc = servicesWithDetails[serviceIdx]?.svc || {};
     const detail = servicesWithDetails[serviceIdx]?.detail || {};
@@ -2588,11 +2608,17 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     return "";
   }
 
-  function stationTimeMins(serviceIdx, stationIdx, arrOnlyStationIdx = null) {
+  function stationTimeMins(serviceIdx, stationIdx, arrOnlyStationIdx = null, modeOverride = null) {
     const t = stationTimes[stationIdx][serviceIdx];
     if (!t) return null;
-    if (arrOnlyStationIdx === stationIdx) {
+    if (arrOnlyStationIdx === stationIdx || modeOverride === "arrOnly") {
       return t.arrMins !== null ? t.arrMins : null;
+    }
+    if (modeOverride === "depOnly") {
+      return t.depMins !== null ? t.depMins : null;
+    }
+    if (modeOverride === "ignore") {
+      return null;
     }
     if (t.depMins !== null) return t.depMins;
     if (t.arrMins !== null) return t.arrMins;
@@ -2616,11 +2642,22 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     return { firstMins, firstRow };
   }
 
-  function stationTimeLabel(serviceIdx, stationIdx, arrOnlyStationIdx = null) {
+  function stationTimeLabel(
+    serviceIdx,
+    stationIdx,
+    arrOnlyStationIdx = null,
+    modeOverride = null,
+  ) {
     const t = stationTimes[stationIdx][serviceIdx];
     if (!t) return "";
-    if (arrOnlyStationIdx === stationIdx) {
+    if (arrOnlyStationIdx === stationIdx || modeOverride === "arrOnly") {
       return t.arrStr || "";
+    }
+    if (modeOverride === "depOnly") {
+      return t.depStr || "";
+    }
+    if (modeOverride === "ignore") {
+      return "";
     }
     if (t.depStr) return t.depStr;
     if (t.arrStr) return t.arrStr;
@@ -2628,7 +2665,11 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   }
 
   function findInsertBounds(serviceIdx, orderedSvcIndices, options = {}) {
-    const { arrOnlyStationIdx = null, logEnabled = true } = options;
+    const {
+      arrOnlyStationIdx = null,
+      logEnabled = true,
+      modeOverride = null,
+    } = options;
     const label = serviceLabel(serviceIdx);
     if (logEnabled) {
       sortLogLines.push("");
@@ -2651,12 +2692,14 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         serviceIdx,
         stationIdx,
         arrOnlyStationIdx,
+        modeOverride,
       );
       if (time === null) continue;
       const timeLabel = stationTimeLabel(
         serviceIdx,
         stationIdx,
         arrOnlyStationIdx,
+        modeOverride,
       );
 
       let lastLE = -1;
@@ -2668,6 +2711,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           otherSvc,
           stationIdx,
           arrOnlyStationIdx,
+          modeOverride,
         );
         if (otherTime === null) continue;
 
@@ -2696,6 +2740,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
               orderedSvcIndices[lastLE],
               stationIdx,
               arrOnlyStationIdx,
+              modeOverride,
             )
           : "";
       const firstTimeLabel =
@@ -2704,6 +2749,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
               orderedSvcIndices[firstGE],
               stationIdx,
               arrOnlyStationIdx,
+              modeOverride,
             )
           : "";
       const stationLower = lastLE + 1;
@@ -2847,6 +2893,65 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     return false;
   }
 
+  function resolveUnboundedServicesByIgnoringValue(
+    remainingServices,
+    orderedSvcIndices,
+  ) {
+    for (let idx = 0; idx < remainingServices.length; idx++) {
+      const svcIdx = remainingServices[idx];
+
+      for (let stationIdx = numStations - 1; stationIdx >= 0; stationIdx--) {
+        if (stationModes[stationIdx] !== "two") continue;
+        const t = stationTimes[stationIdx][svcIdx];
+        if (!t) continue;
+
+        const stationName =
+          stationLabels[stationIdx] || `station#${stationIdx}`;
+        if (t.depMins !== null) {
+          sortLogLines.push(
+            `Resolution pass 2 for ${serviceLabel(svcIdx)} at ${stationName}: ignore dep time.`,
+          );
+          const attemptDep = orderedSvcIndices.slice();
+          if (
+            attemptInsertService(svcIdx, attemptDep, {
+              modeOverride: "arrOnly",
+            })
+          ) {
+            orderedSvcIndices.splice(
+              0,
+              orderedSvcIndices.length,
+              ...attemptDep,
+            );
+            remainingServices.splice(idx, 1);
+            return true;
+          }
+        }
+
+        if (t.arrMins !== null) {
+          sortLogLines.push(
+            `Resolution pass 2 for ${serviceLabel(svcIdx)} at ${stationName}: ignore arr time.`,
+          );
+          const attemptArr = orderedSvcIndices.slice();
+          if (
+            attemptInsertService(svcIdx, attemptArr, {
+              modeOverride: "depOnly",
+            })
+          ) {
+            orderedSvcIndices.splice(
+              0,
+              orderedSvcIndices.length,
+              ...attemptArr,
+            );
+            remainingServices.splice(idx, 1);
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
   const orderedSvcIndices = [];
   let unsortedServices = null;
   let unsortedLabels = null;
@@ -2887,6 +2992,14 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         orderedSvcIndices,
       );
       if (resolved) {
+        rotationsWithoutInsert = 0;
+        continue;
+      }
+      const resolvedSecondPass = resolveUnboundedServicesByIgnoringValue(
+        remainingServices,
+        orderedSvcIndices,
+      );
+      if (resolvedSecondPass) {
         rotationsWithoutInsert = 0;
         continue;
       }
@@ -3082,6 +3195,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
 
   for (let r = 0; r < rows.length; r++) {
     let maxTime = null;
+    let maxTimeSvcIndex = null;
     for (let colPos = 0; colPos < highlightCutoff; colPos++) {
       const svcIndex = displayOrderedSvcIndices[colPos];
       const value = rows[r].cells[svcIndex];
@@ -3091,8 +3205,17 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       if (mins === null) continue;
       if (maxTime === null || mins >= maxTime) {
         maxTime = mins;
+        maxTimeSvcIndex = svcIndex;
         continue;
       }
+      logHighlight(
+        "time earlier than max in row",
+        r,
+        svcIndex,
+        timeText,
+        minutesToTimeStr(maxTime),
+        maxTimeSvcIndex,
+      );
       if (value && typeof value === "object") {
         value.format = value.format || {};
         value.format.bgColor = HIGHLIGHT_OUT_OF_ORDER_COLOR;
@@ -3120,6 +3243,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   stationRowIndices.forEach((entry) => {
     if (entry.arr === undefined || entry.dep === undefined) return;
     let maxArr = null;
+    let maxArrSvcIndex = null;
     for (let colPos = 0; colPos < highlightCutoff; colPos++) {
       const svcIndex = displayOrderedSvcIndices[colPos];
       const arrVal = rows[entry.arr].cells[svcIndex];
@@ -3129,6 +3253,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         if (arrMins !== null) {
           if (maxArr === null || arrMins > maxArr) {
             maxArr = arrMins;
+            maxArrSvcIndex = svcIndex;
           }
         }
       }
@@ -3139,6 +3264,14 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       const depMins = timeStrToMinutes(depText);
       if (depMins === null) continue;
       if (depMins < maxArr) {
+        logHighlight(
+          "departure earlier than max arrival at station",
+          entry.dep,
+          svcIndex,
+          depText,
+          minutesToTimeStr(maxArr),
+          maxArrSvcIndex,
+        );
         if (depVal && typeof depVal === "object") {
           depVal.format = depVal.format || {};
           depVal.format.bgColor = HIGHLIGHT_OUT_OF_ORDER_COLOR;
