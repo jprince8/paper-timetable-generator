@@ -59,6 +59,7 @@ let realtimeEnabled = false;
 let realtimeAvailable = false;
 let buildAbortController = null;
 let buildInProgress = false;
+let buildCancelled = false;
 
 function setBuildInProgress(active) {
   buildInProgress = active;
@@ -81,8 +82,10 @@ function setBuildInProgress(active) {
 if (buildBtn) {
   buildBtn.addEventListener("click", () => {
     if (!buildInProgress || !buildAbortController) return;
+    buildCancelled = true;
     buildAbortController.abort();
-    setStatus("Cancelling build...");
+    setStatus("Build cancelled.");
+    setBuildInProgress(false);
   });
 }
 
@@ -1234,6 +1237,7 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
+  buildCancelled = false;
   // Run HTML5 validation for "required" fields, min/max, etc.
   stationFields.forEach((field) => updateStationValidity(field));
   if (!form.reportValidity()) {
@@ -1243,14 +1247,18 @@ form.addEventListener("submit", async (e) => {
   buildAbortController = new AbortController();
   const { signal } = buildAbortController;
   const isAbortError = (err) =>
-    err?.name === "AbortError" || signal.aborted;
+    err?.name === "AbortError" || signal.aborted || buildCancelled;
   const fetchWithSignal = (url, options = {}) =>
     fetch(url, { ...options, signal });
+  const shouldAbort = () => signal.aborted || buildCancelled;
 
   setBuildInProgress(true);
   try {
     resetOutputs();
     setStatus("Initialising timetable...", { progress: 0 });
+    if (shouldAbort()) {
+      return;
+    }
 
   const from = normaliseCrs(fromCrsInput.value);
   const to = normaliseCrs(toCrsInput.value);
@@ -1401,6 +1409,9 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
+  if (shouldAbort()) {
+    return;
+  }
   if (rttTimeoutDetected) {
     setStatus(rttTimeoutMessage, { isError: true });
     return;
@@ -1496,6 +1507,9 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
+  if (shouldAbort()) {
+    return;
+  }
   if (rttTimeoutDetected) {
     setStatus(rttTimeoutMessage, { isError: true });
     return;
@@ -1519,6 +1533,10 @@ form.addEventListener("submit", async (e) => {
 
   // Build station union from all corridor services, over the multi-via chain,
   // ignoring PASS / CANCELLED_PASS.
+  if (shouldAbort()) {
+    return;
+  }
+
   const stations = buildStationsUnion(
     corridorStations,
     okCorridorDetails,
@@ -1618,12 +1636,14 @@ form.addEventListener("submit", async (e) => {
     await Promise.all(stationSearchPromises);
   } catch (err) {
     if (isAbortError(err)) {
-      setStatus("Build cancelled.");
       return;
     }
     console.warn("Error during station searches:", err);
   }
 
+  if (shouldAbort()) {
+    return;
+  }
   if (rttTimeoutDetected) {
     setStatus(rttTimeoutMessage, { isError: true });
     return;
@@ -1680,7 +1700,7 @@ form.addEventListener("submit", async (e) => {
       )
       .catch((err) => {
         if (isAbortError(err)) {
-          return;
+          throw err;
         }
         console.warn(
           "Error fetching candidate service detail for",
@@ -1711,12 +1731,14 @@ form.addEventListener("submit", async (e) => {
     await Promise.all(detailFetchPromises);
   } catch (err) {
     if (isAbortError(err)) {
-      setStatus("Build cancelled.");
       return;
     }
     console.warn("Error during candidate detail fetch:", err);
   }
 
+  if (shouldAbort()) {
+    return;
+  }
   if (rttTimeoutDetected) {
     setStatus(rttTimeoutMessage, { isError: true });
     return;
@@ -1765,6 +1787,9 @@ form.addEventListener("submit", async (e) => {
     }
   }
 
+  if (shouldAbort()) {
+    return;
+  }
   if (allDetails.length === 0) {
     setStatus(
       "No services found that call at two or more selected stations in this time range.",
