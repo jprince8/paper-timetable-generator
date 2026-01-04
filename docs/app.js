@@ -3339,6 +3339,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
 
   let displayOrderedSvcIndices = orderedSvcIndices.slice();
   const HIGHLIGHT_OUT_OF_ORDER_COLOR = "#fce3b0";
+  const HIGHLIGHT_DEP_AFTER_ARRIVAL_COLOR = "#e6d9ff";
 
   // --- ATOC code -> display name override (updated LUT) ---
   const ATOC_NAME_BY_CODE = {
@@ -3686,11 +3687,11 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         );
         if (depVal && typeof depVal === "object") {
           depVal.format = depVal.format || {};
-          depVal.format.bgColor = HIGHLIGHT_OUT_OF_ORDER_COLOR;
+          depVal.format.bgColor = HIGHLIGHT_DEP_AFTER_ARRIVAL_COLOR;
         } else {
           rows[entry.dep].cells[svcIndex] = {
             text: depText,
-            format: { bgColor: HIGHLIGHT_OUT_OF_ORDER_COLOR },
+            format: { bgColor: HIGHLIGHT_DEP_AFTER_ARRIVAL_COLOR },
           };
         }
       }
