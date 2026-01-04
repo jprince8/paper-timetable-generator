@@ -20,6 +20,8 @@ from svglib.svglib import svg2rlg
 def _cell_text(value):
     if value is None:
         return ""
+    if isinstance(value, dict):
+        return str(value.get("text", ""))
     return str(value)
 
 
@@ -191,13 +193,27 @@ def build_timetable_pdf(tables, meta=None):
             title = " \u2022 ".join(title_parts)
             chunk_headers = [headers[i] for i in chunk]
             chunk_rows = [[row[i] if i < len(row) else "" for i in chunk] for row in rows]
-            data = [chunk_headers] + [
-                [
-                    _build_facilities_cell(cell, icon_map, icon_size)
-                    for cell in row
-                ]
-                for row in chunk_rows
-            ]
+            highlight_styles = []
+            data_rows = []
+            for row_idx, row in enumerate(chunk_rows):
+                row_cells = []
+                for col_idx, cell in enumerate(row):
+                    if isinstance(cell, dict):
+                        row_cells.append(_cell_text(cell))
+                        bg_color = cell.get("bgColor")
+                        if bg_color:
+                            highlight_styles.append(
+                                (
+                                    col_idx,
+                                    row_idx + 1,
+                                    colors.HexColor(bg_color),
+                                )
+                            )
+                    else:
+                        row_cells.append(_build_facilities_cell(cell, icon_map, icon_size))
+                data_rows.append(row_cells)
+
+            data = [chunk_headers] + data_rows
             chunk_widths = [col_widths[i] for i in chunk]
 
             if title:
@@ -264,6 +280,11 @@ def build_timetable_pdf(tables, meta=None):
                             line_color,
                         )
                     )
+
+            for col_idx, row_idx, color in highlight_styles:
+                table_style.append(
+                    ("BACKGROUND", (col_idx, row_idx), (col_idx, row_idx), color)
+                )
 
             pdf_table.setStyle(TableStyle(table_style))
             table_height = pdf_table.wrap(doc.width, doc.height)[1]
