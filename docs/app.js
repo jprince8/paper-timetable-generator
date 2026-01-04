@@ -510,7 +510,9 @@ function loadInputsFromQuery() {
   if (start) document.getElementById("startTime").value = start;
   if (end) document.getElementById("endTime").value = end;
 
-  if (viasRaw !== null) {
+  if (from && to && viasRaw === null) {
+    clearViaFields();
+  } else if (viasRaw !== null) {
     clearViaFields();
     viasRaw
       .split(",")
