@@ -2842,7 +2842,11 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     options = {},
   ) {
     const bounds = findInsertBounds(serviceIdx, orderedSvcIndices, options);
-    if (bounds.hasConstraint && bounds.lowerBound <= bounds.upperBound) {
+    if (
+      bounds.hasConstraint &&
+      bounds.lowerBound <= bounds.upperBound &&
+      bounds.lowerBound === bounds.upperBound
+    ) {
       orderedSvcIndices.splice(bounds.lowerBound, 0, serviceIdx);
       sortLogLines.push(
         `Chosen position: ${bounds.lowerBound} (bounds ${bounds.lowerBound}-${bounds.upperBound})`,
@@ -2860,7 +2864,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     );
     const maxPos = orderedSvcIndices.length;
     const candidateStart = hasConstraint ? lowerBound : 0;
-    const candidateEnd = hasConstraint ? upperBound : maxPos;
+    const candidateEnd = hasConstraint ? lowerBound : maxPos;
     const candidates =
       candidateStart <= candidateEnd
         ? Array.from(
@@ -2869,7 +2873,9 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           ).join(", ")
         : "(none)";
     const reason = hasConstraint
-      ? `conflicting bounds ${lowerBound}-${upperBound}`
+      ? lowerBound <= upperBound
+        ? `${lowerBound}-${upperBound}`
+        : `conflicting bounds ${lowerBound}-${upperBound}`
       : "no station constraints";
     sortLogLines.push(
       `No strict bounds (${reason}); possible positions: ${candidates}. Moved to end of queue.`,
@@ -3128,7 +3134,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       );
       const maxPos = orderedSvcIndices.length;
       const candidateStart = hasConstraint ? lowerBound : 0;
-      const candidateEnd = hasConstraint ? upperBound : maxPos;
+      const candidateEnd = hasConstraint ? lowerBound : maxPos;
       const candidates =
         candidateStart <= candidateEnd
           ? Array.from(
@@ -3137,7 +3143,9 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
             ).join(", ")
           : "(none)";
       const reason = hasConstraint
-        ? `conflicting bounds ${lowerBound}-${upperBound}`
+        ? lowerBound <= upperBound
+          ? `${lowerBound}-${upperBound}`
+          : `conflicting bounds ${lowerBound}-${upperBound}`
         : "no station constraints";
       remainingServices.push(svcIdx);
       rotationsWithoutInsert += 1;
