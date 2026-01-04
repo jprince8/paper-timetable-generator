@@ -12,12 +12,12 @@ function hasEnabledQueryFlag(flag) {
 
 const DEBUG_STATIONS = hasEnabledQueryFlag("debug_stations");
 const ENABLE_SORT_LOG_DOWNLOAD = hasEnabledQueryFlag("sort_log");
-const RTT_CACHE_QUERY_FLAG = hasEnabledQueryFlag("rtt_cache");
+const RTT_CACHE_ENABLED = hasEnabledQueryFlag("rtt_cache");
 
 const ENABLED_OPTIONS = [
   DEBUG_STATIONS ? "debug_stations" : null,
   ENABLE_SORT_LOG_DOWNLOAD ? "sort_log" : null,
-  RTT_CACHE_QUERY_FLAG ? "rtt_cache" : null,
+  RTT_CACHE_ENABLED ? "rtt_cache" : null,
 ].filter(Boolean);
 
 if (ENABLED_OPTIONS.length > 0) {
@@ -37,12 +37,8 @@ const STATION_DEBOUNCE_MS = 180;
 const STATION_MIN_QUERY = 2;
 
 const RTT_CACHE_PREFIX = "rttCache:";
-let rttCacheEnabled = RTT_CACHE_QUERY_FLAG;
+let rttCacheEnabled = RTT_CACHE_ENABLED;
 const rttMemoryCache = new Map();
-
-if (rttCacheEnabled) {
-  console.info("RTT cache enabled");
-}
 
 function getRttCacheKey(url) {
   return `${RTT_CACHE_PREFIX}${url}`;
