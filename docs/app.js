@@ -2872,6 +2872,30 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     return false;
   }
 
+  function insertFirstCandidate(
+    serviceIdx,
+    orderedSvcIndices,
+    options = {},
+    logPrefix = "Resolution pass 0",
+  ) {
+    const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
+      serviceIdx,
+      orderedSvcIndices,
+      { ...options, logEnabled: false },
+    );
+    const maxPos = orderedSvcIndices.length;
+    const candidateStart = hasConstraint ? lowerBound : 0;
+    const candidateEnd = hasConstraint ? upperBound : maxPos;
+    if (candidateEnd > candidateStart) {
+      orderedSvcIndices.splice(candidateStart, 0, serviceIdx);
+      sortLogLines.push(
+        `${logPrefix}: selected first position ${candidateStart} (bounds ${candidateStart}-${candidateEnd}) for ${serviceLabel(serviceIdx)}`,
+      );
+      return true;
+    }
+    return false;
+  }
+
   function logNoStrictBounds(serviceIdx, orderedSvcIndices, options = {}) {
     const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
       serviceIdx,
@@ -2902,20 +2926,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     sortLogLines.push("Resolution pass 0: start");
     for (let idx = 0; idx < remainingServices.length; idx++) {
       const svcIdx = remainingServices[idx];
-      const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
-        svcIdx,
-        orderedSvcIndices,
-        { logEnabled: false },
-      );
-      const maxPos = orderedSvcIndices.length;
-      const candidateStart = hasConstraint ? lowerBound : 0;
-      const candidateEnd = hasConstraint ? upperBound : maxPos;
-      if (candidateEnd > candidateStart) {
-        orderedSvcIndices.splice(candidateStart, 0, svcIdx);
+      if (insertFirstCandidate(svcIdx, orderedSvcIndices)) {
         remainingServices.splice(idx, 1);
-        sortLogLines.push(
-          `Resolution pass 0: selected first position ${candidateStart} (bounds ${candidateStart}-${candidateEnd}) for ${serviceLabel(svcIdx)}`,
-        );
         return true;
       }
     }
@@ -2940,10 +2952,17 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
 
         const attemptA = orderedSvcIndices.slice();
         sortLogLines.push("  Option A: insert service with arr-only at station.");
+        const attemptAInserted = attemptInsertService(svcIdx, attemptA, {
+          arrOnlyStationIdx: stationIdx,
+        });
         if (
-          attemptInsertService(svcIdx, attemptA, {
-            arrOnlyStationIdx: stationIdx,
-          })
+          attemptAInserted ||
+          insertFirstCandidate(
+            svcIdx,
+            attemptA,
+            { arrOnlyStationIdx: stationIdx },
+            "Resolution pass 1",
+          )
         ) {
           orderedSvcIndices.splice(0, orderedSvcIndices.length, ...attemptA);
           remainingServices.splice(idx, 1);
@@ -2962,7 +2981,11 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           );
           const attemptB = orderedSvcIndices.slice();
           const [removedSvc] = attemptB.splice(lastPos, 1);
-          if (attemptInsertService(svcIdx, attemptB)) {
+          const attemptBInserted = attemptInsertService(svcIdx, attemptB);
+          if (
+            attemptBInserted ||
+            insertFirstCandidate(svcIdx, attemptB, {}, "Resolution pass 1")
+          ) {
             if (
               attemptInsertService(removedSvc, attemptB, {
                 arrOnlyStationIdx: stationIdx,
@@ -2985,7 +3008,11 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           );
           const attemptC = orderedSvcIndices.slice();
           const [removedSvc] = attemptC.splice(firstPos, 1);
-          if (attemptInsertService(svcIdx, attemptC)) {
+          const attemptCInserted = attemptInsertService(svcIdx, attemptC);
+          if (
+            attemptCInserted ||
+            insertFirstCandidate(svcIdx, attemptC, {}, "Resolution pass 1")
+          ) {
             if (
               attemptInsertService(removedSvc, attemptC, {
                 arrOnlyStationIdx: stationIdx,
@@ -3038,11 +3065,21 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
             `Resolution pass 2 for ${serviceLabel(svcIdx)} at ${stationName}: ignore dep time and all rows below.`,
           );
           const attemptDep = orderedSvcIndices.slice();
+          const attemptDepInserted = attemptInsertService(svcIdx, attemptDep, {
+            arrOnlyStationIdx: stationIdx,
+            ignoreFromStationIdx: stationIdx + 1,
+          });
           if (
-            attemptInsertService(svcIdx, attemptDep, {
-              arrOnlyStationIdx: stationIdx,
-              ignoreFromStationIdx: stationIdx + 1,
-            })
+            attemptDepInserted ||
+            insertFirstCandidate(
+              svcIdx,
+              attemptDep,
+              {
+                arrOnlyStationIdx: stationIdx,
+                ignoreFromStationIdx: stationIdx + 1,
+              },
+              "Resolution pass 2",
+            )
           ) {
             orderedSvcIndices.splice(
               0,
@@ -3063,11 +3100,25 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
             `Resolution pass 2 for ${serviceLabel(svcIdx)} at ${stationName}: ignore arr+dep time and all rows below.`,
           );
           const attemptArrDep = orderedSvcIndices.slice();
-          if (
-            attemptInsertService(svcIdx, attemptArrDep, {
+          const attemptArrDepInserted = attemptInsertService(
+            svcIdx,
+            attemptArrDep,
+            {
               ignoreFromStationIdx: stationIdx + 1,
               ignoreStationIdx: stationIdx,
-            })
+            },
+          );
+          if (
+            attemptArrDepInserted ||
+            insertFirstCandidate(
+              svcIdx,
+              attemptArrDep,
+              {
+                ignoreFromStationIdx: stationIdx + 1,
+                ignoreStationIdx: stationIdx,
+              },
+              "Resolution pass 2",
+            )
           ) {
             orderedSvcIndices.splice(
               0,
