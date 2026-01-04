@@ -3461,6 +3461,9 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       const value = rows[r].cells[svcIndex];
       const timeText = cellToText(value);
       if (!timeText) continue;
+      if (value && typeof value === "object" && value.format?.strike) {
+        continue;
+      }
       const mins = timeStrToMinutes(timeText);
       if (mins === null) continue;
       if (minTime === null || mins <= minTime) {
@@ -3508,6 +3511,9 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       const svcIndex = displayOrderedSvcIndices[colPos];
       const arrVal = rows[entry.arr].cells[svcIndex];
       const arrText = cellToText(arrVal);
+      if (arrVal && typeof arrVal === "object" && arrVal.format?.strike) {
+        continue;
+      }
       if (arrText) {
         const arrMins = timeStrToMinutes(arrText);
         if (arrMins !== null) {
@@ -3520,6 +3526,9 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
 
       const depVal = rows[entry.dep].cells[svcIndex];
       const depText = cellToText(depVal);
+      if (depVal && typeof depVal === "object" && depVal.format?.strike) {
+        continue;
+      }
       if (!depText || maxArr === null) continue;
       const depMins = timeStrToMinutes(depText);
       if (depMins === null) continue;
