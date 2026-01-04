@@ -1352,16 +1352,18 @@ form.addEventListener("submit", async (e) => {
     fetch(url, { ...options, signal });
   const fetchRttText = async (url, options = {}) => {
     const cached = readRttCache(url);
-    if (cached) {
+    if (cached && cached.status >= 200 && cached.status < 300) {
       return cached;
     }
     const resp = await fetchWithSignal(url, options);
     const text = await resp.text();
-    writeRttCache(url, {
-      text,
-      status: resp.status,
-      statusText: resp.statusText,
-    });
+    if (resp.status >= 200 && resp.status < 300) {
+      writeRttCache(url, {
+        text,
+        status: resp.status,
+        statusText: resp.statusText,
+      });
+    }
     return { text, status: resp.status, statusText: resp.statusText };
   };
   const shouldAbort = () => signal.aborted || buildCancelled;
@@ -4099,6 +4101,9 @@ function renderTableKey(model, keyEl) {
   };
 
   rows.forEach((row) => {
+    if (row.kind !== "station") {
+      return;
+    }
     orderedSvcIndices.forEach((svcIndex) => {
       const val = row.cells[svcIndex];
       if (!val || typeof val !== "object") return;
@@ -4164,7 +4169,7 @@ function renderTableKey(model, keyEl) {
     items.push({
       sampleHtml:
         '<span class="table-key-sample table-key-sample--out-of-order" title="Out of order example" aria-label="Out of order example">12:34</span>',
-      label: "Out of order",
+      label: "Incorrect order",
     });
   }
   if (formatFlags.depBeforeArrival) {
