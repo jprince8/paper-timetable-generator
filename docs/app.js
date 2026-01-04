@@ -3448,6 +3448,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   function tryResortForHighlighting() {
     let movedAny = false;
     let attemptRound = 0;
+    const highlightTriggers = [];
     attemptRound += 1;
     sortLogLines.push(`Highlight resort pass ${attemptRound}: start`);
 
@@ -3472,37 +3473,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         sortLogLines.push(
           `Highlight resort trigger: row ${r + 1} ${rowLabelText(rows[r]) || ""} service ${serviceLabel(svcIndex)} time ${timeText} (min ${minutesToTimeStr(minTime)})`,
         );
-        const attempt = orderedSvcIndices.filter((idx) => idx !== svcIndex);
-        if (attempt.length !== orderedSvcIndices.length) {
-          if (attemptInsertService(svcIndex, attempt, { logEnabled: true })) {
-            orderedSvcIndices.splice(
-              0,
-              orderedSvcIndices.length,
-              ...attempt,
-            );
-            movedAny = true;
-            break;
-          }
-          logNoStrictBounds(svcIndex, attempt, { logEnabled: false });
-          if (
-            insertFirstCandidate(
-              svcIndex,
-              attempt,
-              {},
-              "Highlight resort",
-            )
-          ) {
-            orderedSvcIndices.splice(
-              0,
-              orderedSvcIndices.length,
-              ...attempt,
-            );
-            movedAny = true;
-            break;
-          }
-        }
+        highlightTriggers.push({ svcIndex });
       }
-      if (movedAny) break;
     }
 
     const stationRowIndices = new Map();
@@ -3518,7 +3490,6 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     }
 
     stationRowIndices.forEach((entry) => {
-      if (movedAny) return;
       if (entry.arr === undefined || entry.dep === undefined) return;
       let maxArr = null;
       for (let colPos = 0; colPos < orderedSvcIndices.length; colPos++) {
@@ -3549,35 +3520,30 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           sortLogLines.push(
             `Highlight resort trigger: station ${rowLabelText(rows[entry.dep]) || ""} service ${serviceLabel(svcIndex)} dep ${depText} before max arr ${minutesToTimeStr(maxArr)}`,
           );
-          const attempt = orderedSvcIndices.filter((idx) => idx !== svcIndex);
-          if (attempt.length !== orderedSvcIndices.length) {
-            if (attemptInsertService(svcIndex, attempt, { logEnabled: true })) {
-              orderedSvcIndices.splice(
-                0,
-                orderedSvcIndices.length,
-                ...attempt,
-              );
-              movedAny = true;
-              return;
-            }
-            logNoStrictBounds(svcIndex, attempt, { logEnabled: false });
-            if (
-              insertFirstCandidate(
-                svcIndex,
-                attempt,
-                {},
-                "Highlight resort",
-              )
-            ) {
-              orderedSvcIndices.splice(
-                0,
-                orderedSvcIndices.length,
-                ...attempt,
-              );
-              movedAny = true;
-              return;
-            }
-          }
+          highlightTriggers.push({ svcIndex });
+        }
+      }
+    });
+
+    highlightTriggers.forEach(({ svcIndex }) => {
+      const attempt = orderedSvcIndices.filter((idx) => idx !== svcIndex);
+      if (attempt.length !== orderedSvcIndices.length) {
+        if (attemptInsertService(svcIndex, attempt, { logEnabled: true })) {
+          orderedSvcIndices.splice(0, orderedSvcIndices.length, ...attempt);
+          movedAny = true;
+          return;
+        }
+        logNoStrictBounds(svcIndex, attempt, { logEnabled: false });
+        if (
+          insertFirstCandidate(
+            svcIndex,
+            attempt,
+            {},
+            "Highlight resort",
+          )
+        ) {
+          orderedSvcIndices.splice(0, orderedSvcIndices.length, ...attempt);
+          movedAny = true;
         }
       }
     });
