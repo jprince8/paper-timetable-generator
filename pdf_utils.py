@@ -1,9 +1,10 @@
 import copy
 import io
 import os
+import re
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.platypus import (
     SimpleDocTemplate,
@@ -84,6 +85,78 @@ def _build_facilities_cell(value, icon_map, size, gap=2):
     return drawing
 
 
+def _strip_markup(text):
+    return re.sub(r"<[^>]+>", "", text or "")
+
+
+def _build_key_item(icon, label, style, icon_size, gap=2):
+    label_text = _strip_markup(label)
+    label_width = pdfmetrics.stringWidth(
+        label_text, style.fontName, style.fontSize
+    )
+    if icon is None:
+        return Paragraph(label, style), label_width
+
+    icon_copy = copy.deepcopy(icon)
+    item_table = Table(
+        [[icon_copy, Paragraph(label, style)]],
+        colWidths=[icon_size, None],
+        hAlign="LEFT",
+    )
+    item_table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
+    return item_table, icon_size + gap + label_width
+
+
+def _build_key_table(items, available_width, style, icon_size, gap=6):
+    if not items:
+        return None, 0
+    rows = []
+    current_row = []
+    current_width = 0
+    max_cols = 0
+
+    for icon, label in items:
+        flowable, width = _build_key_item(icon, label, style, icon_size)
+        if current_row and current_width + width + gap > available_width:
+            rows.append(current_row)
+            max_cols = max(max_cols, len(current_row))
+            current_row = []
+            current_width = 0
+        current_row.append(flowable)
+        current_width += width + gap
+
+    if current_row:
+        rows.append(current_row)
+        max_cols = max(max_cols, len(current_row))
+
+    padded_rows = [
+        row + [""] * (max_cols - len(row)) for row in rows
+    ]
+    key_table = Table(padded_rows, hAlign="LEFT")
+    key_table.setStyle(
+        TableStyle(
+            [
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), gap),
+                ("TOPPADDING", (0, 0), (-1, -1), 1),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+        )
+    )
+    return key_table, key_table.wrap(available_width, 0)[1]
+
+
 def _split_columns(widths, available_width):
     if not widths:
         return []
@@ -125,6 +198,18 @@ def build_timetable_pdf(tables, meta=None):
     title_style = styles["Heading3"]
     title_style.fontName = "Helvetica-Bold"
     title_style.spaceAfter = 6
+    key_style = ParagraphStyle(
+        "Key",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=7,
+        leading=8,
+    )
+    key_label_style = ParagraphStyle(
+        "KeyLabel",
+        parent=key_style,
+        fontName="Helvetica-Bold",
+    )
 
     elements = []
     font_name = "Helvetica"
@@ -193,6 +278,60 @@ def build_timetable_pdf(tables, meta=None):
             title = " \u2022 ".join(title_parts)
             chunk_headers = [headers[i] for i in chunk]
             chunk_rows = [[row[i] if i < len(row) else "" for i in chunk] for row in rows]
+            facilities_tokens = set()
+            if rows:
+                facilities_row = rows[0]
+                for col_idx in chunk:
+                    if col_idx == 0 or col_idx >= len(facilities_row):
+                        continue
+                    raw_cell = facilities_row[col_idx]
+                    for token in _cell_text(raw_cell).split():
+                        facilities_tokens.add(token.upper())
+
+            format_flags = {
+                "bold": False,
+                "italic": False,
+                "strike": False,
+                "color": False,
+                "no_report": False,
+                "bg_color": False,
+            }
+            for row in chunk_rows[1:]:
+                for cell in row[1:]:
+                    if not isinstance(cell, dict):
+                        continue
+                    cell_text = _cell_text(cell)
+                    if cell.get("bold"):
+                        format_flags["bold"] = True
+                    if cell.get("italic"):
+                        format_flags["italic"] = True
+                    if cell.get("strike"):
+                        format_flags["strike"] = True
+                    if cell.get("color") and cell.get("color") != "muted":
+                        format_flags["color"] = True
+                    if cell.get("noReport") or cell_text.endswith("?"):
+                        format_flags["no_report"] = True
+                    if cell.get("bgColor"):
+                        format_flags["bg_color"] = True
+
+            key_items = []
+            if "FC" in facilities_tokens:
+                key_items.append((icon_map.get("FC"), "First class"))
+            if "SL" in facilities_tokens:
+                key_items.append((icon_map.get("SL"), "Sleeper"))
+            if "BUS" in facilities_tokens:
+                key_items.append((icon_map.get("BUS"), "Bus service"))
+            if format_flags["bold"]:
+                key_items.append((None, "Bold = actual time"))
+            if format_flags["italic"] or format_flags["no_report"]:
+                key_items.append((None, "Italic / ? = estimated or no report"))
+            if format_flags["strike"]:
+                key_items.append((None, "Strikethrough = cancelled"))
+            if format_flags["color"]:
+                key_items.append((None, "Color = early/late"))
+            if format_flags["bg_color"]:
+                key_items.append((None, "Shaded = out-of-order/dep-before-arrival"))
+
             highlight_styles = []
             data_rows = []
             for row_idx, row in enumerate(chunk_rows):
@@ -222,6 +361,33 @@ def build_timetable_pdf(tables, meta=None):
             else:
                 title_para = None
                 title_height = 0
+
+            key_label_para = None
+            key_table = None
+            key_height = 0
+            if key_items:
+                key_label_para = Paragraph("Key:", key_label_style)
+                key_label_height = key_label_para.wrap(doc.width, doc.height)[1]
+                key_table, key_table_height = _build_key_table(
+                    key_items, doc.width, key_style, icon_size
+                )
+                key_height = key_label_height + key_table_height
+
+            crs_codes = set()
+            for row in chunk_rows[1:]:
+                label = _cell_text(row[0]).strip()
+                if label not in {"Comes from", "Continues to"}:
+                    continue
+                for cell in row[1:]:
+                    code = _cell_text(cell).strip()
+                    if code:
+                        crs_codes.add(code)
+            crs_para = None
+            crs_height = 0
+            if crs_codes:
+                crs_list = " \u2022 ".join(sorted(crs_codes))
+                crs_para = Paragraph(f"CRS: {crs_list}", key_style)
+                crs_height = crs_para.wrap(doc.width, doc.height)[1]
 
             pdf_table = Table(data, colWidths=chunk_widths, repeatRows=1, hAlign="LEFT")
             line_color = colors.grey
@@ -291,11 +457,18 @@ def build_timetable_pdf(tables, meta=None):
             table_height = pdf_table.wrap(doc.width, doc.height)[1]
             spacer_height = 14
             elements.append(
-                CondPageBreak(title_height + table_height + spacer_height)
+                CondPageBreak(
+                    title_height + key_height + table_height + crs_height + spacer_height
+                )
             )
             if title_para:
                 elements.append(title_para)
+            if key_label_para and key_table:
+                elements.append(key_label_para)
+                elements.append(key_table)
             elements.append(pdf_table)
+            if crs_para:
+                elements.append(crs_para)
             elements.append(Spacer(1, spacer_height))
 
     if not elements:

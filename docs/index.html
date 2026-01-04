@@ -444,6 +444,79 @@
         display: block;
       }
 
+      .table-key {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+        width: 100%;
+        margin: 0 0 0.75rem;
+        padding: 0.35rem 0;
+      }
+
+      .table-key.is-empty {
+        display: none;
+      }
+
+      .table-key-label {
+        font-weight: 700;
+        color: var(--ink-soft);
+        margin-right: 0.35rem;
+      }
+
+      .table-key-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.2rem 0.5rem;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.7);
+        font-size: 0.82rem;
+        line-height: 1.2;
+      }
+
+      .table-key-sample {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.05rem 0.3rem;
+        border-radius: 999px;
+        border: 1px solid rgba(58, 47, 36, 0.2);
+        font-size: 0.78rem;
+      }
+
+      .table-key-dots {
+        display: inline-flex;
+        gap: 0.2rem;
+        align-items: center;
+      }
+
+      .table-key-dot {
+        width: 0.45rem;
+        height: 0.45rem;
+        border-radius: 999px;
+        border: 1px solid rgba(58, 47, 36, 0.2);
+      }
+
+      .table-key-dot--early {
+        background: #2f7b3d;
+      }
+
+      .table-key-dot--late {
+        background: var(--danger);
+      }
+
+      .table-key-sample--highlight {
+        background: rgba(248, 232, 197, 0.9);
+      }
+
+      .table-key--crs {
+        margin-top: 0.75rem;
+        padding: 0.5rem;
+        background: rgba(248, 244, 235, 0.7);
+        font-size: 0.78rem;
+      }
+
       table {
         border-collapse: collapse;
         width: max-content;
@@ -800,6 +873,7 @@
         <section class="results">
           <div class="table-card" id="table-card-ab">
             <h2 id="headingAB"></h2>
+            <div class="table-key is-empty" id="key-ab" aria-live="polite"></div>
             <div class="table-scroll">
               <table>
                 <thead>
@@ -809,10 +883,16 @@
                 <tbody id="body-rows-ab"></tbody>
               </table>
             </div>
+            <div
+              class="table-key table-key--crs is-empty"
+              id="crs-key-ab"
+              aria-live="polite"
+            ></div>
           </div>
 
           <div class="table-card" id="table-card-ba">
             <h2 id="headingBA"></h2>
+            <div class="table-key is-empty" id="key-ba" aria-live="polite"></div>
             <div class="table-scroll">
               <table>
                 <thead>
@@ -822,6 +902,11 @@
                 <tbody id="body-rows-ba"></tbody>
               </table>
             </div>
+            <div
+              class="table-key table-key--crs is-empty"
+              id="crs-key-ba"
+              aria-live="polite"
+            ></div>
           </div>
         </section>
       </main>
