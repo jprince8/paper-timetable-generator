@@ -695,10 +695,15 @@ function chooseDisplayedTimeAndStatus(
     return { text: schedDisplay, format: null };
   }
 
-  if (loc.realtimePassNoReport === true) {
+  const noReport =
+    loc.realtimePassNoReport === true ||
+    loc.realtimeDepartureNoReport === true ||
+    loc.realtimeArrivalNoReport === true;
+  if (noReport) {
+    const unknownPass = schedDisplay ? `${schedDisplay}?` : "?";
     return {
-      text: schedDisplay,
-      format: { color: "muted" },
+      text: unknownPass,
+      format: { italic: true, noReport: true },
     };
   }
 
@@ -2688,7 +2693,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     }
     return {
       text: chosen.text,
-      mins: timeStrToMinutes(chosen.text),
+      mins: chosen.format?.noReport ? null : timeStrToMinutes(chosen.text),
       format: chosen.format,
     };
   }
