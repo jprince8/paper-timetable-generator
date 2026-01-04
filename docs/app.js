@@ -3426,8 +3426,11 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   function tryResortForHighlighting() {
     let movedAny = false;
     let movedThisPass = true;
+    let attemptRound = 0;
     while (movedThisPass) {
+      attemptRound += 1;
       movedThisPass = false;
+      sortLogLines.push(`Highlight resort pass ${attemptRound}: start`);
 
       for (let r = 0; r < rows.length; r++) {
         let minTime = null;
@@ -3447,10 +3450,13 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
             minTimeSvcIndex = svcIndex;
             continue;
           }
+          sortLogLines.push(
+            `Highlight resort trigger: row ${r + 1} ${rowLabelText(rows[r]) || ""} service ${serviceLabel(svcIndex)} time ${timeText} (min ${minutesToTimeStr(minTime)})`,
+          );
           const attempt = orderedSvcIndices.filter((idx) => idx !== svcIndex);
           if (
             attempt.length !== orderedSvcIndices.length &&
-            attemptInsertService(svcIndex, attempt, { logEnabled: false })
+            attemptInsertService(svcIndex, attempt, { logEnabled: true })
           ) {
             orderedSvcIndices.splice(0, orderedSvcIndices.length, ...attempt);
             movedAny = true;
@@ -3504,10 +3510,13 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           const depMins = timeStrToMinutes(depText);
           if (depMins === null) continue;
           if (depMins < maxArr) {
+            sortLogLines.push(
+              `Highlight resort trigger: station ${rowLabelText(rows[entry.dep]) || ""} service ${serviceLabel(svcIndex)} dep ${depText} before max arr ${minutesToTimeStr(maxArr)}`,
+            );
             const attempt = orderedSvcIndices.filter((idx) => idx !== svcIndex);
             if (
               attempt.length !== orderedSvcIndices.length &&
-              attemptInsertService(svcIndex, attempt, { logEnabled: false })
+              attemptInsertService(svcIndex, attempt, { logEnabled: true })
             ) {
               orderedSvcIndices.splice(0, orderedSvcIndices.length, ...attempt);
               movedAny = true;
@@ -3517,6 +3526,9 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           }
         }
       });
+      if (!movedThisPass) {
+        sortLogLines.push(`Highlight resort pass ${attemptRound}: no moves`);
+      }
     }
     return movedAny;
   }
