@@ -122,9 +122,10 @@ def _build_key_item(
         content_width = label_width
     else:
         icon_copy = copy.deepcopy(icon)
+        spacer = Spacer(gap, 1)
         content = Table(
-            [[icon_copy, Paragraph(label, style)]],
-            colWidths=[icon_size, None],
+            [[icon_copy, spacer, Paragraph(label, style)]],
+            colWidths=[icon_size, gap, None],
             hAlign="LEFT",
         )
         content.setStyle(
@@ -132,8 +133,7 @@ def _build_key_item(
                 [
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                     ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                    ("RIGHTPADDING", (0, 0), (0, 0), gap),
-                    ("RIGHTPADDING", (1, 0), (1, 0), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
                     ("TOPPADDING", (0, 0), (-1, -1), 0),
                     ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
                 ]
@@ -262,6 +262,10 @@ def build_timetable_pdf(tables, meta=None):
         fontName=font_name,
         fontSize=font_size,
         leading=font_size + 2,
+        spaceBefore=0,
+        spaceAfter=0,
+        leftIndent=0,
+        rightIndent=0,
     )
 
     elements = []
@@ -394,7 +398,7 @@ def build_timetable_pdf(tables, meta=None):
                 key_items.append(
                     (
                         None,
-                        "<font backColor=\"#fce3b0\">12:34</font> Out of order",
+                        "<font backColor=\"#fce3b0\">12:34</font> Incorrect order",
                     )
                 )
             if format_flags["dep_before_arrival"]:
@@ -513,6 +517,10 @@ def build_timetable_pdf(tables, meta=None):
                 ("ALIGN", (0, 0), (0, -1), "RIGHT"),
                 ("LINEBEFORE", (0, 0), (-1, -1), line_width, line_color),
                 ("LINEAFTER", (0, 0), (-1, -1), line_width, line_color),
+                ("LEFTPADDING", (0, 0), (-1, -1), 1),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 1),
+                ("TOPPADDING", (0, 0), (-1, -1), 1),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
             ]
 
             if len(rows) >= 1:
