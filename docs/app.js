@@ -13,6 +13,16 @@ function hasEnabledQueryFlag(flag) {
 const DEBUG_STATIONS = hasEnabledQueryFlag("debug_stations");
 const ENABLE_SORT_LOG_DOWNLOAD = hasEnabledQueryFlag("sort_log");
 const RTT_CACHE_QUERY_FLAG = "rtt_cache";
+
+const ENABLED_OPTIONS = [
+  DEBUG_STATIONS ? "debug_stations" : null,
+  ENABLE_SORT_LOG_DOWNLOAD ? "sort_log" : null,
+  hasEnabledQueryFlag(RTT_CACHE_QUERY_FLAG) ? "rtt_cache" : null,
+].filter(Boolean);
+
+if (ENABLED_OPTIONS.length > 0) {
+  console.info(`Enabled options: ${ENABLED_OPTIONS.join(", ")}`);
+}
 // Apply the “must call at >=2 stops” rule *after* hiding stations
 // that have no public calls (and iterate to a stable result).
 
@@ -31,7 +41,7 @@ let rttCacheEnabled = false;
 const rttMemoryCache = new Map();
 
 function checkRttCacheFlagFile() {
-  if (hasEnabledQueryFlag(RTT_CACHE_QUERY_FLAG)) {
+  if (ENABLED_OPTIONS.includes(RTT_CACHE_QUERY_FLAG)) {
     rttCacheEnabled = true;
     console.info("RTT cache enabled");
   }
