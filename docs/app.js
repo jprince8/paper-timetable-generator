@@ -826,14 +826,16 @@ function formatAssertDetail(detail) {
   return parts.join(", ");
 }
 
-function assertWithStatus(condition, userMessage, detail = {}) {
+function assertWithStatus(condition, userMessage, detail = {}, options = {}) {
   if (condition) return;
   const detailText = formatAssertDetail(detail);
   const fullMessage = detailText
     ? `${userMessage} (${detailText})`
     : userMessage;
   console.assert(false, fullMessage, detail);
-  clearTimetableOutputs();
+  if (!options.keepOutputs) {
+    clearTimetableOutputs();
+  }
   setStatus(fullMessage, { isError: true });
   throw new Error(fullMessage);
 }
@@ -1038,6 +1040,7 @@ function renderTimetablesFromContext(context) {
   } = context;
   const pdfTables = [];
   const sortLogs = [];
+  context.partialSort = null;
 
   if (servicesAB.length > 0) {
     const modelAB = buildTimetableModel(stations, stationSet, servicesAB, {
@@ -1047,12 +1050,13 @@ function renderTimetablesFromContext(context) {
       realtimeEnabled: false,
     });
     headingAB.textContent =
-      forwardStopsLabel +
-      " (" +
-      modelAB.orderedSvcIndices.length +
-      " services)";
+      forwardStopsLabel + " (" + modelAB.serviceCount + " services)";
     if (modelAB.sortLog) sortLogs.push(modelAB.sortLog);
     renderTimetable(modelAB, headerRowAB, headerIconsRowAB, bodyRowsAB);
+    if (modelAB.partialSort) {
+      context.partialSort = context.partialSort || { unsorted: [] };
+      context.partialSort.unsorted.push(...modelAB.partialSort.unsortedLabels);
+    }
     const tableDataAB = buildPdfTableData(pdfModelAB);
     pdfTables.push({
       title: `${fromName} → ${toName}`,
@@ -1076,12 +1080,13 @@ function renderTimetablesFromContext(context) {
       realtimeEnabled: false,
     });
     headingBA.textContent =
-      reverseStopsLabel +
-      " (" +
-      modelBA.orderedSvcIndices.length +
-      " services)";
+      reverseStopsLabel + " (" + modelBA.serviceCount + " services)";
     if (modelBA.sortLog) sortLogs.push(modelBA.sortLog);
     renderTimetable(modelBA, headerRowBA, headerIconsRowBA, bodyRowsBA);
+    if (modelBA.partialSort) {
+      context.partialSort = context.partialSort || { unsorted: [] };
+      context.partialSort.unsorted.push(...modelBA.partialSort.unsortedLabels);
+    }
     const tableDataBA = buildPdfTableData(pdfModelBA);
     pdfTables.push({
       title: `${toName} → ${fromName}`,
@@ -1121,6 +1126,20 @@ function renderTimetablesFromContext(context) {
     downloadPdfBtn.disabled = true;
     shareBtn.disabled = true;
   }
+
+  if (context.partialSort?.unsorted?.length) {
+    try {
+      assertWithStatus(
+        false,
+        "Unable to sort some services",
+        { services: context.partialSort.unsorted.join(", ") },
+        { keepOutputs: true },
+      );
+    } catch (err) {
+      // keep rendered timetable despite the assertion
+    }
+  }
+
 }
 
 // === Main form submit ===
@@ -2653,16 +2672,14 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       const stationUpper =
         firstGE === orderedSvcIndices.length ? orderedSvcIndices.length : firstGE;
       if (logEnabled) {
-        const leftText =
-          lastLE >= 0
-            ? `${lastTimeLabel || "?"} (${lastLabel})`
-            : "start";
-        const rightText =
-          firstGE < orderedSvcIndices.length
-            ? `${firstTimeLabel || "?"} (${firstLabel})`
-            : "end";
+        const leftTime = lastLE >= 0 ? lastTimeLabel || "?" : "start";
+        const rightTime =
+          firstGE < orderedSvcIndices.length ? firstTimeLabel || "?" : "end";
+        const leftSvc = lastLE >= 0 ? lastLabel : "start";
+        const rightSvc =
+          firstGE < orderedSvcIndices.length ? firstLabel : "end";
         sortLogLines.push(
-          `  ${stationLabel}: ${leftText} < ${timeLabel || "?"} < ${rightText}, bounds ${stationLower}-${stationUpper}`,
+          `  ${stationLabel}: ${leftTime} < ${timeLabel || "?"} < ${rightTime} (${leftSvc} < ${serviceLabel(serviceIdx)} < ${rightSvc}), bounds ${stationLower}-${stationUpper}`,
         );
       }
     }
@@ -2789,6 +2806,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   }
 
   const orderedSvcIndices = [];
+  let unsortedServices = null;
+  let unsortedLabels = null;
   const remainingServices = Array.from(
     { length: numServices },
     (_, idx) => idx,
@@ -2813,7 +2832,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         continue;
       }
 
-      const unsortedLabels = remainingServices.map(serviceLabel);
+      unsortedLabels = remainingServices.map(serviceLabel);
+      unsortedServices = remainingServices.slice();
       sortLogLines.push(
         `Assertion: unable to determine strict bounds for remaining services: ${unsortedLabels.join(
           ", ",
@@ -2822,9 +2842,6 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       if (ENABLE_SORT_LOG_DOWNLOAD) {
         downloadTextFile("timetable-sort-log.txt", sortLogLines.join("\n"));
       }
-      assertWithStatus(false, "Unable to sort some services", {
-        services: unsortedLabels.join(", "),
-      });
       break;
     }
 
@@ -2866,6 +2883,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         : "(none)"
     }`,
   );
+
+  let displayOrderedSvcIndices = orderedSvcIndices.slice();
 
   // --- ATOC code -> display name override (updated LUT) ---
   const ATOC_NAME_BY_CODE = {
@@ -2972,11 +2991,37 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   // as you go down the table, allowing for midnight rollovers.
   checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails);
 
+  let partialSort = null;
+  if (unsortedServices && unsortedServices.length > 0) {
+    const spacerIndex = servicesMeta.length;
+    servicesMeta.push({
+      visible: "UNSORTED >",
+      tooltip: "Unsorted services",
+      href: "",
+      firstClassAvailable: false,
+      isSleeper: false,
+      isBus: false,
+    });
+    rows.forEach((row) => {
+      row.cells[spacerIndex] = "";
+    });
+    displayOrderedSvcIndices = [
+      ...orderedSvcIndices,
+      spacerIndex,
+      ...unsortedServices,
+    ];
+    partialSort = {
+      unsortedLabels: unsortedLabels || [],
+    };
+  }
+
   return {
     rows,
-    orderedSvcIndices,
+    orderedSvcIndices: displayOrderedSvcIndices,
     servicesMeta,
     sortLog: sortLogLines.join("\n"),
+    partialSort,
+    serviceCount: numServices,
   };
 }
 
