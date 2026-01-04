@@ -1981,6 +1981,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       const rawText = cellToText(val);
       if (!rawText) continue;
       if (val && typeof val === "object" && val.format?.strike) continue;
+      if (val && typeof val === "object" && val.format?.noReport) continue;
+      if (rawText.includes("?")) continue;
 
       const mins = timeStrToMinutes(rawText); // "HH:MM" -> 0..1439
       if (mins === null) continue;
