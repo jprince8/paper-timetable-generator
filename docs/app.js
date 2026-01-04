@@ -60,6 +60,7 @@ let realtimeAvailable = false;
 let buildAbortController = null;
 let buildInProgress = false;
 let buildCancelled = false;
+let suppressNextSubmit = false;
 
 function setBuildInProgress(active) {
   buildInProgress = active;
@@ -80,12 +81,18 @@ function setBuildInProgress(active) {
 }
 
 if (buildBtn) {
-  buildBtn.addEventListener("click", () => {
+  buildBtn.addEventListener("click", (event) => {
     if (!buildInProgress || !buildAbortController) return;
+    event.preventDefault();
+    event.stopPropagation();
     console.log("[build] cancel clicked", {
       inProgress: buildInProgress,
       cancelled: buildCancelled,
     });
+    suppressNextSubmit = true;
+    setTimeout(() => {
+      suppressNextSubmit = false;
+    }, 0);
     buildCancelled = true;
     buildAbortController.abort();
     setStatus("Build cancelled.");
@@ -1238,6 +1245,10 @@ function renderTimetablesFromContext(context) {
 // === Main form submit ===
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (suppressNextSubmit) {
+    console.log("[build] submit suppressed after cancel");
+    return;
+  }
   if (buildInProgress) {
     console.log("[build] submit ignored; build already in progress");
     return;
