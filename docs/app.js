@@ -21,16 +21,7 @@ let rttCacheEnabled = ENABLE_RTT_CACHE;
 const rttMemoryCache = new Map();
 
 function checkRttCacheFlagFile() {
-  const hostname = window.location?.hostname || "";
-  const isLocalhost =
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "[::1]";
-  if (isLocalhost) {
-    return Promise.resolve();
-  }
-  const base = (BACKEND_BASE || "").replace(/\/+$/, "");
-  const flagUrl = base ? `${base}/${RTT_CACHE_FLAG_FILE}` : RTT_CACHE_FLAG_FILE;
+  const flagUrl = new URL(RTT_CACHE_FLAG_FILE, window.location.href);
   return fetch(flagUrl, { method: "HEAD", cache: "no-store" })
     .then((resp) => {
       if (resp.ok) {
