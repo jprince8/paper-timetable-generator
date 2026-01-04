@@ -213,6 +213,7 @@ def build_timetable_pdf(tables, meta=None):
             row_shade = colors.Color(250 / 255, 246 / 255, 239 / 255)
             table_style = [
                 ("FONT", (0, 0), (-1, -1), font_name, font_size),
+                ("FONTNAME", (0, 0), (-1, 1), "Helvetica-Bold"),
                 ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
                 ("BACKGROUND", (0, 1), (-1, 1), colors.lightgrey),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
