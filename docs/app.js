@@ -3425,33 +3425,107 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
 
   function tryResortForHighlighting() {
     let movedAny = false;
-    let movedThisPass = true;
     let attemptRound = 0;
-    while (movedThisPass) {
-      attemptRound += 1;
-      movedThisPass = false;
-      sortLogLines.push(`Highlight resort pass ${attemptRound}: start`);
+    attemptRound += 1;
+    sortLogLines.push(`Highlight resort pass ${attemptRound}: start`);
 
-      for (let r = 0; r < rows.length; r++) {
-        let minTime = null;
-        let minTimeSvcIndex = null;
-        for (let colPos = orderedSvcIndices.length - 1; colPos >= 0; colPos--) {
-          const svcIndex = orderedSvcIndices[colPos];
-          const value = rows[r].cells[svcIndex];
-          const timeText = cellToText(value);
-          if (!timeText) continue;
-          if (value && typeof value === "object" && value.format?.strike) {
-            continue;
+    for (let r = 0; r < rows.length; r++) {
+      let minTime = null;
+      let minTimeSvcIndex = null;
+      for (let colPos = orderedSvcIndices.length - 1; colPos >= 0; colPos--) {
+        const svcIndex = orderedSvcIndices[colPos];
+        const value = rows[r].cells[svcIndex];
+        const timeText = cellToText(value);
+        if (!timeText) continue;
+        if (value && typeof value === "object" && value.format?.strike) {
+          continue;
+        }
+        const mins = timeStrToMinutes(timeText);
+        if (mins === null) continue;
+        if (minTime === null || mins <= minTime) {
+          minTime = mins;
+          minTimeSvcIndex = svcIndex;
+          continue;
+        }
+        sortLogLines.push(
+          `Highlight resort trigger: row ${r + 1} ${rowLabelText(rows[r]) || ""} service ${serviceLabel(svcIndex)} time ${timeText} (min ${minutesToTimeStr(minTime)})`,
+        );
+        const attempt = orderedSvcIndices.filter((idx) => idx !== svcIndex);
+        if (attempt.length !== orderedSvcIndices.length) {
+          if (attemptInsertService(svcIndex, attempt, { logEnabled: true })) {
+            orderedSvcIndices.splice(
+              0,
+              orderedSvcIndices.length,
+              ...attempt,
+            );
+            movedAny = true;
+            break;
           }
-          const mins = timeStrToMinutes(timeText);
-          if (mins === null) continue;
-          if (minTime === null || mins <= minTime) {
-            minTime = mins;
-            minTimeSvcIndex = svcIndex;
-            continue;
+          logNoStrictBounds(svcIndex, attempt, { logEnabled: false });
+          if (
+            insertFirstCandidate(
+              svcIndex,
+              attempt,
+              {},
+              "Highlight resort",
+            )
+          ) {
+            orderedSvcIndices.splice(
+              0,
+              orderedSvcIndices.length,
+              ...attempt,
+            );
+            movedAny = true;
+            break;
           }
+        }
+      }
+      if (movedAny) break;
+    }
+
+    const stationRowIndices = new Map();
+    for (let r = 0; r < rowSpecs.length; r++) {
+      const spec = rowSpecs[r];
+      if (spec.kind !== "station") continue;
+      if (!stationRowIndices.has(spec.stationIndex)) {
+        stationRowIndices.set(spec.stationIndex, {});
+      }
+      const entry = stationRowIndices.get(spec.stationIndex);
+      if (spec.mode === "arr") entry.arr = r;
+      if (spec.mode === "dep") entry.dep = r;
+    }
+
+    stationRowIndices.forEach((entry) => {
+      if (movedAny) return;
+      if (entry.arr === undefined || entry.dep === undefined) return;
+      let maxArr = null;
+      for (let colPos = 0; colPos < orderedSvcIndices.length; colPos++) {
+        const svcIndex = orderedSvcIndices[colPos];
+        const arrVal = rows[entry.arr].cells[svcIndex];
+        const arrText = cellToText(arrVal);
+        if (arrVal && typeof arrVal === "object" && arrVal.format?.strike) {
+          continue;
+        }
+        if (arrText) {
+          const arrMins = timeStrToMinutes(arrText);
+          if (arrMins !== null) {
+            if (maxArr === null || arrMins > maxArr) {
+              maxArr = arrMins;
+            }
+          }
+        }
+
+        const depVal = rows[entry.dep].cells[svcIndex];
+        const depText = cellToText(depVal);
+        if (depVal && typeof depVal === "object" && depVal.format?.strike) {
+          continue;
+        }
+        if (!depText || maxArr === null) continue;
+        const depMins = timeStrToMinutes(depText);
+        if (depMins === null) continue;
+        if (depMins < maxArr) {
           sortLogLines.push(
-            `Highlight resort trigger: row ${r + 1} ${rowLabelText(rows[r]) || ""} service ${serviceLabel(svcIndex)} time ${timeText} (min ${minutesToTimeStr(minTime)})`,
+            `Highlight resort trigger: station ${rowLabelText(rows[entry.dep]) || ""} service ${serviceLabel(svcIndex)} dep ${depText} before max arr ${minutesToTimeStr(maxArr)}`,
           );
           const attempt = orderedSvcIndices.filter((idx) => idx !== svcIndex);
           if (attempt.length !== orderedSvcIndices.length) {
@@ -3462,8 +3536,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
                 ...attempt,
               );
               movedAny = true;
-              movedThisPass = true;
-              break;
+              return;
             }
             logNoStrictBounds(svcIndex, attempt, { logEnabled: false });
             if (
@@ -3480,99 +3553,14 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
                 ...attempt,
               );
               movedAny = true;
-              movedThisPass = true;
-              break;
+              return;
             }
           }
         }
-        if (movedThisPass) break;
       }
-
-      if (movedThisPass) continue;
-
-      const stationRowIndices = new Map();
-      for (let r = 0; r < rowSpecs.length; r++) {
-        const spec = rowSpecs[r];
-        if (spec.kind !== "station") continue;
-        if (!stationRowIndices.has(spec.stationIndex)) {
-          stationRowIndices.set(spec.stationIndex, {});
-        }
-        const entry = stationRowIndices.get(spec.stationIndex);
-        if (spec.mode === "arr") entry.arr = r;
-        if (spec.mode === "dep") entry.dep = r;
-      }
-
-      stationRowIndices.forEach((entry) => {
-        if (movedThisPass) return;
-        if (entry.arr === undefined || entry.dep === undefined) return;
-        let maxArr = null;
-        for (let colPos = 0; colPos < orderedSvcIndices.length; colPos++) {
-          const svcIndex = orderedSvcIndices[colPos];
-          const arrVal = rows[entry.arr].cells[svcIndex];
-          const arrText = cellToText(arrVal);
-          if (arrVal && typeof arrVal === "object" && arrVal.format?.strike) {
-            continue;
-          }
-          if (arrText) {
-            const arrMins = timeStrToMinutes(arrText);
-            if (arrMins !== null) {
-              if (maxArr === null || arrMins > maxArr) {
-                maxArr = arrMins;
-              }
-            }
-          }
-
-          const depVal = rows[entry.dep].cells[svcIndex];
-          const depText = cellToText(depVal);
-          if (depVal && typeof depVal === "object" && depVal.format?.strike) {
-            continue;
-          }
-          if (!depText || maxArr === null) continue;
-          const depMins = timeStrToMinutes(depText);
-          if (depMins === null) continue;
-          if (depMins < maxArr) {
-            sortLogLines.push(
-              `Highlight resort trigger: station ${rowLabelText(rows[entry.dep]) || ""} service ${serviceLabel(svcIndex)} dep ${depText} before max arr ${minutesToTimeStr(maxArr)}`,
-            );
-            const attempt = orderedSvcIndices.filter((idx) => idx !== svcIndex);
-            if (attempt.length !== orderedSvcIndices.length) {
-              if (
-                attemptInsertService(svcIndex, attempt, { logEnabled: true })
-              ) {
-                orderedSvcIndices.splice(
-                  0,
-                  orderedSvcIndices.length,
-                  ...attempt,
-                );
-                movedAny = true;
-                movedThisPass = true;
-                return;
-              }
-              logNoStrictBounds(svcIndex, attempt, { logEnabled: false });
-              if (
-                insertFirstCandidate(
-                  svcIndex,
-                  attempt,
-                  {},
-                  "Highlight resort",
-                )
-              ) {
-                orderedSvcIndices.splice(
-                  0,
-                  orderedSvcIndices.length,
-                  ...attempt,
-                );
-                movedAny = true;
-                movedThisPass = true;
-                return;
-              }
-            }
-          }
-        }
-      });
-      if (!movedThisPass) {
-        sortLogLines.push(`Highlight resort pass ${attemptRound}: no moves`);
-      }
+    });
+    if (!movedAny) {
+      sortLogLines.push(`Highlight resort pass ${attemptRound}: no moves`);
     }
     return movedAny;
   }
