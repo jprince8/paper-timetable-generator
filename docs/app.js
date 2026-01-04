@@ -2,6 +2,7 @@
 const DEBUG_STATIONS = false; // set true to log station selection / dwell details
 const ENABLE_SORT_LOG_DOWNLOAD = false;
 const ENABLE_RTT_CACHE = false; // set true to cache RTT API responses locally
+const ALWAYS_SORT_CANCELLED_TIMES = true;
 const RTT_CACHE_FLAG_FILE = "rtt-cache-enabled.flag";
 // Apply the “must call at >=2 stops” rule *after* hiding stations
 // that have no public calls (and iterate to a stable result).
@@ -2983,7 +2984,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       serviceRealtimeActivated,
       realtimeToggleEnabled,
     );
-    const allowCancelled = serviceAllCancelled[serviceIdx] === true;
+    const allowCancelled =
+      ALWAYS_SORT_CANCELLED_TIMES || serviceAllCancelled[serviceIdx] === true;
     if (!chosen.text || (!allowCancelled && chosen.format?.strike)) {
       return { text: "", mins: null, format: chosen.format };
     }
