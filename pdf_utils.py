@@ -101,45 +101,45 @@ def _build_key_item(
     border_color = line_color or colors.HexColor("#c6b7a2")
     bg_color = colors.HexColor("#f7f3ea")
     if icon is None:
-        pill = Table([[Paragraph(label, style)]], hAlign="LEFT")
-        pill.setStyle(
+        content = Paragraph(label, style)
+        content_width = label_width
+    else:
+        icon_copy = copy.deepcopy(icon)
+        content = Table(
+            [[icon_copy, Paragraph(label, style)]],
+            colWidths=[icon_size, None],
+            hAlign="LEFT",
+        )
+        content.setStyle(
             TableStyle(
                 [
-                    ("BOX", (0, 0), (-1, -1), 0.4, border_color),
-                    ("BACKGROUND", (0, 0), (-1, -1), bg_color),
-                    ("LEFTPADDING", (0, 0), (-1, -1), pill_padding),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), pill_padding),
-                    ("TOPPADDING", (0, 0), (-1, -1), pill_padding),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), pill_padding),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (0, 0), gap),
+                    ("RIGHTPADDING", (1, 0), (1, 0), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
                 ]
             )
         )
-        width = label_width + (pill_padding * 2)
-        return pill, width
+        content_width = icon_size + gap + label_width
 
-    icon_copy = copy.deepcopy(icon)
-    item_table = Table(
-        [[icon_copy, Paragraph(label, style)]],
-        colWidths=[icon_size, None],
-        hAlign="LEFT",
-    )
-    item_table.setStyle(
+    pill = Table([[content]], hAlign="LEFT")
+    pill.setStyle(
         TableStyle(
             [
                 ("BOX", (0, 0), (-1, -1), 0.4, border_color),
                 ("BACKGROUND", (0, 0), (-1, -1), bg_color),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("LEFTPADDING", (0, 0), (-1, -1), pill_padding),
-                ("RIGHTPADDING", (0, 0), (0, 0), gap),
-                ("RIGHTPADDING", (1, 0), (1, 0), pill_padding),
+                ("RIGHTPADDING", (0, 0), (-1, -1), pill_padding),
                 ("TOPPADDING", (0, 0), (-1, -1), pill_padding),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), pill_padding),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ]
         )
     )
-    width = icon_size + gap + label_width + (pill_padding * 2)
-    return item_table, width
+    width = content_width + (pill_padding * 2)
+    return pill, width
 
 
 def _build_key_table(items, available_width, style, icon_size, cols=3, gap=10):
