@@ -2639,6 +2639,164 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     return null;
   }
 
+  function stationTimeInfo(
+    serviceIdx,
+    stationIdx,
+    arrOnlyStationIdx = null,
+    modeOverride = null,
+    ignoreFromStationIdx = null,
+    depOnlyStationIdx = null,
+    ignoreStationIdx = null,
+  ) {
+    const t = stationTimes[stationIdx][serviceIdx];
+    if (!t) return { mins: null, source: null };
+    if (ignoreStationIdx === stationIdx) {
+      return { mins: null, source: null };
+    }
+    if (ignoreFromStationIdx !== null && stationIdx >= ignoreFromStationIdx) {
+      return { mins: null, source: null };
+    }
+    if (arrOnlyStationIdx === stationIdx || modeOverride === "arrOnly") {
+      return { mins: t.arrMins !== null ? t.arrMins : null, source: "arr" };
+    }
+    if (depOnlyStationIdx === stationIdx || modeOverride === "depOnly") {
+      return { mins: t.depMins !== null ? t.depMins : null, source: "dep" };
+    }
+    if (modeOverride === "ignore") {
+      return { mins: null, source: null };
+    }
+    if (stationModes[stationIdx] === "two") {
+      if (t.depMins !== null) return { mins: t.depMins, source: "dep" };
+      if (t.arrMins !== null) return { mins: t.arrMins, source: "arr" };
+      return { mins: null, source: null };
+    }
+    if (t.depMins !== null) return { mins: t.depMins, source: "preferred" };
+    if (t.arrMins !== null) return { mins: t.arrMins, source: "preferred" };
+    return { mins: null, source: null };
+  }
+
+  function stationTimeMinsBySource(
+    serviceIdx,
+    stationIdx,
+    source,
+    arrOnlyStationIdx = null,
+    modeOverride = null,
+    ignoreFromStationIdx = null,
+    depOnlyStationIdx = null,
+    ignoreStationIdx = null,
+  ) {
+    const t = stationTimes[stationIdx][serviceIdx];
+    if (!t) return null;
+    if (ignoreStationIdx === stationIdx) {
+      return null;
+    }
+    if (ignoreFromStationIdx !== null && stationIdx >= ignoreFromStationIdx) {
+      return null;
+    }
+    if (modeOverride === "ignore") {
+      return null;
+    }
+    if (source === "preferred") {
+      return stationTimeMins(
+        serviceIdx,
+        stationIdx,
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
+    }
+    if (source === "arr") {
+      return t.arrMins !== null ? t.arrMins : null;
+    }
+    if (source === "dep") {
+      return t.depMins !== null ? t.depMins : null;
+    }
+    return null;
+  }
+
+  function computeOutOfOrderSet(
+    orderedSvcIndices,
+    stationIdx,
+    source,
+    arrOnlyStationIdx = null,
+    modeOverride = null,
+    ignoreFromStationIdx = null,
+    depOnlyStationIdx = null,
+    ignoreStationIdx = null,
+  ) {
+    const outOfOrder = new Set();
+    let minTime = null;
+    for (let colPos = orderedSvcIndices.length - 1; colPos >= 0; colPos--) {
+      const svcIndex = orderedSvcIndices[colPos];
+      const mins = stationTimeMinsBySource(
+        svcIndex,
+        stationIdx,
+        source,
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
+      if (mins === null) continue;
+      if (minTime === null || mins <= minTime) {
+        minTime = mins;
+        continue;
+      }
+      outOfOrder.add(svcIndex);
+    }
+    return outOfOrder;
+  }
+
+  function computeDepartureBeforeArrivalSet(
+    orderedSvcIndices,
+    stationIdx,
+    arrOnlyStationIdx = null,
+    modeOverride = null,
+    ignoreFromStationIdx = null,
+    depOnlyStationIdx = null,
+    ignoreStationIdx = null,
+  ) {
+    const outOfOrder = new Set();
+    let maxArr = null;
+    for (let colPos = 0; colPos < orderedSvcIndices.length; colPos++) {
+      const svcIndex = orderedSvcIndices[colPos];
+      const arrMins = stationTimeMinsBySource(
+        svcIndex,
+        stationIdx,
+        "arr",
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
+      if (arrMins !== null) {
+        if (maxArr === null || arrMins > maxArr) {
+          maxArr = arrMins;
+        }
+      }
+
+      const depMins = stationTimeMinsBySource(
+        svcIndex,
+        stationIdx,
+        "dep",
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
+      if (depMins === null || maxArr === null) continue;
+      if (depMins < maxArr) {
+        outOfOrder.add(svcIndex);
+      }
+    }
+    return outOfOrder;
+  }
+
   function firstTimeInfo(serviceIdx) {
     let firstMins = null;
     let firstRow = null;
@@ -2714,7 +2872,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     let hasConstraint = false;
 
     for (let stationIdx = 0; stationIdx < numStations; stationIdx++) {
-      const time = stationTimeMins(
+      const timeInfo = stationTimeInfo(
         serviceIdx,
         stationIdx,
         arrOnlyStationIdx,
@@ -2723,7 +2881,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         depOnlyStationIdx,
         ignoreStationIdx,
       );
-      if (time === null) continue;
+      if (timeInfo.mins === null) continue;
       const timeLabel = stationTimeLabel(
         serviceIdx,
         stationIdx,
@@ -2734,12 +2892,55 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         ignoreStationIdx,
       );
 
+      const outOfOrderPreferred = computeOutOfOrderSet(
+        orderedSvcIndices,
+        stationIdx,
+        "preferred",
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
+      const outOfOrderArr = computeOutOfOrderSet(
+        orderedSvcIndices,
+        stationIdx,
+        "arr",
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
+      const outOfOrderDep = computeOutOfOrderSet(
+        orderedSvcIndices,
+        stationIdx,
+        "dep",
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
+      if (stationModes[stationIdx] === "two") {
+        const depBeforeArr = computeDepartureBeforeArrivalSet(
+          orderedSvcIndices,
+          stationIdx,
+          arrOnlyStationIdx,
+          modeOverride,
+          ignoreFromStationIdx,
+          depOnlyStationIdx,
+          ignoreStationIdx,
+        );
+        depBeforeArr.forEach((svcIndex) => outOfOrderDep.add(svcIndex));
+      }
+
       let lastLE = -1;
       let firstGE = orderedSvcIndices.length;
 
       for (let pos = 0; pos < orderedSvcIndices.length; pos++) {
         const otherSvc = orderedSvcIndices[pos];
-        const otherTime = stationTimeMins(
+        const otherInfo = stationTimeInfo(
           otherSvc,
           stationIdx,
           arrOnlyStationIdx,
@@ -2748,10 +2949,20 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           depOnlyStationIdx,
           ignoreStationIdx,
         );
-        if (otherTime === null) continue;
+        if (otherInfo.mins === null) continue;
+        if (otherInfo.source === "arr" && outOfOrderArr.has(otherSvc)) continue;
+        if (otherInfo.source === "dep" && outOfOrderDep.has(otherSvc)) continue;
+        if (
+          otherInfo.source === "preferred" &&
+          outOfOrderPreferred.has(otherSvc)
+        )
+          continue;
 
-        if (otherTime < time) lastLE = pos;
-        if (firstGE === orderedSvcIndices.length && otherTime > time) {
+        if (otherInfo.mins < timeInfo.mins) lastLE = pos;
+        if (
+          firstGE === orderedSvcIndices.length &&
+          otherInfo.mins > timeInfo.mins
+        ) {
           firstGE = pos;
         }
       }
