@@ -18,6 +18,7 @@ const STATION_MIN_QUERY = 2;
 
 const RTT_CACHE_PREFIX = "rttCache:";
 let rttCacheEnabled = ENABLE_RTT_CACHE;
+const rttMemoryCache = new Map();
 
 function checkRttCacheFlagFile() {
   const base = (BACKEND_BASE || "").replace(/\/+$/, "");
@@ -40,7 +41,44 @@ function getRttCacheKey(url) {
   return `${RTT_CACHE_PREFIX}${url}`;
 }
 
+function normaliseRttCachePayload(payload) {
+  return {
+    text: payload?.text || "",
+    status: payload?.status || 200,
+    statusText: payload?.statusText || "OK",
+    storedAt: payload?.storedAt || Date.now(),
+  };
+}
+
+function listRttCacheEntries() {
+  const entries = [];
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (!key || !key.startsWith(RTT_CACHE_PREFIX)) continue;
+    let storedAt = 0;
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        storedAt = parsed?.storedAt || 0;
+      } catch {
+        storedAt = 0;
+      }
+    }
+    entries.push({ key, storedAt });
+  }
+  return entries;
+}
+
 function readRttCache(url) {
+  const memoryCached = rttMemoryCache.get(url);
+  if (memoryCached) {
+    return {
+      text: memoryCached.text,
+      status: memoryCached.status,
+      statusText: memoryCached.statusText,
+    };
+  }
   if (!rttCacheEnabled || !window.localStorage) return null;
   try {
     const raw = localStorage.getItem(getRttCacheKey(url));
@@ -59,10 +97,57 @@ function readRttCache(url) {
 }
 
 function writeRttCache(url, payload) {
-  if (!rttCacheEnabled || !window.localStorage) return;
+  const normalised = normaliseRttCachePayload(payload);
+  if (!rttCacheEnabled || !window.localStorage) {
+    rttMemoryCache.set(url, normalised);
+    return;
+  }
   try {
-    localStorage.setItem(getRttCacheKey(url), JSON.stringify(payload));
+    localStorage.setItem(getRttCacheKey(url), JSON.stringify(normalised));
   } catch (err) {
+    const isQuotaError =
+      err?.name === "QuotaExceededError" ||
+      err?.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+      err?.code === 22;
+    if (isQuotaError) {
+      try {
+        const entries = listRttCacheEntries().sort(
+          (a, b) => a.storedAt - b.storedAt,
+        );
+        for (const entry of entries) {
+          localStorage.removeItem(entry.key);
+          try {
+            localStorage.setItem(
+              getRttCacheKey(url),
+              JSON.stringify(normalised),
+            );
+            return;
+          } catch (retryErr) {
+            if (
+              retryErr?.name !== "QuotaExceededError" &&
+              retryErr?.name !== "NS_ERROR_DOM_QUOTA_REACHED" &&
+              retryErr?.code !== 22
+            ) {
+              throw retryErr;
+            }
+          }
+        }
+      } catch (retryErr) {
+        rttCacheEnabled = false;
+        rttMemoryCache.set(url, normalised);
+        console.warn(
+          "RTT cache disabled after quota errors while writing",
+          url,
+          retryErr,
+        );
+        return;
+      }
+      rttCacheEnabled = false;
+      rttMemoryCache.set(url, normalised);
+      console.warn("RTT cache disabled after repeated quota errors", url);
+      return;
+    }
+    rttMemoryCache.set(url, normalised);
     console.warn("Failed to write RTT cache for", url, err);
   }
 }
