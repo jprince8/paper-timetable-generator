@@ -141,7 +141,7 @@ def _build_key_item(
         )
         content_width = icon_size + gap + label_width
 
-    pill = Table([[content]], hAlign="LEFT")
+    pill = Table([[content]], hAlign="CENTER")
     pill.setStyle(
         TableStyle(
             [
@@ -267,6 +267,7 @@ def build_timetable_pdf(tables, meta=None):
         spaceAfter=0,
         leftIndent=0,
         rightIndent=0,
+        alignment=1,
     )
 
     elements = []
