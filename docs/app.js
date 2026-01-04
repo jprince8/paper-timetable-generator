@@ -3643,17 +3643,17 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   remainingServices.sort((a, b) => {
     const infoA = firstTimeInfo(a);
     const infoB = firstTimeInfo(b);
-    if (infoA.firstMins === null && infoB.firstMins === null) return a - b;
-    if (infoA.firstMins === null) return 1;
-    if (infoB.firstMins === null) return -1;
-    if (infoA.firstMins !== infoB.firstMins) {
-      return infoA.firstMins - infoB.firstMins;
-    }
     if (infoA.firstRow === null && infoB.firstRow === null) return a - b;
     if (infoA.firstRow === null) return 1;
     if (infoB.firstRow === null) return -1;
     if (infoA.firstRow !== infoB.firstRow) {
       return infoA.firstRow - infoB.firstRow;
+    }
+    if (infoA.firstMins === null && infoB.firstMins === null) return a - b;
+    if (infoA.firstMins === null) return 1;
+    if (infoB.firstMins === null) return -1;
+    if (infoA.firstMins !== infoB.firstMins) {
+      return infoA.firstMins - infoB.firstMins;
     }
     return a - b;
   });
