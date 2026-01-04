@@ -845,7 +845,9 @@ function assertWithStatus(condition, userMessage, detail = {}, options = {}) {
     clearTimetableOutputs();
   }
   setStatus(fullMessage, { isError: true });
-  throw new Error(fullMessage);
+  if (!options.allowContinue) {
+    throw new Error(fullMessage);
+  }
 }
 
 function stripHtmlToText(value) {
@@ -1978,6 +1980,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           false,
           "Timetable times go backwards in this corridor",
           detailParts.join(", "),
+          { keepOutputs: true, allowContinue: true },
         );
         break; // stop checking this service; we've already flagged it
       }
