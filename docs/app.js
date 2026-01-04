@@ -3017,29 +3017,6 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
 
         if (t.arrMins !== null) {
           sortLogLines.push(
-            `Resolution pass 2 for ${serviceLabel(svcIdx)} at ${stationName}: ignore arr time and all rows below.`,
-          );
-          const attemptArr = orderedSvcIndices.slice();
-          if (
-            attemptInsertService(svcIdx, attemptArr, {
-              ignoreFromStationIdx: stationIdx + 1,
-              depOnlyStationIdx: stationIdx,
-            })
-          ) {
-            orderedSvcIndices.splice(
-              0,
-              orderedSvcIndices.length,
-              ...attemptArr,
-            );
-            remainingServices.splice(idx, 1);
-            return true;
-          }
-          logNoStrictBounds(svcIdx, attemptArr, {
-            ignoreFromStationIdx: stationIdx + 1,
-            depOnlyStationIdx: stationIdx,
-          });
-
-          sortLogLines.push(
             `Resolution pass 2 for ${serviceLabel(svcIdx)} at ${stationName}: ignore arr+dep time and all rows below.`,
           );
           const attemptArrDep = orderedSvcIndices.slice();
