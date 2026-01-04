@@ -57,6 +57,10 @@ const headingAB = document.getElementById("headingAB");
 const headingBA = document.getElementById("headingBA");
 const tableCardAB = document.getElementById("table-card-ab");
 const tableCardBA = document.getElementById("table-card-ba");
+const keyAB = document.getElementById("key-ab");
+const keyBA = document.getElementById("key-ba");
+const crsKeyAB = document.getElementById("crs-key-ab");
+const crsKeyBA = document.getElementById("crs-key-ba");
 const headerRowAB = document.getElementById("header-row-ab");
 const headerIconsRowAB = document.getElementById("header-icons-row-ab");
 const bodyRowsAB = document.getElementById("body-rows-ab");
@@ -852,6 +856,22 @@ function resetOutputs() {
   headingBA.textContent = "";
   tableCardAB?.classList.remove("has-data");
   tableCardBA?.classList.remove("has-data");
+  if (keyAB) {
+    keyAB.classList.add("is-empty");
+    keyAB.innerHTML = "";
+  }
+  if (keyBA) {
+    keyBA.classList.add("is-empty");
+    keyBA.innerHTML = "";
+  }
+  if (crsKeyAB) {
+    crsKeyAB.classList.add("is-empty");
+    crsKeyAB.innerHTML = "";
+  }
+  if (crsKeyBA) {
+    crsKeyBA.classList.add("is-empty");
+    crsKeyBA.innerHTML = "";
+  }
   headerRowAB.innerHTML = "";
   headerIconsRowAB.innerHTML = "";
   bodyRowsAB.innerHTML = "";
@@ -969,11 +989,16 @@ function buildPdfTableData(model) {
       const val = row.cells[svcIndex];
       if (val && typeof val === "object") {
         const text = cellToText(val);
-        const bgColor = val.format?.bgColor;
-        if (bgColor) {
-          return { text, bgColor };
-        }
-        return text;
+        const format = val.format || {};
+        const cellData = { text };
+        if (val.title) cellData.title = val.title;
+        if (format.bgColor) cellData.bgColor = format.bgColor;
+        if (format.strike) cellData.strike = true;
+        if (format.italic) cellData.italic = true;
+        if (format.bold) cellData.bold = true;
+        if (format.color) cellData.color = format.color;
+        if (format.noReport) cellData.noReport = true;
+        return cellData;
       }
       return cellToText(val);
     });
@@ -1147,7 +1172,14 @@ function renderTimetablesFromContext(context) {
     headingAB.textContent =
       forwardStopsLabel + " (" + modelAB.serviceCount + " services)";
     if (modelAB.sortLog) sortLogs.push(modelAB.sortLog);
-    renderTimetable(modelAB, headerRowAB, headerIconsRowAB, bodyRowsAB);
+    renderTimetable(
+      modelAB,
+      headerRowAB,
+      headerIconsRowAB,
+      bodyRowsAB,
+      keyAB,
+      crsKeyAB,
+    );
     if (modelAB.partialSort) {
       context.partialSort = context.partialSort || { unsorted: [] };
       context.partialSort.unsorted.push(...modelAB.partialSort.unsortedLabels);
@@ -1164,6 +1196,14 @@ function renderTimetablesFromContext(context) {
     headingAB.textContent =
       forwardStopsLabel + ": no through services in this time range";
     tableCardAB?.classList.remove("has-data");
+    if (keyAB) {
+      keyAB.classList.add("is-empty");
+      keyAB.innerHTML = "";
+    }
+    if (crsKeyAB) {
+      crsKeyAB.classList.add("is-empty");
+      crsKeyAB.innerHTML = "";
+    }
   }
 
   if (servicesBA.length > 0) {
@@ -1177,7 +1217,14 @@ function renderTimetablesFromContext(context) {
     headingBA.textContent =
       reverseStopsLabel + " (" + modelBA.serviceCount + " services)";
     if (modelBA.sortLog) sortLogs.push(modelBA.sortLog);
-    renderTimetable(modelBA, headerRowBA, headerIconsRowBA, bodyRowsBA);
+    renderTimetable(
+      modelBA,
+      headerRowBA,
+      headerIconsRowBA,
+      bodyRowsBA,
+      keyBA,
+      crsKeyBA,
+    );
     if (modelBA.partialSort) {
       context.partialSort = context.partialSort || { unsorted: [] };
       context.partialSort.unsorted.push(...modelBA.partialSort.unsortedLabels);
@@ -1194,6 +1241,14 @@ function renderTimetablesFromContext(context) {
     headingBA.textContent =
       reverseStopsLabel + ": no through services in this time range";
     tableCardBA?.classList.remove("has-data");
+    if (keyBA) {
+      keyBA.classList.add("is-empty");
+      keyBA.innerHTML = "";
+    }
+    if (crsKeyBA) {
+      crsKeyBA.classList.add("is-empty");
+      crsKeyBA.innerHTML = "";
+    }
   }
 
   if (sortLogs.length > 0) {
@@ -3929,11 +3984,242 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
 }
 
 // === Rendering: turn model into DOM ===
+function bedSvgMarkup() {
+  return `
+<span class="bed-icon" title="Sleeper" aria-label="Sleeper">
+  <svg viewBox="0 0 24 24" role="img" focusable="false" aria-hidden="true">
+    <!-- headboard + left leg (single stroke) -->
+    <path d="M4 6v14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+
+    <!-- mattress -->
+    <path d="M4 12h16a2 2 0 0 1 2 2v4H4z"
+    fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+
+    <!-- pillow (simple) -->
+    <path d="M7 10h4a2 2 0 0 1 2 2H7a2 2 0 0 1-2-2a2 2 0 0 1 2-2z"
+    fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+
+    <!-- right leg at end of mattress -->
+    <path d="M20 20v-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  </svg>
+</span>
+
+  `;
+}
+
+function busSvgMarkup() {
+  return `
+<span class="bus-icon" title="Bus service" aria-label="Bus service">
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Bus icon">
+    <rect x="92" y="72" width="328" height="336" rx="72" ry="72" fill="currentColor"/>
+    <rect x="184" y="104" width="144" height="34" rx="8" ry="8" fill="#fff"/>
+    <path d="M152 178 Q152 158 172 158 H340 Q360 158 360 178 V292 Q256 336 152 292 Z" fill="#fff"/>
+    <rect x="154" y="332" width="74" height="34" rx="8" ry="8" fill="#fff"/>
+    <rect x="284" y="332" width="74" height="34" rx="8" ry="8" fill="#fff"/>
+    <rect x="110" y="380" width="72" height="70" rx="14" ry="14" fill="currentColor"/>
+    <rect x="330" y="380" width="72" height="70" rx="14" ry="14" fill="currentColor"/>
+  </svg>
+</span>
+  `;
+}
+
+function renderTableKey(model, keyEl) {
+  if (!keyEl) return;
+  const { rows, orderedSvcIndices, servicesMeta } = model;
+  const items = [];
+
+  const HIGHLIGHT_OUT_OF_ORDER_COLOR = "#fce3b0";
+  const HIGHLIGHT_DEP_AFTER_ARRIVAL_COLOR = "#e6d9ff";
+
+  const facilityFlags = {
+    firstClass: servicesMeta.some((meta) => meta.firstClassAvailable),
+    sleeper: servicesMeta.some((meta) => meta.isSleeper),
+    bus: servicesMeta.some((meta) => meta.isBus),
+  };
+
+  if (facilityFlags.firstClass) {
+    items.push({
+      sampleHtml:
+        '<span class="fc-icon" title="First class available" aria-label="First class available">1</span>',
+      label: "First class",
+    });
+  }
+  if (facilityFlags.sleeper) {
+    items.push({ sampleHtml: bedSvgMarkup(), label: "Sleeper" });
+  }
+  if (facilityFlags.bus) {
+    items.push({ sampleHtml: busSvgMarkup(), label: "Bus service" });
+  }
+
+  const formatFlags = {
+    bold: false,
+    italic: false,
+    strike: false,
+    color: false,
+    noReport: false,
+    outOfOrder: false,
+    depBeforeArrival: false,
+  };
+
+  rows.forEach((row) => {
+    orderedSvcIndices.forEach((svcIndex) => {
+      const val = row.cells[svcIndex];
+      if (!val || typeof val !== "object") return;
+      const text = val.text || "";
+      const format = val.format || {};
+      if (format.bold) formatFlags.bold = true;
+      if (format.italic) formatFlags.italic = true;
+      if (format.strike) formatFlags.strike = true;
+      if (format.color && format.color !== "muted") formatFlags.color = true;
+      if (format.noReport) formatFlags.noReport = true;
+      if (format.bgColor) {
+        const bg = String(format.bgColor).toLowerCase();
+        if (bg === HIGHLIGHT_OUT_OF_ORDER_COLOR) {
+          formatFlags.outOfOrder = true;
+        } else if (bg === HIGHLIGHT_DEP_AFTER_ARRIVAL_COLOR) {
+          formatFlags.depBeforeArrival = true;
+        }
+      }
+    });
+  });
+
+  if (formatFlags.bold) {
+    items.push({
+      sampleHtml:
+        '<span class="table-key-sample time-bold" title="Actual time example" aria-label="Actual time example">12:34</span>',
+      label: "Actual time",
+    });
+  }
+  if (formatFlags.italic) {
+    const sampleText = "12:34";
+    items.push({
+      sampleHtml: `<span class="table-key-sample time-italic" title="Predicted time example" aria-label="Predicted time example">${sampleText}</span>`,
+      label: "Predicted time",
+    });
+  }
+  if (formatFlags.noReport) {
+    items.push({
+      sampleHtml:
+        '<span class="table-key-sample time-italic" title="No report example" aria-label="No report example">12:34?</span>',
+      label: "No realtime report",
+    });
+  }
+  if (formatFlags.strike) {
+    items.push({
+      sampleHtml:
+        '<span class="table-key-sample time-cancelled" title="Cancelled example" aria-label="Cancelled example">12:34</span>',
+      label: "Cancelled",
+    });
+  }
+  if (formatFlags.color) {
+    items.push({
+      sampleHtml:
+        '<span class="table-key-sample table-key-sample--early" title="Early running example" aria-label="Early running example">12:34</span>',
+      label: "Early running",
+    });
+    items.push({
+      sampleHtml:
+        '<span class="table-key-sample table-key-sample--late" title="Late running example" aria-label="Late running example">12:34</span>',
+      label: "Late running",
+    });
+  }
+  if (formatFlags.outOfOrder) {
+    items.push({
+      sampleHtml:
+        '<span class="table-key-sample table-key-sample--out-of-order" title="Out of order example" aria-label="Out of order example">12:34</span>',
+      label: "Out of order",
+    });
+  }
+  if (formatFlags.depBeforeArrival) {
+    items.push({
+      sampleHtml:
+        '<span class="table-key-sample table-key-sample--dep-before" title="Departs before previous arrival example" aria-label="Departs before previous arrival example">12:34</span>',
+      label: "Departs before previous arrival",
+    });
+  }
+
+  keyEl.innerHTML = "";
+  if (items.length === 0) {
+    keyEl.classList.add("is-empty");
+    return;
+  }
+  keyEl.classList.remove("is-empty");
+  const label = document.createElement("span");
+  label.classList.add("table-key-label");
+  label.textContent = "Key:";
+  keyEl.appendChild(label);
+
+  items.forEach((item) => {
+    const wrapper = document.createElement("span");
+    wrapper.classList.add("table-key-item");
+    wrapper.innerHTML = `${item.sampleHtml}<span>${item.label}</span>`;
+    keyEl.appendChild(wrapper);
+  });
+}
+
+function renderCrsKey(model, crsKeyEl) {
+  if (!crsKeyEl) return;
+  const { rows, orderedSvcIndices } = model;
+  const crsMap = new Map();
+  rows.forEach((row) => {
+    if (
+      row.labelStation !== "Comes from" &&
+      row.labelStation !== "Continues to"
+    ) {
+      return;
+    }
+    orderedSvcIndices.forEach((svcIndex) => {
+      const val = row.cells[svcIndex];
+      if (!val) return;
+      const text = typeof val === "object" ? val.text : cellToText(val);
+      const code = (text || "").trim();
+      if (!code) return;
+      if (!crsMap.has(code)) {
+        crsMap.set(code, typeof val === "object" ? val.title || "" : "");
+      }
+    });
+  });
+
+  const entries = Array.from(crsMap.entries()).sort((a, b) =>
+    a[0].localeCompare(b[0]),
+  );
+  crsKeyEl.innerHTML = "";
+  if (entries.length === 0) {
+    crsKeyEl.classList.add("is-empty");
+    return;
+  }
+  crsKeyEl.classList.remove("is-empty");
+  const label = document.createElement("span");
+  label.classList.add("table-key-label");
+  label.textContent = "Station codes:";
+  crsKeyEl.appendChild(label);
+  const lineBreak = document.createElement("span");
+  lineBreak.classList.add("table-key-break");
+  lineBreak.setAttribute("aria-hidden", "true");
+  crsKeyEl.appendChild(lineBreak);
+
+  entries.forEach(([code, title]) => {
+    const item = document.createElement("span");
+    item.classList.add("table-key-item");
+    const labelText = title ? `${code}: ${title}` : code;
+    item.textContent = labelText;
+    if (title) {
+      item.title = labelText;
+      item.setAttribute("aria-label", labelText);
+    } else {
+      item.setAttribute("aria-label", labelText);
+    }
+    crsKeyEl.appendChild(item);
+  });
+}
+
 function renderTimetable(
   model,
   headerRowEl,
   headerIconsRowEl,
   bodyRowsEl,
+  keyEl,
+  crsKeyEl,
 ) {
   const { rows, orderedSvcIndices, servicesMeta } = model;
 
@@ -3977,46 +4263,6 @@ function renderTimetable(
   thStationIcons.textContent = "Facilities"; // blank under "Station"
   headerIconsRowEl.appendChild(thStationIcons);
 
-  function bedSvg() {
-    // simple inline SVG bed icon (currentColor stroke/fill)
-    return `
-<span class="bed-icon" title="Sleeper" aria-label="Sleeper">
-  <svg viewBox="0 0 24 24" role="img" focusable="false" aria-hidden="true">
-    <!-- headboard + left leg (single stroke) -->
-    <path d="M4 6v14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-
-    <!-- mattress -->
-    <path d="M4 12h16a2 2 0 0 1 2 2v4H4z"
-    fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-
-    <!-- pillow (simple) -->
-    <path d="M7 10h4a2 2 0 0 1 2 2H7a2 2 0 0 1-2-2a2 2 0 0 1 2-2z"
-    fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-
-    <!-- right leg at end of mattress -->
-    <path d="M20 20v-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-  </svg>
-</span>
-
-    `;
-  }
-
-  function busSvg() {
-    return `
-<span class="bus-icon" title="Bus service" aria-label="Bus service">
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Bus icon">
-    <rect x="92" y="72" width="328" height="336" rx="72" ry="72" fill="currentColor"/>
-    <rect x="184" y="104" width="144" height="34" rx="8" ry="8" fill="#fff"/>
-    <path d="M152 178 Q152 158 172 158 H340 Q360 158 360 178 V292 Q256 336 152 292 Z" fill="#fff"/>
-    <rect x="154" y="332" width="74" height="34" rx="8" ry="8" fill="#fff"/>
-    <rect x="284" y="332" width="74" height="34" rx="8" ry="8" fill="#fff"/>
-    <rect x="110" y="380" width="72" height="70" rx="14" ry="14" fill="currentColor"/>
-    <rect x="330" y="380" width="72" height="70" rx="14" ry="14" fill="currentColor"/>
-  </svg>
-</span>
-    `;
-  }
-
   orderedSvcIndices.forEach((svcIndex) => {
     const meta = servicesMeta[svcIndex];
 
@@ -4030,10 +4276,10 @@ function renderTimetable(
       );
     }
     if (meta.isSleeper) {
-      icons.push(bedSvg());
+      icons.push(bedSvgMarkup());
     }
     if (meta.isBus) {
-      icons.push(busSvg());
+      icons.push(busSvgMarkup());
     }
 
     th.innerHTML = icons.length
@@ -4112,4 +4358,7 @@ function renderTimetable(
 
     bodyRowsEl.appendChild(tr);
   });
+
+  renderTableKey(model, keyEl);
+  renderCrsKey(model, crsKeyEl);
 }
