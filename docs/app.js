@@ -2549,16 +2549,6 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   sortLogLines.push(`Stations: ${stationLabels.join(" → ")}`);
   sortLogLines.push(`Services: ${numServices}`);
 
-  const arrOnlyHighlights = new Map();
-  const ARR_ONLY_BG_COLOR = "#fce3b0";
-
-  function recordArrOnlyHighlight(serviceIdx, stationIdx) {
-    if (!arrOnlyHighlights.has(serviceIdx)) {
-      arrOnlyHighlights.set(serviceIdx, new Set());
-    }
-    arrOnlyHighlights.get(serviceIdx).add(stationIdx);
-  }
-
   function serviceLabel(serviceIdx) {
     const svc = servicesWithDetails[serviceIdx]?.svc || {};
     const detail = servicesWithDetails[serviceIdx]?.detail || {};
@@ -2795,7 +2785,6 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
             arrOnlyStationIdx: stationIdx,
           })
         ) {
-          recordArrOnlyHighlight(svcIdx, stationIdx);
           orderedSvcIndices.splice(0, orderedSvcIndices.length, ...attemptA);
           remainingServices.splice(idx, 1);
           return true;
@@ -2819,7 +2808,6 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
                 arrOnlyStationIdx: stationIdx,
               })
             ) {
-              recordArrOnlyHighlight(removedSvc, stationIdx);
               orderedSvcIndices.splice(
                 0,
                 orderedSvcIndices.length,
@@ -2843,7 +2831,6 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
                 arrOnlyStationIdx: stationIdx,
               })
             ) {
-              recordArrOnlyHighlight(removedSvc, stationIdx);
               orderedSvcIndices.splice(
                 0,
                 orderedSvcIndices.length,
@@ -2957,6 +2944,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   );
 
   let displayOrderedSvcIndices = orderedSvcIndices.slice();
+  const HIGHLIGHT_OUT_OF_ORDER_COLOR = "#fce3b0";
 
   // --- ATOC code -> display name override (updated LUT) ---
   const ATOC_NAME_BY_CODE = {
@@ -3063,27 +3051,6 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   // as you go down the table, allowing for midnight rollovers.
   checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails);
 
-  if (arrOnlyHighlights.size > 0) {
-    const stationArrRowIdx = new Map();
-    for (let r = 0; r < rowSpecs.length; r++) {
-      const spec = rowSpecs[r];
-      if (spec.kind === "station" && spec.mode === "arr") {
-        stationArrRowIdx.set(spec.stationIndex, r);
-      }
-    }
-
-    arrOnlyHighlights.forEach((stationSet, serviceIdx) => {
-      stationSet.forEach((stationIdx) => {
-        const rowIdx = stationArrRowIdx.get(stationIdx);
-        if (rowIdx === undefined) return;
-        const cell = rows[rowIdx].cells[serviceIdx];
-        if (!cell || typeof cell !== "object") return;
-        cell.format = cell.format || {};
-        cell.format.bgColor = ARR_ONLY_BG_COLOR;
-      });
-    });
-  }
-
   let partialSort = null;
   if (unsortedServices && unsortedServices.length > 0) {
     const spacerIndex = servicesMeta.length;
@@ -3106,6 +3073,36 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     partialSort = {
       unsortedLabels: unsortedLabels || [],
     };
+  }
+
+  const highlightCutoff =
+    unsortedServices && unsortedServices.length > 0
+      ? displayOrderedSvcIndices.indexOf(spacerIndex)
+      : displayOrderedSvcIndices.length;
+
+  for (let r = 0; r < rows.length; r++) {
+    let maxTime = null;
+    for (let colPos = 0; colPos < highlightCutoff; colPos++) {
+      const svcIndex = displayOrderedSvcIndices[colPos];
+      const value = rows[r].cells[svcIndex];
+      const timeText = cellToText(value);
+      if (!timeText) continue;
+      const mins = timeStrToMinutes(timeText);
+      if (mins === null) continue;
+      if (maxTime === null || mins >= maxTime) {
+        maxTime = mins;
+        continue;
+      }
+      if (value && typeof value === "object") {
+        value.format = value.format || {};
+        value.format.bgColor = HIGHLIGHT_OUT_OF_ORDER_COLOR;
+      } else {
+        rows[r].cells[svcIndex] = {
+          text: timeText,
+          format: { bgColor: HIGHLIGHT_OUT_OF_ORDER_COLOR },
+        };
+      }
+    }
   }
 
   return {
