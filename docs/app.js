@@ -3362,7 +3362,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     serviceIdx,
     orderedSvcIndices,
     options = {},
-    logPrefix = "Resolution pass 0",
+    logPrefix = "Resolution pass 3",
   ) {
     const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
       serviceIdx,
@@ -3408,19 +3408,30 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     );
   }
 
-  function resolveUnboundedServices(remainingServices, orderedSvcIndices) {
-    sortLogLines.push("Resolution pass 0: start");
-    for (let idx = 0; idx < remainingServices.length; idx++) {
-      const svcIdx = remainingServices[idx];
-      if (insertFirstCandidate(svcIdx, orderedSvcIndices)) {
-        remainingServices.splice(idx, 1);
-        return true;
-      }
-    }
+  function hasMultipleCandidatePositions(
+    serviceIdx,
+    orderedSvcIndices,
+    options = {},
+  ) {
+    const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
+      serviceIdx,
+      orderedSvcIndices,
+      { ...options, logEnabled: false },
+    );
+    const maxPos = orderedSvcIndices.length;
+    const candidateStart = hasConstraint ? lowerBound : 0;
+    const candidateEnd = hasConstraint ? upperBound : maxPos;
+    if (candidateEnd < candidateStart) return false;
+    return candidateEnd - candidateStart + 1 > 1;
+  }
 
+  function resolveUnboundedServices(remainingServices, orderedSvcIndices) {
     sortLogLines.push("Resolution pass 1: start");
     for (let idx = 0; idx < remainingServices.length; idx++) {
       const svcIdx = remainingServices[idx];
+      if (hasMultipleCandidatePositions(svcIdx, orderedSvcIndices)) {
+        continue;
+      }
       sortLogLines.push(
         `Resolution pass 1: evaluating ${serviceLabel(svcIdx)} for arr-only fixes`,
       );
@@ -3441,15 +3452,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         const attemptAInserted = attemptInsertService(svcIdx, attemptA, {
           arrOnlyStationIdx: stationIdx,
         });
-        if (
-          attemptAInserted ||
-          insertFirstCandidate(
-            svcIdx,
-            attemptA,
-            { arrOnlyStationIdx: stationIdx },
-            "Resolution pass 1",
-          )
-        ) {
+        if (attemptAInserted) {
           orderedSvcIndices.splice(0, orderedSvcIndices.length, ...attemptA);
           remainingServices.splice(idx, 1);
           return true;
@@ -3468,10 +3471,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           const attemptB = orderedSvcIndices.slice();
           const [removedSvc] = attemptB.splice(lastPos, 1);
           const attemptBInserted = attemptInsertService(svcIdx, attemptB);
-          if (
-            attemptBInserted ||
-            insertFirstCandidate(svcIdx, attemptB, {}, "Resolution pass 1")
-          ) {
+          if (attemptBInserted) {
             if (
               attemptInsertService(removedSvc, attemptB, {
                 arrOnlyStationIdx: stationIdx,
@@ -3495,10 +3495,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           const attemptC = orderedSvcIndices.slice();
           const [removedSvc] = attemptC.splice(firstPos, 1);
           const attemptCInserted = attemptInsertService(svcIdx, attemptC);
-          if (
-            attemptCInserted ||
-            insertFirstCandidate(svcIdx, attemptC, {}, "Resolution pass 1")
-          ) {
+          if (attemptCInserted) {
             if (
               attemptInsertService(removedSvc, attemptC, {
                 arrOnlyStationIdx: stationIdx,
@@ -3534,6 +3531,9 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     sortLogLines.push("Resolution pass 2: start");
     for (let idx = 0; idx < remainingServices.length; idx++) {
       const svcIdx = remainingServices[idx];
+      if (hasMultipleCandidatePositions(svcIdx, orderedSvcIndices)) {
+        continue;
+      }
       sortLogLines.push(
         `Resolution pass 2: evaluating ${serviceLabel(svcIdx)} for ignore-value fixes`,
       );
@@ -3555,18 +3555,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
             arrOnlyStationIdx: stationIdx,
             ignoreFromStationIdx: stationIdx + 1,
           });
-          if (
-            attemptDepInserted ||
-            insertFirstCandidate(
-              svcIdx,
-              attemptDep,
-              {
-                arrOnlyStationIdx: stationIdx,
-                ignoreFromStationIdx: stationIdx + 1,
-              },
-              "Resolution pass 2",
-            )
-          ) {
+          if (attemptDepInserted) {
             orderedSvcIndices.splice(
               0,
               orderedSvcIndices.length,
@@ -3575,10 +3564,6 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
             remainingServices.splice(idx, 1);
             return true;
           }
-          logNoStrictBounds(svcIdx, attemptDep, {
-            arrOnlyStationIdx: stationIdx,
-            ignoreFromStationIdx: stationIdx + 1,
-          });
         }
 
         if (t.arrMins !== null) {
@@ -3594,18 +3579,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
               ignoreStationIdx: stationIdx,
             },
           );
-          if (
-            attemptArrDepInserted ||
-            insertFirstCandidate(
-              svcIdx,
-              attemptArrDep,
-              {
-                ignoreFromStationIdx: stationIdx + 1,
-                ignoreStationIdx: stationIdx,
-              },
-              "Resolution pass 2",
-            )
-          ) {
+          if (attemptArrDepInserted) {
             orderedSvcIndices.splice(
               0,
               orderedSvcIndices.length,
@@ -3614,10 +3588,6 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
             remainingServices.splice(idx, 1);
             return true;
           }
-          logNoStrictBounds(svcIdx, attemptArrDep, {
-            ignoreFromStationIdx: stationIdx + 1,
-            ignoreStationIdx: stationIdx,
-          });
         }
       }
 
@@ -3629,6 +3599,33 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     }
 
     sortLogLines.push("Resolution pass 2: no resolution found");
+    return false;
+  }
+
+  function resolveUnboundedServicesWithMultipleCandidates(
+    remainingServices,
+    orderedSvcIndices,
+  ) {
+    if (
+      !remainingServices.every((svcIdx) =>
+        hasMultipleCandidatePositions(svcIdx, orderedSvcIndices),
+      )
+    ) {
+      return false;
+    }
+
+    sortLogLines.push("Resolution pass 3: start");
+    for (let idx = 0; idx < remainingServices.length; idx++) {
+      const svcIdx = remainingServices[idx];
+      if (
+        insertFirstCandidate(svcIdx, orderedSvcIndices, {}, "Resolution pass 3")
+      ) {
+        remainingServices.splice(idx, 1);
+        return true;
+      }
+    }
+
+    sortLogLines.push("Resolution pass 3: no resolution found");
     return false;
   }
 
@@ -3699,6 +3696,14 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         orderedSvcIndices,
       );
       if (resolvedSecondPass) {
+        rotationsWithoutInsert = 0;
+        continue;
+      }
+      const resolvedThirdPass = resolveUnboundedServicesWithMultipleCandidates(
+        remainingServices,
+        orderedSvcIndices,
+      );
+      if (resolvedThirdPass) {
         rotationsWithoutInsert = 0;
         continue;
       }
