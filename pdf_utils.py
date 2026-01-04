@@ -189,11 +189,12 @@ def _build_key_table(items, available_width, style, icon_size, cols=3, gap=10):
     key_table.setStyle(
         TableStyle(
             [
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 0),
                 ("RIGHTPADDING", (0, 0), (-1, -1), gap),
                 ("TOPPADDING", (0, 0), (-1, -1), 0),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ]
         )
     )
@@ -517,10 +518,10 @@ def build_timetable_pdf(tables, meta=None):
                 ("ALIGN", (0, 0), (0, -1), "RIGHT"),
                 ("LINEBEFORE", (0, 0), (-1, -1), line_width, line_color),
                 ("LINEAFTER", (0, 0), (-1, -1), line_width, line_color),
-                ("LEFTPADDING", (0, 0), (-1, -1), 1),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 1),
-                ("TOPPADDING", (0, 0), (-1, -1), 1),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+                ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
             ]
 
             if len(rows) >= 1:
