@@ -2815,11 +2815,16 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     sortLogLines.push("Resolution pass 1: start");
     for (let idx = 0; idx < remainingServices.length; idx++) {
       const svcIdx = remainingServices[idx];
+      sortLogLines.push(
+        `Resolution pass 1: evaluating ${serviceLabel(svcIdx)} for arr-only fixes`,
+      );
+      let attemptedStation = false;
 
       for (let stationIdx = numStations - 1; stationIdx >= 0; stationIdx--) {
         if (stationModes[stationIdx] !== "two") continue;
         const t = stationTimes[stationIdx][svcIdx];
         if (!t || t.arrMins === null) continue;
+        attemptedStation = true;
 
         sortLogLines.push(
           `Resolution attempt for ${serviceLabel(svcIdx)} at ${stationLabels[stationIdx] || `station#${stationIdx}`} (arr-only station, scan backwards)`,
@@ -2889,6 +2894,12 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           }
         }
       }
+
+      if (!attemptedStation) {
+        sortLogLines.push(
+          `Resolution pass 1: no eligible arr-only stations for ${serviceLabel(svcIdx)}`,
+        );
+      }
     }
 
     sortLogLines.push("Resolution pass 1: no resolution found");
@@ -2902,11 +2913,16 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     sortLogLines.push("Resolution pass 2: start");
     for (let idx = 0; idx < remainingServices.length; idx++) {
       const svcIdx = remainingServices[idx];
+      sortLogLines.push(
+        `Resolution pass 2: evaluating ${serviceLabel(svcIdx)} for ignore-value fixes`,
+      );
+      let attemptedStation = false;
 
       for (let stationIdx = numStations - 1; stationIdx >= 0; stationIdx--) {
         if (stationModes[stationIdx] !== "two") continue;
         const t = stationTimes[stationIdx][svcIdx];
         if (!t) continue;
+        attemptedStation = true;
 
         const stationName =
           stationLabels[stationIdx] || `station#${stationIdx}`;
@@ -2949,6 +2965,12 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
             return true;
           }
         }
+      }
+
+      if (!attemptedStation) {
+        sortLogLines.push(
+          `Resolution pass 2: no eligible stations for ${serviceLabel(svcIdx)}`,
+        );
       }
     }
 
