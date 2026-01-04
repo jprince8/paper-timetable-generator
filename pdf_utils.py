@@ -89,7 +89,7 @@ def _strip_markup(text):
     return re.sub(r"<[^>]+>", "", text or "")
 
 
-def _build_key_item(icon, label, style, icon_size, gap=2):
+def _build_key_item(icon, label, style, icon_size, gap=4):
     label_text = _strip_markup(label)
     label_width = pdfmetrics.stringWidth(
         label_text, style.fontName, style.fontSize
@@ -108,7 +108,8 @@ def _build_key_item(icon, label, style, icon_size, gap=2):
             [
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (0, 0), gap),
+                ("RIGHTPADDING", (1, 0), (1, 0), 0),
                 ("TOPPADDING", (0, 0), (-1, -1), 0),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
             ]
@@ -117,44 +118,52 @@ def _build_key_item(icon, label, style, icon_size, gap=2):
     return item_table, icon_size + gap + label_width
 
 
-def _build_key_table(items, available_width, style, icon_size, gap=6):
+def _build_key_table(items, available_width, style, icon_size, gap=10):
     if not items:
-        return None, 0
+        return [], 0
     rows = []
+    row_widths = []
     current_row = []
+    current_widths = []
     current_width = 0
-    max_cols = 0
 
     for icon, label in items:
         flowable, width = _build_key_item(icon, label, style, icon_size)
-        if current_row and current_width + width + gap > available_width:
+        next_width = width if not current_row else width + gap
+        if current_row and current_width + next_width > available_width:
             rows.append(current_row)
-            max_cols = max(max_cols, len(current_row))
+            row_widths.append(current_widths)
             current_row = []
+            current_widths = []
             current_width = 0
+            next_width = width
         current_row.append(flowable)
-        current_width += width + gap
+        current_widths.append(width)
+        current_width += next_width
 
     if current_row:
         rows.append(current_row)
-        max_cols = max(max_cols, len(current_row))
+        row_widths.append(current_widths)
 
-    padded_rows = [
-        row + [""] * (max_cols - len(row)) for row in rows
-    ]
-    key_table = Table(padded_rows, hAlign="LEFT")
-    key_table.setStyle(
-        TableStyle(
-            [
-                ("LEFTPADDING", (0, 0), (-1, -1), 2),
-                ("RIGHTPADDING", (0, 0), (-1, -1), gap),
-                ("TOPPADDING", (0, 0), (-1, -1), 2),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ]
+    row_tables = []
+    total_height = 0
+    for row, widths in zip(rows, row_widths):
+        row_table = Table([row], colWidths=widths, hAlign="LEFT")
+        row_table.setStyle(
+            TableStyle(
+                [
+                    ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), gap),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ]
+            )
         )
-    )
-    return key_table, key_table.wrap(available_width, 0)[1]
+        row_tables.append(row_table)
+        total_height += row_table.wrap(available_width, 0)[1]
+
+    return row_tables, total_height
 
 
 def _split_columns(widths, available_width):
@@ -383,12 +392,12 @@ def build_timetable_pdf(tables, meta=None):
                 title_height = 0
 
             key_label_para = None
-            key_table = None
+            key_tables = []
             key_height = 0
             if key_items:
                 key_label_para = Paragraph("Key:", key_label_style)
                 key_label_height = key_label_para.wrap(doc.width, doc.height)[1]
-                key_table, key_table_height = _build_key_table(
+                key_tables, key_table_height = _build_key_table(
                     key_items, doc.width, key_style, icon_size
                 )
                 key_height = key_label_height + key_table_height
@@ -409,17 +418,22 @@ def build_timetable_pdf(tables, meta=None):
                         if code not in crs_codes:
                             crs_codes[code] = title
             crs_para = None
+            crs_label_para = None
             crs_height = 0
             if crs_codes:
                 sorted_codes = sorted(crs_codes.items(), key=lambda item: item[0])
-                crs_list = " \u2022 ".join(
+                crs_list = "&nbsp;&nbsp;\u2022&nbsp;&nbsp;".join(
                     [
                         f"{code}: {title}" if title else code
                         for code, title in sorted_codes
                     ]
                 )
-                crs_para = Paragraph(f"Station codes:<br/>{crs_list}", key_style)
-                crs_height = crs_para.wrap(doc.width, doc.height)[1]
+                crs_label_para = Paragraph("Station codes:", key_label_style)
+                crs_label_height = crs_label_para.wrap(doc.width, doc.height)[1]
+                crs_para = Paragraph(crs_list, key_style)
+                crs_height = (
+                    crs_label_height + crs_para.wrap(doc.width, doc.height)[1] + 4
+                )
 
             pdf_table = Table(data, colWidths=chunk_widths, repeatRows=1, hAlign="LEFT")
             line_color = colors.grey
@@ -495,11 +509,13 @@ def build_timetable_pdf(tables, meta=None):
             )
             if title_para:
                 elements.append(title_para)
-            if key_label_para and key_table:
+            if key_label_para and key_tables:
                 elements.append(key_label_para)
-                elements.append(key_table)
+                elements.extend(key_tables)
             elements.append(pdf_table)
-            if crs_para:
+            if crs_label_para and crs_para:
+                elements.append(Spacer(1, 4))
+                elements.append(crs_label_para)
                 elements.append(crs_para)
             elements.append(Spacer(1, spacer_height))
 
