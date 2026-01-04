@@ -56,6 +56,8 @@ def _load_svg_icon(path, size):
         return drawing
     scale = size / max(drawing.width, drawing.height)
     drawing.scale(scale, scale)
+    drawing.width *= scale
+    drawing.height *= scale
     return drawing
 
 
