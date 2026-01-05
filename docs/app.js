@@ -190,6 +190,7 @@ const realtimeBtn = document.getElementById("realtimeBtn");
 const platformBtn = document.getElementById("platformBtn");
 const nowBtn = document.getElementById("nowBtn");
 const PLATFORM_TOGGLE_STORAGE_KEY = "corridor_showPlatforms";
+const REALTIME_TOGGLE_STORAGE_KEY = "corridor_showRealtime";
 
 // === Mutable state ===
 const viaFields = [];
@@ -203,6 +204,7 @@ let lastTimetableContext = null;
 let lastSortLog = "";
 let realtimeEnabled = false;
 let realtimeAvailable = false;
+let realtimePreferred = false;
 let showPlatformsEnabled = false;
 let platformAvailable = false;
 let buildAbortController = null;
@@ -263,22 +265,29 @@ if (nowBtn) {
   });
 }
 
-function setRealtimeToggleState({ enabled, active }) {
+function setRealtimeToggleState({ enabled, active }, { persist = false } = {}) {
   realtimeAvailable = enabled;
   realtimeEnabled = enabled && active;
   if (!realtimeBtn) return;
   realtimeBtn.disabled = !enabled;
   realtimeBtn.classList.toggle("is-active", realtimeEnabled);
   realtimeBtn.setAttribute("aria-pressed", realtimeEnabled ? "true" : "false");
+  if (persist && window.localStorage) {
+    localStorage.setItem(
+      REALTIME_TOGGLE_STORAGE_KEY,
+      realtimeEnabled ? "true" : "false",
+    );
+  }
 }
 
 if (realtimeBtn) {
   realtimeBtn.addEventListener("click", () => {
     if (realtimeBtn.disabled) return;
+    realtimePreferred = !realtimeEnabled;
     setRealtimeToggleState({
       enabled: realtimeAvailable,
-      active: !realtimeEnabled,
-    });
+      active: realtimePreferred,
+    }, { persist: true });
     if (lastTimetableContext) {
       renderTimetablesFromContext(lastTimetableContext);
     }
@@ -634,6 +643,8 @@ function loadSavedInputsFromStorage() {
   const viasStr = localStorage.getItem("corridor_vias") || "";
   const showPlatformsRaw =
     localStorage.getItem(PLATFORM_TOGGLE_STORAGE_KEY) || "";
+  const realtimeRaw =
+    localStorage.getItem(REALTIME_TOGGLE_STORAGE_KEY) || "";
 
   if (from) {
     fromField.crsInput.value = normaliseCrs(from);
@@ -646,6 +657,9 @@ function loadSavedInputsFromStorage() {
   if (end) document.getElementById("endTime").value = end;
   if (showPlatformsRaw) {
     setPlatformToggleState(showPlatformsRaw === "true", { persist: false });
+  }
+  if (realtimeRaw) {
+    realtimePreferred = realtimeRaw === "true";
   }
 
   // Default to NO vias on first run.
@@ -723,6 +737,11 @@ if (new URLSearchParams(window.location.search).size > 0) {
     localStorage.getItem(PLATFORM_TOGGLE_STORAGE_KEY) || "";
   if (showPlatformsRaw) {
     setPlatformToggleState(showPlatformsRaw === "true", { persist: false });
+  }
+  const realtimeRaw =
+    localStorage.getItem(REALTIME_TOGGLE_STORAGE_KEY) || "";
+  if (realtimeRaw) {
+    realtimePreferred = realtimeRaw === "true";
   }
 }
 hydratePrefilledStations().then(() => {
@@ -2086,7 +2105,10 @@ form.addEventListener("submit", async (e) => {
   const hasRealtimeServices =
     servicesAB.some((entry) => entry.detail?.realtimeActivated === true) ||
     servicesBA.some((entry) => entry.detail?.realtimeActivated === true);
-  setRealtimeToggleState({ enabled: hasRealtimeServices, active: false });
+  setRealtimeToggleState({
+    enabled: hasRealtimeServices,
+    active: hasRealtimeServices && realtimePreferred,
+  });
 
   lastTimetableContext = {
     stations,
