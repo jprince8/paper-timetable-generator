@@ -619,8 +619,20 @@ function buildTimetableModel(
       line2 = `${originText} → ${destText}`;
     }
 
-    const tooltip =
+    let tooltip =
       line2 && line1 ? `${line1}\n${line2}` : line1 || line2 || visible;
+
+    const connectionMode = detail.connectionMode || "";
+    if (connectionMode) {
+      const locs = detail.locations || [];
+      const fromLoc = locs[0] || {};
+      const toLoc = locs[locs.length - 1] || {};
+      const fromLabel = detail.connectionFromLabel || fromLoc.crs || "";
+      const toLabel = detail.connectionToLabel || toLoc.crs || "";
+      const depTime = padTime(fromLoc.gbttBookedDeparture || "");
+      const arrTime = padTime(toLoc.gbttBookedArrival || "");
+      tooltip = `${connectionMode} connection\n${fromLabel} ${depTime} -> ${toLabel} ${arrTime}`;
+    }
 
     const tc = (detail.trainClass || "").trim();
     const passenger =

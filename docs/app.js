@@ -1486,6 +1486,28 @@ form.addEventListener("submit", async (e) => {
   // Full corridor chain including vias
   const corridorStations = [from, ...viaValues, to];
   const corridorSet = new Set(corridorStations.filter(Boolean));
+  const fromToSet = new Set([from, to].filter(Boolean));
+  const stationLabelByCrs = {};
+  stationLabelByCrs[from] = resolveInputStationLabel(
+    from,
+    fromStationInput.value,
+    from,
+  );
+  stationLabelByCrs[to] = resolveInputStationLabel(
+    to,
+    toStationInput.value,
+    to,
+  );
+  viaValues.forEach((crs) => {
+    const viaField = viaFields.find(
+      (field) => normaliseCrs(field.crsInput.value) === crs,
+    );
+    stationLabelByCrs[crs] = resolveInputStationLabel(
+      crs,
+      viaField?.textInput?.value,
+      crs,
+    );
+  });
 
   const corridorPaths = buildCorridorPaths(from, to, viaEntries);
   const corridorLegs = buildCorridorLegs(corridorPaths);
@@ -1731,6 +1753,7 @@ form.addEventListener("submit", async (e) => {
   const stations = buildStationsUnion(
     corridorStations,
     okCorridorDetails,
+    stationLabelByCrs,
   );
   if (stations.length === 0) {
     setStatus(
@@ -1992,6 +2015,9 @@ form.addEventListener("submit", async (e) => {
   const connectionEntries = buildConnectionServiceEntries(
     allDetails,
     corridorSet,
+    stationLabelByCrs,
+    fromToSet,
+    { startMinutes, endMinutes },
   );
   console.info(
     "Connection summary: generated",
@@ -2255,15 +2281,118 @@ function locationTimeMinutes(loc) {
 function buildConnectionServiceEntries(
   entries,
   corridorSet,
+  stationLabelByCrs,
+  fromToSet,
+  timeRange,
   bufferMinutes = 5,
 ) {
   const generated = [];
   const seen = new Set();
   let loggedCorridorSkips = 0;
   let loggedTerminalSkips = 0;
+  const connectionStations = new Set(Object.keys(connectionsByStation || {}));
+
+  const rangeStart = timeRange?.startMinutes ?? null;
+  const rangeEnd = timeRange?.endMinutes ?? null;
+
+  function inRange(mins) {
+    if (mins === null) return false;
+    if (rangeStart !== null && mins < rangeStart) return false;
+    if (rangeEnd !== null && mins > rangeEnd) return false;
+    return true;
+  }
+
+  function buildConnectionEntry({
+    fromCrs,
+    toCrs,
+    departMins,
+    arriveMins,
+    durationMinutes,
+    mode,
+    cancelled,
+    baseKey,
+    runDate,
+  }) {
+    if (!inRange(departMins) || !inRange(arriveMins)) {
+      if (loggedCorridorSkips < 5) {
+        console.info(
+          "Connection skip: connection time outside range",
+          fromCrs,
+          toCrs,
+          minutesToTimeStr(departMins),
+          minutesToTimeStr(arriveMins),
+        );
+        loggedCorridorSkips += 1;
+      }
+      return;
+    }
+    const departTime = minutesToRttTime(departMins);
+    const arriveTime = minutesToRttTime(arriveMins);
+    const modeLower = mode.toLowerCase();
+    const isUnderground = modeLower.includes("underground");
+    const atocCode = modeLower === "walk" ? "W" : isUnderground ? "U" : "U";
+    const connectionModeLabel = modeLower === "walk" ? "Walking" : "Underground";
+    const uniqueKey = [
+      baseKey,
+      runDate,
+      fromCrs,
+      toCrs,
+      departTime,
+    ].join("|");
+    if (seen.has(uniqueKey)) return;
+    seen.add(uniqueKey);
+    const displayAs = cancelled ? "CANCELLED_CALL" : "CALL";
+    const svc = {
+      serviceUid: `CONN-${baseKey}-${fromCrs}-${toCrs}-${departTime}`,
+      runDate,
+      atocCode,
+      serviceType: modeLower === "walk" ? "walk" : "connection",
+      isPassenger: true,
+      trainClass: "S",
+    };
+    const detail = {
+      runDate,
+      serviceType: modeLower === "walk" ? "walk" : "connection",
+      trainClass: "S",
+      isPassenger: true,
+      connectionMode: connectionModeLabel,
+      connectionFromLabel: stationLabelByCrs[fromCrs] || fromCrs,
+      connectionToLabel: stationLabelByCrs[toCrs] || toCrs,
+      locations: [
+        {
+          crs: fromCrs,
+          gbttBookedDeparture: departTime,
+          displayAs,
+          isPublicCall: true,
+        },
+        {
+          crs: toCrs,
+          gbttBookedArrival: arriveTime,
+          displayAs,
+          isPublicCall: true,
+        },
+      ],
+    };
+    console.info(
+      "Connection generated",
+      fromCrs,
+      "->",
+      toCrs,
+      `${minutesToTimeStr(departMins)} +${durationMinutes}m`,
+    );
+    generated.push({ svc, detail, seed: false, isConnection: true });
+  }
 
   entries.forEach((entry) => {
     if (!entry?.detail || !Array.isArray(entry.detail.locations)) return;
+    const locByCrs = new Map();
+    entry.detail.locations.forEach((loc) => {
+      const crs = normaliseCrs(loc?.crs || "");
+      if (!crs || !isCallingLocation(loc)) return;
+      if (!locByCrs.has(crs)) {
+        locByCrs.set(crs, loc);
+      }
+    });
     const { last, previous } = getLastCallingPair(entry.detail);
     const terminalCrs = normaliseCrs(last?.crs || "");
     if (!terminalCrs) {
@@ -2299,6 +2428,7 @@ function buildConnectionServiceEntries(
       );
       return;
     }
+    const terminalCancelled = /CANCELLED/i.test(last?.displayAs || "");
 
     terminalEntries.forEach((terminalEntry) => {
       if (!matchConnectionEntry(terminalEntry, previousCrs)) {
@@ -2351,13 +2481,7 @@ function buildConnectionServiceEntries(
           }
           const departMins = arrivalMins + bufferMinutes;
           const arriveMins = departMins + durationMinutes;
-          const departTime = minutesToRttTime(departMins);
-          const arriveTime = minutesToRttTime(arriveMins);
           const mode = meta.mode || "walk";
-          const modeLower = mode.toLowerCase();
-          const atocCode = modeLower === "walk" ? "W" : "U";
-          const atocName =
-            modeLower === "walk" ? "Walk" : mode || "Connection";
           const runDate =
             entry.svc?.runDate ||
             entry.detail?.runDate ||
@@ -2368,51 +2492,68 @@ function buildConnectionServiceEntries(
             entry.svc?.originalServiceUid ||
             entry.svc?.trainIdentity ||
             "CONN";
-          const uniqueKey = [
-            baseUid,
+          buildConnectionEntry({
+            fromCrs: terminalCrs,
+            toCrs: destCrs,
+            departMins,
+            arriveMins,
+            durationMinutes,
+            mode,
+            cancelled: terminalCancelled,
+            baseKey: baseUid,
             runDate,
-            terminalCrs,
-            destCrs,
-            departTime,
-          ].join("|");
-          if (seen.has(uniqueKey)) return;
-          seen.add(uniqueKey);
-          const svc = {
-            serviceUid: `CONN-${baseUid}-${terminalCrs}-${destCrs}-${departTime}`,
-            runDate,
-            atocCode,
-            atocName,
-            serviceType: modeLower === "walk" ? "walk" : "connection",
-            isPassenger: true,
-          };
-          const detail = {
-            runDate,
-            serviceType: modeLower === "walk" ? "walk" : "connection",
-            locations: [
-              {
-                crs: terminalCrs,
-                gbttBookedDeparture: departTime,
-                displayAs: "CALL",
-                isPublicCall: true,
-              },
-              {
-                crs: destCrs,
-                gbttBookedArrival: arriveTime,
-                displayAs: "CALL",
-                isPublicCall: true,
-              },
-            ],
-          };
-          console.info(
-            "Connection generated",
-            terminalCrs,
-            "->",
-            destCrs,
-            `${minutesToTimeStr(departMins)} +${durationMinutes}m`,
-          );
-          generated.push({ svc, detail, seed: false, isConnection: true });
+          });
         },
       );
+    });
+
+    locByCrs.forEach((loc, stationCrs) => {
+      if (!corridorSet.has(stationCrs)) return;
+      if (!connectionStations.has(stationCrs)) return;
+      const depMins = rttTimeToMinutes(loc.gbttBookedDeparture);
+      if (depMins === null) return;
+      const stationConnections = getConnectionEntriesForStation(stationCrs);
+      if (!stationConnections.length) return;
+      const cancelled = /CANCELLED/i.test(loc?.displayAs || "");
+      const runDate =
+        entry.svc?.runDate ||
+        entry.detail?.runDate ||
+        entry.detail?.date ||
+        "";
+      const baseUid =
+        entry.svc?.serviceUid ||
+        entry.svc?.originalServiceUid ||
+        entry.svc?.trainIdentity ||
+        "CONN";
+      stationConnections.forEach((stationEntry) => {
+        Object.entries(stationEntry.connections || {}).forEach(
+          ([destCrsRaw, meta]) => {
+            const destCrs = normaliseCrs(destCrsRaw);
+            if (!destCrs || !corridorSet.has(destCrs)) return;
+            if (
+              !fromToSet.has(stationCrs) &&
+              !fromToSet.has(destCrs)
+            ) {
+              return;
+            }
+            const durationMinutes = meta.durationMinutes;
+            if (!durationMinutes) return;
+            const arriveMins = depMins - bufferMinutes;
+            const departMins = arriveMins - durationMinutes;
+            buildConnectionEntry({
+              fromCrs: destCrs,
+              toCrs: stationCrs,
+              departMins,
+              arriveMins,
+              durationMinutes,
+              mode: meta.mode || "walk",
+              cancelled,
+              baseKey: `REV-${baseUid}`,
+              runDate,
+            });
+          },
+        );
+      });
     });
   });
 
@@ -2421,7 +2562,11 @@ function buildConnectionServiceEntries(
 
 // Build station union over a possibly multi-via corridor.
 // corridorStations is e.g. ["SHR", "VIA1", "VIA2", "WRX"].
-function buildStationsUnion(corridorStations, servicesWithDetails) {
+function buildStationsUnion(
+  corridorStations,
+  servicesWithDetails,
+  stationLabelByCrs = {},
+) {
   const stationMap = {};
   const corridorIndex = {};
   const orderedCrs = [];
@@ -2455,7 +2600,7 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
 
   corridorStations.forEach((crs) => {
     if (!crs) return;
-    addStation(crs, "", crs);
+    addStation(crs, "", stationLabelByCrs[crs] || crs);
     if (!orderedCrs.includes(crs)) {
       orderedCrs.push(crs);
     }
