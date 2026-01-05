@@ -1676,10 +1676,11 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
-  let stations = buildStationsUnion(
+  const stationData = collectStationData(
     corridorStations,
     okCorridorDetails,
   );
+  let stations = stationData.stations;
   if (stations.length === 0) {
     setStatus(
       "No stations found between " +
@@ -1933,11 +1934,31 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
-  stations = refineStationOrder(
-    stations,
+  const debugOrderLog = createStationOrderLogger();
+  const stationSetForOrder = {};
+  stations.forEach((station) => {
+    if (station?.crs) stationSetForOrder[station.crs] = true;
+  });
+  const additionalSequences = buildSequencesFromServices(
     allDetails,
-    corridorStations,
+    stationSetForOrder,
+    debugOrderLog,
+    "combined sequence",
   );
+  const combinedSequences = [
+    ...stationData.sequences,
+    ...additionalSequences,
+  ];
+  const orderedCrs = buildStationOrderFromSequences(
+    combinedSequences,
+    stationData.stationMap,
+    stationData.corridorIndex,
+    debugOrderLog,
+  );
+  debugOrderLog("final order", { orderedCrs: [...orderedCrs] });
+  stations = orderedCrs
+    .map((crs) => stationData.stationMap[crs])
+    .filter(Boolean);
 
   // Split into A->B vs B->A, based on order of corridor stations in the calling pattern.
   const split = splitByDirection(allDetails, stations);
@@ -2290,9 +2311,41 @@ function buildStationOrderFromSequences(
   return ordered;
 }
 
+function buildSequencesFromServices(
+  servicesWithDetails,
+  stationSet,
+  debugOrderLog,
+  label,
+) {
+  const sequences = [];
+  servicesWithDetails.forEach(({ detail }) => {
+    const locs = detail.locations || [];
+    if (!locs.length) return;
+    const sequence = [];
+
+    for (const loc of locs) {
+      const disp = (loc.displayAs || "").toUpperCase();
+      if (disp === "PASS" || disp === "CANCELLED_PASS") continue;
+      const crs = loc.crs || "";
+      if (!stationSet[crs]) continue;
+      if (sequence.length === 0 || sequence[sequence.length - 1] !== crs) {
+        sequence.push(crs);
+      }
+    }
+
+    if (sequence.length >= 2) {
+      sequences.push(sequence);
+      if (label) {
+        debugOrderLog(label, { sequence: [...sequence] });
+      }
+    }
+  });
+  return sequences;
+}
+
 // Build station union over a possibly multi-via corridor.
 // corridorStations is e.g. ["SHR", "VIA1", "VIA2", "WRX"].
-function buildStationsUnion(corridorStations, servicesWithDetails) {
+function collectStationData(corridorStations, servicesWithDetails) {
   const stationMap = {};
   const corridorIndex = {};
   const sequences = [];
@@ -2374,71 +2427,8 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
     }
   });
 
-  const orderedCrs = buildStationOrderFromSequences(
-    sequences,
-    stationMap,
-    corridorIndex,
-    debugOrderLog,
-  );
-  debugOrderLog("final order", { orderedCrs: [...orderedCrs] });
-  return orderedCrs.map((crs) => stationMap[crs]).filter(Boolean);
-}
-
-function refineStationOrder(
-  stations,
-  servicesWithDetails,
-  corridorStations,
-) {
-  const stationMap = {};
-  const stationSet = {};
-  const corridorIndex = {};
-  const sequences = [];
-  const debugOrderLog = createStationOrderLogger();
-
-  stations.forEach((station) => {
-    if (!station?.crs) return;
-    stationMap[station.crs] = station;
-    stationSet[station.crs] = true;
-  });
-
-  corridorStations.forEach((crs, idx) => {
-    if (crs) corridorIndex[crs] = idx;
-  });
-
-  servicesWithDetails.forEach(({ detail }) => {
-    const locs = detail.locations || [];
-    if (!locs.length) return;
-    const sequence = [];
-
-    for (const loc of locs) {
-      const disp = (loc.displayAs || "").toUpperCase();
-      if (disp === "PASS" || disp === "CANCELLED_PASS") continue;
-      const crs = loc.crs || "";
-      if (!stationSet[crs]) continue;
-      if (sequence.length === 0 || sequence[sequence.length - 1] !== crs) {
-        sequence.push(crs);
-      }
-    }
-
-    if (sequence.length >= 2) {
-      sequences.push(sequence);
-      debugOrderLog("refine sequence", { sequence: [...sequence] });
-    }
-  });
-
-  if (sequences.length === 0) {
-    debugOrderLog("refine skipped", { reason: "no sequences" });
-    return stations;
-  }
-
-  const orderedCrs = buildStationOrderFromSequences(
-    sequences,
-    stationMap,
-    corridorIndex,
-    debugOrderLog,
-  );
-  debugOrderLog("refined order", { orderedCrs: [...orderedCrs] });
-  return orderedCrs.map((crs) => stationMap[crs]).filter(Boolean);
+  const stations = Object.values(stationMap);
+  return { stations, stationMap, corridorIndex, sequences };
 }
 
 function splitByDirection(servicesWithDetails, stations) {
