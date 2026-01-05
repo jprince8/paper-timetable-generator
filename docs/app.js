@@ -1894,10 +1894,7 @@ form.addEventListener("submit", async (e) => {
   const splitCandidateEntries = [];
   for (const entry of candidateMap.values()) {
     splitCandidateEntries.push(
-      ...splitServiceEntries([entry], corridorStations, {
-        splitStations,
-        stationSet,
-      }).entries,
+      ...splitServiceEntries([entry], corridorStations).entries,
     );
   }
   const dedupedCandidateEntries =
@@ -1968,13 +1965,32 @@ form.addEventListener("submit", async (e) => {
   additionalSequences.forEach((sequence) => {
     const indices = sequence.map((crs) => orderedCrs.indexOf(crs));
     if (isSequenceMonotonic(indices)) return;
-    const selection = pickBestSequenceDirection(sequence, indices);
-    conflictingSequences.push(selection.sequence);
-    stationOrderLogger.log("conflict sequence", {
+    const splitResult = splitSequenceAtStations(
       sequence,
-      direction: selection.direction,
-      forwardScore: selection.forwardScore,
-      reverseScore: selection.reverseScore,
+      splitStations,
+    );
+    if (splitResult.split) {
+      stationOrderLogger.log("split conflict sequence", {
+        sequence,
+        splitSequences: splitResult.sequences,
+      });
+    }
+    splitResult.sequences.forEach((splitSequence) => {
+      const splitIndices = splitSequence.map((crs) =>
+        orderedCrs.indexOf(crs),
+      );
+      if (isSequenceMonotonic(splitIndices)) return;
+      const selection = pickBestSequenceDirection(
+        splitSequence,
+        splitIndices,
+      );
+      conflictingSequences.push(selection.sequence);
+      stationOrderLogger.log("conflict sequence", {
+        sequence: splitSequence,
+        direction: selection.direction,
+        forwardScore: selection.forwardScore,
+        reverseScore: selection.reverseScore,
+      });
     });
   });
 
@@ -2059,16 +2075,10 @@ form.addEventListener("submit", async (e) => {
   }
 });
 
-function splitServiceEntries(
-  entries,
-  corridorStations = [],
-  options = {},
-) {
+function splitServiceEntries(entries, corridorStations = []) {
   const corridorSet = new Set(corridorStations.filter(Boolean));
   const splitEntries = [];
   const splitStations = new Set();
-  const stationSet = options.stationSet || {};
-  const splitStationCandidates = options.splitStations || new Set();
   entries.forEach((entry) => {
     if (!entry?.detail || !Array.isArray(entry.detail.locations)) {
       splitEntries.push(entry);
@@ -2082,29 +2092,17 @@ function splitServiceEntries(
       entry.detail.locations,
       corridorSet,
     );
-    const stationSplitIndex =
-      splitIndex === null
-        ? findSplitStationIndex(
-            entry.detail.locations,
-            splitStationCandidates,
-            stationSet,
-          )
-        : null;
-    const finalSplitIndex =
-      splitIndex === null ? stationSplitIndex : splitIndex;
-    if (finalSplitIndex === null) {
+    if (splitIndex === null) {
       splitEntries.push(entry);
       return;
     }
     const locations = entry.detail.locations;
-    if (splitIndex !== null) {
-      const splitCrs = locations[finalSplitIndex]?.crs || "";
-      if (splitCrs) {
-        splitStations.add(splitCrs);
-      }
+    const splitCrs = locations[splitIndex]?.crs || "";
+    if (splitCrs) {
+      splitStations.add(splitCrs);
     }
-    const firstLocations = locations.slice(0, finalSplitIndex + 1);
-    const secondLocations = locations.slice(finalSplitIndex);
+    const firstLocations = locations.slice(0, splitIndex + 1);
+    const secondLocations = locations.slice(splitIndex);
     const firstSvc = withServiceSuffix(entry.svc, "(1)");
     firstSvc.splitContinuesToLocation =
       secondLocations[secondLocations.length - 1] || null;
@@ -2149,47 +2147,20 @@ function findRepeatedStationSplitIndex(locations, corridorSet) {
   return null;
 }
 
-function findSplitStationIndex(
-  locations,
-  splitStations,
-  stationSet,
-) {
-  if (!splitStations || splitStations.size === 0) return null;
-
-  const hasStationBefore = (index) => {
-    for (let i = 0; i < index; i++) {
-      const loc = locations[i];
-      if (!loc) continue;
-      const disp = (loc.displayAs || "").toUpperCase();
-      if (disp === "PASS" || disp === "CANCELLED_PASS") continue;
-      const crs = loc.crs || "";
-      if (crs && stationSet[crs]) return true;
-    }
-    return false;
-  };
-
-  const hasStationAfter = (index) => {
-    for (let i = index + 1; i < locations.length; i++) {
-      const loc = locations[i];
-      if (!loc) continue;
-      const disp = (loc.displayAs || "").toUpperCase();
-      if (disp === "PASS" || disp === "CANCELLED_PASS") continue;
-      const crs = loc.crs || "";
-      if (crs && stationSet[crs]) return true;
-    }
-    return false;
-  };
-
-  for (let i = 0; i < locations.length; i++) {
-    const crs = locations[i]?.crs || "";
-    if (!crs) continue;
-    if (!splitStations.has(crs)) continue;
-    if (hasStationBefore(i) && hasStationAfter(i)) {
-      return i;
-    }
+function splitSequenceAtStations(sequence, splitStations) {
+  if (!splitStations || splitStations.size === 0) {
+    return { sequences: [sequence], split: false };
   }
-
-  return null;
+  for (let i = 0; i < sequence.length; i++) {
+    const crs = sequence[i];
+    if (!splitStations.has(crs)) continue;
+    if (i === 0 || i === sequence.length - 1) continue;
+    return {
+      sequences: [sequence.slice(0, i + 1), sequence.slice(i)],
+      split: true,
+    };
+  }
+  return { sequences: [sequence], split: false };
 }
 
 function withServiceSuffix(svc, suffix) {
