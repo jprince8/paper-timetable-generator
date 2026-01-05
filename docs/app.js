@@ -3448,6 +3448,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   }
 
   const deferredOptionsByService = new Map();
+  const deferredReasonByService = new Map();
 
   function hasMultipleCandidatePositions(
     serviceIdx,
@@ -3497,6 +3498,10 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     const optionsDetail =
       optionsParts.length > 0 ? optionsParts.join(", ") : "default";
     deferredOptionsByService.set(serviceIdx, options);
+    deferredReasonByService.set(
+      serviceIdx,
+      `${range.candidateStart}-${range.candidateEnd} (${optionsDetail})`,
+    );
     remainingServices.splice(idx, 1);
     remainingServices.push(serviceIdx);
     sortLogLines.push(
@@ -3659,7 +3664,12 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     if (attemptedServices === 0) {
       const deferredLabels = remainingServices
         .filter((svcIdx) => deferredOptionsByService.has(svcIdx))
-        .map((svcIdx) => serviceLabel(svcIdx));
+        .map((svcIdx) => {
+          const reason = deferredReasonByService.get(svcIdx);
+          return reason
+            ? `${serviceLabel(svcIdx)} [${reason}]`
+            : serviceLabel(svcIdx);
+        });
       const deferredText =
         deferredLabels.length > 0 ? deferredLabels.join(", ") : "none";
       sortLogLines.push(
@@ -3792,7 +3802,12 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     if (attemptedServices === 0) {
       const deferredLabels = remainingServices
         .filter((svcIdx) => deferredOptionsByService.has(svcIdx))
-        .map((svcIdx) => serviceLabel(svcIdx));
+        .map((svcIdx) => {
+          const reason = deferredReasonByService.get(svcIdx);
+          return reason
+            ? `${serviceLabel(svcIdx)} [${reason}]`
+            : serviceLabel(svcIdx);
+        });
       const deferredText =
         deferredLabels.length > 0 ? deferredLabels.join(", ") : "none";
       sortLogLines.push(
