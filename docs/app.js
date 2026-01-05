@@ -1976,10 +1976,37 @@ form.addEventListener("submit", async (e) => {
     allDetails,
     corridorSet,
   );
+  console.info(
+    "Connection summary: generated",
+    connectionEntries.length,
+    "from",
+    allDetails.length,
+    "base services",
+    "corridor",
+    Array.from(corridorSet).join(","),
+  );
   const allDetailsWithConnections = allDetails.concat(connectionEntries);
   const split = splitByDirection(allDetailsWithConnections, stations);
   const servicesAB = split.ab;
   const servicesBA = split.ba;
+  const inTableConnections = connectionEntries.filter((entry) => {
+    const { detail } = entry;
+    if (!detail || !Array.isArray(detail.locations)) return false;
+    const seen = new Set();
+    detail.locations.forEach((loc) => {
+      const crs = normaliseCrs(loc?.crs || "");
+      if (crs && corridorSet.has(crs)) seen.add(crs);
+    });
+    return seen.size >= 2;
+  });
+  console.info(
+    "Connection summary: in-table connections",
+    inTableConnections.length,
+    "AB",
+    servicesAB.filter((entry) => entry.isConnection).length,
+    "BA",
+    servicesBA.filter((entry) => entry.isConnection).length,
+  );
 
   const fromName = resolveInputStationLabel(
     from,
@@ -2215,6 +2242,8 @@ function buildConnectionServiceEntries(
 ) {
   const generated = [];
   const seen = new Set();
+  let loggedCorridorSkips = 0;
+  let loggedTerminalSkips = 0;
 
   entries.forEach((entry) => {
     if (!entry?.detail || !Array.isArray(entry.detail.locations)) return;
@@ -2225,17 +2254,23 @@ function buildConnectionServiceEntries(
       return;
     }
     if (!corridorSet.has(terminalCrs)) {
-      console.info("Connection skip: terminal not in corridor", terminalCrs);
       return;
     }
 
     const previousCrs = normaliseCrs(previous?.crs || "");
+    const hasConnectionConfig = Object.prototype.hasOwnProperty.call(
+      connectionsByStation,
+      terminalCrs,
+    );
     const terminalEntries = getConnectionEntriesForStation(terminalCrs);
     if (!terminalEntries.length) {
-      console.info(
-        "Connection skip: no connections for terminal",
-        terminalCrs,
-      );
+      if (hasConnectionConfig && loggedTerminalSkips < 5) {
+        console.info(
+          "Connection skip: no connections for terminal",
+          terminalCrs,
+        );
+        loggedTerminalSkips += 1;
+      }
       return;
     }
 
@@ -2250,39 +2285,51 @@ function buildConnectionServiceEntries(
 
     terminalEntries.forEach((terminalEntry) => {
       if (!matchConnectionEntry(terminalEntry, previousCrs)) {
-        console.info(
-          "Connection skip: previous station mismatch",
-          terminalCrs,
-          previousCrs,
-          terminalEntry.previousStations,
-        );
+        if (loggedCorridorSkips < 5) {
+          console.info(
+            "Connection skip: previous station mismatch",
+            terminalCrs,
+            previousCrs,
+            terminalEntry.previousStations,
+          );
+          loggedCorridorSkips += 1;
+        }
         return;
       }
       Object.entries(terminalEntry.connections || {}).forEach(
         ([destCrsRaw, meta]) => {
           const destCrs = normaliseCrs(destCrsRaw);
           if (!destCrs) {
-            console.info(
-              "Connection skip: missing destination CRS",
-              terminalCrs,
-            );
+            if (loggedCorridorSkips < 5) {
+              console.info(
+                "Connection skip: missing destination CRS",
+                terminalCrs,
+              );
+              loggedCorridorSkips += 1;
+            }
             return;
           }
           if (!corridorSet.has(destCrs)) {
-            console.info(
-              "Connection skip: destination not in corridor",
-              terminalCrs,
-              destCrs,
-            );
+            if (loggedCorridorSkips < 5) {
+              console.info(
+                "Connection skip: destination not in corridor",
+                terminalCrs,
+                destCrs,
+              );
+              loggedCorridorSkips += 1;
+            }
             return;
           }
           const durationMinutes = meta.durationMinutes;
           if (!durationMinutes) {
-            console.info(
-              "Connection skip: missing duration",
-              terminalCrs,
-              destCrs,
-            );
+            if (loggedCorridorSkips < 5) {
+              console.info(
+                "Connection skip: missing duration",
+                terminalCrs,
+                destCrs,
+              );
+              loggedCorridorSkips += 1;
+            }
             return;
           }
           const departMins = arrivalMins + bufferMinutes;
@@ -2339,6 +2386,13 @@ function buildConnectionServiceEntries(
               },
             ],
           };
+          console.info(
+            "Connection generated",
+            terminalCrs,
+            "->",
+            destCrs,
+            `${minutesToTimeStr(departMins)} +${durationMinutes}m`,
+          );
           generated.push({ svc, detail, seed: false, isConnection: true });
         },
       );
