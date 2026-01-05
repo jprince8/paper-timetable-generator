@@ -38,7 +38,8 @@ const STATION_MIN_QUERY = 2;
 const ALWAYS_SORT_CANCELLED_TIMES = true;
 
 const RTT_CACHE_PREFIX = "rttCache:";
-let rttCacheEnabled = RTT_CACHE_ENABLED;
+const rttCacheEnabled = RTT_CACHE_ENABLED;
+let rttCacheStorageEnabled = RTT_CACHE_ENABLED;
 const rttMemoryCache = new Map();
 
 function getRttCacheKey(url) {
@@ -75,6 +76,7 @@ function listRttCacheEntries() {
 }
 
 function readRttCache(url) {
+  if (!rttCacheEnabled) return null;
   const memoryCached = rttMemoryCache.get(url);
   if (memoryCached) {
     return {
@@ -83,7 +85,7 @@ function readRttCache(url) {
       statusText: memoryCached.statusText,
     };
   }
-  if (!rttCacheEnabled || !window.localStorage) return null;
+  if (!rttCacheStorageEnabled || !window.localStorage) return null;
   try {
     const raw = localStorage.getItem(getRttCacheKey(url));
     if (!raw) return null;
@@ -102,7 +104,8 @@ function readRttCache(url) {
 
 function writeRttCache(url, payload) {
   const normalised = normaliseRttCachePayload(payload);
-  if (!rttCacheEnabled || !window.localStorage) {
+  if (!rttCacheEnabled) return;
+  if (!window.localStorage || !rttCacheStorageEnabled) {
     rttMemoryCache.set(url, normalised);
     return;
   }
@@ -137,7 +140,7 @@ function writeRttCache(url, payload) {
           }
         }
       } catch (retryErr) {
-        rttCacheEnabled = false;
+        rttCacheStorageEnabled = false;
         rttMemoryCache.set(url, normalised);
         console.warn(
           "RTT cache disabled after quota errors while writing",
@@ -146,7 +149,7 @@ function writeRttCache(url, payload) {
         );
         return;
       }
-      rttCacheEnabled = false;
+      rttCacheStorageEnabled = false;
       rttMemoryCache.set(url, normalised);
       console.warn("RTT cache disabled after repeated quota errors", url);
       return;
