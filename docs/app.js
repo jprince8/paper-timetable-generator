@@ -1962,16 +1962,16 @@ form.addEventListener("submit", async (e) => {
   }
 
   const conflictingSequences = [];
-  additionalSequences.forEach((sequence) => {
-    const indices = sequence.map((crs) => orderedCrs.indexOf(crs));
+  additionalSequences.forEach((entry) => {
+    const indices = entry.sequence.map((crs) => orderedCrs.indexOf(crs));
     if (isSequenceMonotonic(indices)) return;
     const splitResult = splitSequenceAtStations(
-      sequence,
+      entry.sequence,
       splitStations,
     );
     if (splitResult.split) {
       stationOrderLogger.log("split conflict sequence", {
-        sequence,
+        sequence: entry.sequence,
         splitSequences: splitResult.sequences,
       });
     }
@@ -1984,36 +1984,91 @@ form.addEventListener("submit", async (e) => {
         splitSequence,
         splitIndices,
       );
-      conflictingSequences.push(selection.sequence);
+      conflictingSequences.push({
+        sequence: selection.sequence,
+        svc: entry.svc,
+        forwardScore: selection.forwardScore,
+        reverseScore: selection.reverseScore,
+      });
       stationOrderLogger.log("conflict sequence", {
         sequence: splitSequence,
         direction: selection.direction,
         forwardScore: selection.forwardScore,
         reverseScore: selection.reverseScore,
+        service: formatServiceDescriptor(entry.svc),
       });
     });
   });
 
+  const excludedSequences = [];
   if (conflictingSequences.length > 0) {
-    const combinedSequences = [
-      ...stationData.sequences,
-      ...conflictingSequences,
-    ];
-    try {
-      orderedCrs = buildStationOrderFromSequences(
-        combinedSequences,
-        stationData.stationMap,
-        stationData.corridorIndex,
-        stationOrderLogger.log,
-      );
-    } catch (err) {
-      stationOrderLogger.download();
-      throw err;
+    let remainingConflicts = [...conflictingSequences];
+    while (true) {
+      const combinedSequences = [
+        ...stationData.sequences,
+        ...remainingConflicts.map((item) => item.sequence),
+      ];
+      try {
+        orderedCrs = buildStationOrderFromSequences(
+          combinedSequences,
+          stationData.stationMap,
+          stationData.corridorIndex,
+          stationOrderLogger.log,
+        );
+        break;
+      } catch (err) {
+        if (remainingConflicts.length === 0) {
+          stationOrderLogger.download();
+          throw err;
+        }
+        const grouped = groupSequencesByStationSet(remainingConflicts).map(
+          (group) => {
+            const score = group.items.reduce((sum, item) => {
+              const len = Math.max(item.sequence.length - 1, 1);
+              const diff = Math.abs(
+                item.forwardScore - item.reverseScore,
+              );
+              return sum + diff / len;
+            }, 0);
+            return { ...group, score };
+          },
+        );
+        grouped.sort((a, b) => a.score - b.score);
+        const weakest = grouped[0];
+        const removeSet = new Set(weakest.items);
+        remainingConflicts = remainingConflicts.filter(
+          (item) => !removeSet.has(item),
+        );
+        excludedSequences.push(...weakest.items);
+        const excludedDetails = weakest.items.map((item) => ({
+          sequence: item.sequence,
+          service: formatServiceDescriptor(item.svc),
+        }));
+        stationOrderLogger.log("excluded conflict set", {
+          stations: weakest.stations,
+          score: weakest.score,
+          excluded: excludedDetails,
+        });
+        console.warn(
+          "Excluded conflicting sequences to maintain station order:",
+          excludedDetails,
+        );
+      }
     }
   }
 
   stationOrderLogger.log("final order", { orderedCrs: [...orderedCrs] });
   stationOrderLogger.download();
+  if (excludedSequences.length > 0) {
+    const grouped = groupSequencesByStationSet(excludedSequences);
+    grouped.sort((a, b) => b.items.length - a.items.length);
+    const labelStations = grouped[0]?.stations || [];
+    const labelText = labelStations.join(", ");
+    setStatus(
+      `${excludedSequences.length} services between ${labelText} were excluded to maintain consistent station order`,
+      { isError: true },
+    );
+  }
   stations = orderedCrs
     .map((crs) => stationData.stationMap[crs])
     .filter(Boolean);
@@ -2410,7 +2465,7 @@ function buildSequencesFromServices(
   label,
 ) {
   const sequences = [];
-  servicesWithDetails.forEach(({ detail }) => {
+  servicesWithDetails.forEach(({ detail, svc }) => {
     const locs = detail.locations || [];
     if (!locs.length) return;
     const sequence = [];
@@ -2426,9 +2481,12 @@ function buildSequencesFromServices(
     }
 
     if (sequence.length >= 2) {
-      sequences.push(sequence);
+      sequences.push({ sequence, svc });
       if (label) {
-        debugOrderLog(label, { sequence: [...sequence] });
+        debugOrderLog(label, {
+          sequence: [...sequence],
+          service: formatServiceDescriptor(svc),
+        });
       }
     }
   });
@@ -2474,6 +2532,28 @@ function pickBestSequenceDirection(sequence, indices) {
     forwardScore,
     reverseScore,
   };
+}
+
+function formatServiceDescriptor(svc) {
+  if (!svc) return {};
+  return {
+    uid: svc.serviceUid || svc.originalServiceUid || "",
+    date: svc.runDate || "",
+    trainId: svc.trainIdentity || svc.runningIdentity || "",
+  };
+}
+
+function groupSequencesByStationSet(sequences) {
+  const groups = new Map();
+  sequences.forEach((entry) => {
+    const unique = Array.from(new Set(entry.sequence));
+    const key = unique.slice().sort().join("|");
+    if (!groups.has(key)) {
+      groups.set(key, { key, stations: unique, items: [] });
+    }
+    groups.get(key).items.push(entry);
+  });
+  return Array.from(groups.values());
 }
 
 // Build station union over a possibly multi-via corridor.
