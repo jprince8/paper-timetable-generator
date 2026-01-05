@@ -375,6 +375,7 @@ function maybeShowRotatePrompt() {
   if (!hasCompletedBuild) return;
   if (!isPortraitPhoneSize()) return;
   if (readSessionFlag(ROTATE_PROMPT_DISMISSED_KEY)) return;
+  console.debug("Rotate prompt eligible after build.");
   showRotatePrompt();
 }
 
@@ -1977,6 +1978,7 @@ form.addEventListener("submit", async (e) => {
     if (!statusEl?.classList.contains("is-error")) {
       hideStatus();
       hasCompletedBuild = true;
+      console.debug("Timetable build finished successfully.");
       maybeShowRotatePrompt();
     }
   } finally {
