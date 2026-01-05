@@ -3470,11 +3470,37 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     if (deferredOptionsByService.has(serviceIdx)) return false;
     const range = getCandidateRange(serviceIdx, orderedSvcIndices, options);
     if (range.count <= 1) return false;
+    const optionsParts = [];
+    if (options.arrOnlyStationIdx !== undefined && options.arrOnlyStationIdx !== null) {
+      optionsParts.push(
+        `arr-only station ${stationLabels[options.arrOnlyStationIdx] || `station#${options.arrOnlyStationIdx}`}`,
+      );
+    }
+    if (options.depOnlyStationIdx !== undefined && options.depOnlyStationIdx !== null) {
+      optionsParts.push(
+        `dep-only station ${stationLabels[options.depOnlyStationIdx] || `station#${options.depOnlyStationIdx}`}`,
+      );
+    }
+    if (options.ignoreStationIdx !== undefined && options.ignoreStationIdx !== null) {
+      optionsParts.push(
+        `ignore station ${stationLabels[options.ignoreStationIdx] || `station#${options.ignoreStationIdx}`}`,
+      );
+    }
+    if (options.ignoreFromStationIdx !== undefined && options.ignoreFromStationIdx !== null) {
+      optionsParts.push(
+        `ignore from ${stationLabels[options.ignoreFromStationIdx] || `station#${options.ignoreFromStationIdx}`}`,
+      );
+    }
+    if (options.modeOverride !== undefined && options.modeOverride !== null) {
+      optionsParts.push(`mode ${options.modeOverride}`);
+    }
+    const optionsDetail =
+      optionsParts.length > 0 ? optionsParts.join(", ") : "default";
     deferredOptionsByService.set(serviceIdx, options);
     remainingServices.splice(idx, 1);
     remainingServices.push(serviceIdx);
     sortLogLines.push(
-      `${logPrefix}: multiple candidate positions ${range.candidateStart}-${range.candidateEnd} for ${serviceLabel(serviceIdx)}; deferring to pass 3.`,
+      `${logPrefix}: multiple candidate positions ${range.candidateStart}-${range.candidateEnd} for ${serviceLabel(serviceIdx)}; deferring to pass 3 (options: ${optionsDetail}).`,
     );
     sortLogLines.push(`Moved ${serviceLabel(serviceIdx)} to end of queue.`);
     return true;
