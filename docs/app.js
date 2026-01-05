@@ -566,7 +566,6 @@ async function hydrateStationField(field) {
 function updateViaRequirementUi(field) {
   const isRequired = field.requiredToggle.checked;
   field.row.classList.toggle("is-optional", !isRequired);
-  field.requiredText.textContent = isRequired ? "Mandatory" : "Optional";
 }
 
 function createViaField(initialConfig = {}) {
@@ -589,11 +588,7 @@ function createViaField(initialConfig = {}) {
   requiredInput.checked = config.required;
   requiredInput.setAttribute("aria-label", "Mandatory via");
 
-  const requiredText = document.createElement("span");
-  requiredText.className = "via-required-text";
-
   requiredToggle.appendChild(requiredInput);
-  requiredToggle.appendChild(requiredText);
 
   const input = document.createElement("input");
   input.type = "text";
@@ -650,7 +645,6 @@ function createViaField(initialConfig = {}) {
     suggestBox,
     required: false,
     requiredToggle: requiredInput,
-    requiredText,
     row,
   });
   updateViaRequirementUi(field);
@@ -940,7 +934,7 @@ function clearTimetableOutputs() {
   setPlatformToggleAvailability(false);
 }
 
-function buildCorridorLegs(from, to, viaEntries) {
+function buildCorridorPaths(from, to, viaEntries) {
   const paths = [];
   const totalVia = viaEntries.length;
 
@@ -959,33 +953,26 @@ function buildCorridorLegs(from, to, viaEntries) {
   }
 
   collectPaths(0, []);
+  return paths.length ? paths : [[from, to]];
+}
 
+function buildCorridorLegs(paths) {
   const legMap = new Map();
-  const totalPaths = paths.length || 1;
-
   paths.forEach((path) => {
     for (let i = 0; i < path.length - 1; i += 1) {
       const fromCrs = path[i];
       const toCrs = path[i + 1];
       const key = `${fromCrs}|${toCrs}`;
-      const existing = legMap.get(key);
-      if (existing) {
-        existing.count += 1;
-      } else {
+      if (!legMap.has(key)) {
         legMap.set(key, {
           from: fromCrs,
           to: toCrs,
-          count: 1,
         });
       }
     }
   });
 
-  return Array.from(legMap.values()).map((leg) => ({
-    from: leg.from,
-    to: leg.to,
-    required: leg.count === totalPaths,
-  }));
+  return Array.from(legMap.values());
 }
 
 function formatAssertDetail(detail) {
@@ -1380,12 +1367,13 @@ form.addEventListener("submit", async (e) => {
   // Full corridor chain including vias
   const corridorStations = [from, ...viaValues, to];
 
-  const corridorLegs = buildCorridorLegs(from, to, viaEntries);
+  const corridorPaths = buildCorridorPaths(from, to, viaEntries);
+  const corridorLegs = buildCorridorLegs(corridorPaths);
 
   // Step 1: fetch all corridor services across all legs, deduplicated by serviceUid|runDate
   const corridorServicesMap = new Map();
   const stationNameByCrs = {};
-  let noServicesLeg = null;
+  const legServiceCounts = new Map();
   let invalidInputsDetected = false;
   let rttTimeoutDetected = false;
   const rttTimeoutMessage = "Error fetching data from RTT. Please try again.";
@@ -1450,16 +1438,10 @@ form.addEventListener("submit", async (e) => {
         if (svc.plannedCancel) return;
         return true;
       });
-      if (eligibleServices.length === 0 && !noServicesLeg && leg.required) {
-        const fromName = stationNameByCrs[leg.from] || leg.from;
-        const toName = stationNameByCrs[leg.to] || leg.to;
-        noServicesLeg = {
-          from: leg.from,
-          to: leg.to,
-          fromName,
-          toName,
-        };
-      }
+      legServiceCounts.set(
+        `${leg.from}|${leg.to}`,
+        eligibleServices.length,
+      );
       eligibleServices.forEach((svc) => {
         const key = (svc.serviceUid || "") + "|" + (svc.runDate || "");
         if (!corridorServicesMap.has(key)) {
@@ -1497,13 +1479,28 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
-  if (noServicesLeg) {
+  const invalidPaths = corridorPaths
+    .map((path) => {
+      const missing = [];
+      for (let i = 0; i < path.length - 1; i += 1) {
+        const fromCrs = path[i];
+        const toCrs = path[i + 1];
+        const count =
+          legServiceCounts.get(`${fromCrs}|${toCrs}`) || 0;
+        if (count === 0) {
+          missing.push({ from: fromCrs, to: toCrs });
+        }
+      }
+      return { path, missing };
+    })
+    .filter((entry) => entry.missing.length > 0);
+  if (invalidPaths.length === corridorPaths.length) {
+    invalidPaths.sort((a, b) => a.missing.length - b.missing.length);
+    const gap = invalidPaths[0].missing[0];
+    const fromName = stationNameByCrs[gap.from] || gap.from;
+    const toName = stationNameByCrs[gap.to] || gap.to;
     setStatus(
-      "No passenger services between " +
-        noServicesLeg.fromName +
-        " and " +
-        noServicesLeg.toName +
-        ".",
+      "No passenger services between " + fromName + " and " + toName + ".",
       { isError: true },
     );
     return;

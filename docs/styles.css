@@ -146,7 +146,7 @@ form#form {
 }
 
 .form-row-stations {
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   overflow-y: visible;
   width: 100%;
   row-gap: 1rem;
@@ -214,12 +214,17 @@ input:focus {
 .via-scroll .station-field {
   flex: 0 0 auto;
   min-width: 18ch;
+  width: 100%;
 }
 
 .station-input {
   width: 100%;
   min-width: 18ch;
   text-transform: none;
+}
+
+.via-scroll .station-input {
+  min-width: 0;
 }
 
 .station-field-row {
@@ -235,61 +240,33 @@ input:focus {
 
 .via-required-toggle {
   display: inline-flex;
-  flex-direction: row;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.35rem 0.5rem;
-  border-radius: 999px;
-  border: 1px solid var(--accent);
-  background: rgba(161, 95, 43, 0.08);
-  color: var(--accent);
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  line-height: 1;
+  padding: 0;
+  border: none;
+  background: transparent;
+  margin: 0;
 }
 
 .via-required-toggle input {
   appearance: none;
   width: 0.95rem;
   height: 0.95rem;
-  border-radius: 4px;
+  border-radius: 2px;
   border: 1px solid var(--accent);
-  background: #fff;
-  display: grid;
-  place-items: center;
-}
-
-.via-required-toggle input::after {
-  content: "";
-  width: 0.45rem;
-  height: 0.25rem;
-  border-left: 2px solid #fff;
-  border-bottom: 2px solid #fff;
-  transform: rotate(-45deg) scale(0);
-  transition: transform 0.12s ease;
+  background: rgba(255, 255, 255, 0.8);
 }
 
 .via-required-toggle input:checked {
   background: var(--accent);
 }
 
-.via-required-toggle input:checked::after {
-  transform: rotate(-45deg) scale(1);
-}
-
 .via-row.is-optional .via-required-toggle {
-  border-color: var(--accent-blue);
-  background: rgba(106, 139, 189, 0.12);
-  color: var(--accent-blue);
+  border-color: transparent;
+  background: transparent;
 }
 
 .via-row.is-optional .via-required-toggle input {
   border-color: var(--accent-blue);
-}
-
-.via-required-text {
-  font-weight: 700;
 }
 
 .station-suggest {
