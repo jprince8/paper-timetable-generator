@@ -2120,9 +2120,9 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
   const debugOrderLog = (message, payload) => {
     if (!DEBUG_STATIONS) return;
     if (payload === undefined) {
-      console.debug(`[station-order] ${message}`);
+      console.log(`[station-order] ${message}`);
     } else {
-      console.debug(`[station-order] ${message}`, payload);
+      console.log(`[station-order] ${message}`, payload);
     }
   };
 
