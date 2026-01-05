@@ -931,6 +931,20 @@ function serviceCallsAllStationsInRange(detail, crsSet) {
   });
 }
 
+function serviceAnyStationInRange(detail, crsSet) {
+  if (!detail || !Array.isArray(detail.locations)) return false;
+
+  return detail.locations.some((loc) => {
+    const crs = loc.crs || "";
+    if (!crsSet.has(crs)) return false;
+
+    const disp = (loc.displayAs || "").toUpperCase();
+    if (disp === "PASS" || disp === "CANCELLED_PASS") return false;
+
+    return serviceInTimeRange(loc);
+  });
+}
+
 // === Status helpers ===
 function showStatus() {
   if (!statusEl) return;
@@ -1471,6 +1485,7 @@ form.addEventListener("submit", async (e) => {
 
   // Full corridor chain including vias
   const corridorStations = [from, ...viaValues, to];
+  const corridorSet = new Set(corridorStations.filter(Boolean));
 
   const corridorPaths = buildCorridorPaths(from, to, viaEntries);
   const corridorLegs = buildCorridorLegs(corridorPaths);
@@ -1940,6 +1955,9 @@ form.addEventListener("submit", async (e) => {
   for (const entry of dedupedCandidateEntries) {
     const detail = entry.detail;
     if (!detail || !Array.isArray(detail.locations)) continue;
+    if (!serviceAnyStationInRange(detail, corridorSet)) {
+      continue;
+    }
 
     const locs = detail.locations;
     const seenStations = new Set();
@@ -1971,7 +1989,6 @@ form.addEventListener("submit", async (e) => {
   }
 
   // Split into A->B vs B->A, based on order of corridor stations in the calling pattern.
-  const corridorSet = new Set(corridorStations.filter(Boolean));
   const connectionEntries = buildConnectionServiceEntries(
     allDetails,
     corridorSet,
@@ -2435,6 +2452,14 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
       };
     }
   }
+
+  corridorStations.forEach((crs) => {
+    if (!crs) return;
+    addStation(crs, "", crs);
+    if (!orderedCrs.includes(crs)) {
+      orderedCrs.push(crs);
+    }
+  });
 
   function mergeIntoOrder(sequence) {
     sequence.forEach((crs, idx) => {
