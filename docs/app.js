@@ -269,13 +269,14 @@ function setRealtimeToggleState({ enabled, active }, { persist = false } = {}) {
   realtimeAvailable = enabled;
   realtimeEnabled = enabled && active;
   if (!realtimeBtn) return;
+  const displayActive = enabled ? realtimeEnabled : realtimePreferred;
   realtimeBtn.disabled = !enabled;
-  realtimeBtn.classList.toggle("is-active", realtimeEnabled);
-  realtimeBtn.setAttribute("aria-pressed", realtimeEnabled ? "true" : "false");
+  realtimeBtn.classList.toggle("is-active", displayActive);
+  realtimeBtn.setAttribute("aria-pressed", displayActive ? "true" : "false");
   if (persist && window.localStorage) {
     localStorage.setItem(
       REALTIME_TOGGLE_STORAGE_KEY,
-      realtimeEnabled ? "true" : "false",
+      realtimePreferred ? "true" : "false",
     );
   }
 }
