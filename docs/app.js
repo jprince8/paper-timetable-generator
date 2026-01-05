@@ -1077,7 +1077,7 @@ function assertWithStatus(condition, userMessage, detail = {}, options = {}) {
   if (!options.keepOutputs) {
     clearTimetableOutputs();
   }
-  setStatus(fullMessage, { isError: true });
+  setStatus(userMessage, { isError: true });
   if (!options.allowContinue) {
     throw new Error(fullMessage);
   }
@@ -2117,6 +2117,14 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
   const stationMap = {};
   const corridorIndex = {};
   const orderedCrs = [];
+  const debugOrderLog = (message, payload) => {
+    if (!DEBUG_STATIONS) return;
+    if (payload === undefined) {
+      console.debug(`[station-order] ${message}`);
+    } else {
+      console.debug(`[station-order] ${message}`, payload);
+    }
+  };
 
   // Map each corridor CRS to its index in the chain (A=0, VIA1=1, ..., Z=n)
   corridorStations.forEach((crs, idx) => {
@@ -2136,6 +2144,10 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
   }
 
   function mergeIntoOrder(sequence) {
+    debugOrderLog("merge sequence", {
+      sequence: [...sequence],
+      orderedCrs: [...orderedCrs],
+    });
     sequence.forEach((crs, idx) => {
       if (!crs) return;
       if (orderedCrs.includes(crs)) return;
@@ -2162,17 +2174,41 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         assertWithStatus(
           prevIndex < nextIndex,
           "Could not build a consistent station order for this route",
-          `inserting ${crs} between ${prevKnown} and ${nextKnown}`,
+          {
+            inserting: crs,
+            between: [prevKnown, nextKnown],
+            sequenceIndex: idx,
+            prevIndex,
+            nextIndex,
+            sequence: [...sequence],
+            orderedCrs: [...orderedCrs],
+          },
         );
         orderedCrs.splice(nextIndex, 0, crs);
+        debugOrderLog("insert between", {
+          inserting: crs,
+          between: [prevKnown, nextKnown],
+          orderedCrs: [...orderedCrs],
+        });
       } else if (prevKnown) {
         const prevIndex = orderedCrs.indexOf(prevKnown);
         orderedCrs.splice(prevIndex + 1, 0, crs);
+        debugOrderLog("insert after", {
+          inserting: crs,
+          after: prevKnown,
+          orderedCrs: [...orderedCrs],
+        });
       } else if (nextKnown) {
         const nextIndex = orderedCrs.indexOf(nextKnown);
         orderedCrs.splice(nextIndex, 0, crs);
+        debugOrderLog("insert before", {
+          inserting: crs,
+          before: nextKnown,
+          orderedCrs: [...orderedCrs],
+        });
       } else {
         orderedCrs.push(crs);
+        debugOrderLog("append", { inserting: crs, orderedCrs: [...orderedCrs] });
       }
     });
 
@@ -2183,7 +2219,11 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
       assertWithStatus(
         indices[i - 1] < indices[i],
         "Service calling pattern conflicts with the station order",
-        `sequence: ${filteredSequence.join(" → ")}`,
+        {
+          sequence: filteredSequence,
+          sequenceIndices: indices,
+          orderedCrs: [...orderedCrs],
+        },
       );
     }
   }
@@ -2233,6 +2273,11 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         if (c1 > c2) {
           segmentSequence.reverse();
         }
+        debugOrderLog("segment sequence", {
+          corridorPair: [corridorStations[c1], corridorStations[c2]],
+          sequence: [...segmentSequence],
+          orderedCrs: [...orderedCrs],
+        });
         mergeIntoOrder(segmentSequence);
       }
     }
