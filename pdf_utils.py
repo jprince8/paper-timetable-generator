@@ -22,7 +22,14 @@ def _cell_text(value):
     if value is None:
         return ""
     if isinstance(value, dict):
-        return str(value.get("text", ""))
+        text = str(value.get("text", ""))
+        platform_text = value.get("platformText")
+        if platform_text:
+            platform_text = str(platform_text)
+            if text:
+                return f"{text} {platform_text}"
+            return platform_text
+        return text
     return str(value)
 
 
@@ -92,20 +99,41 @@ def _strip_markup(text):
 
 
 def _format_cell_text(cell):
-    text = _cell_text(cell)
-    if not text or not isinstance(cell, dict):
+    if not isinstance(cell, dict):
+        text = _cell_text(cell)
         return text
-    formatted = text
-    if cell.get("bold"):
-        formatted = f"<b>{formatted}</b>"
-    if cell.get("italic"):
-        formatted = f"<i>{formatted}</i>"
-    if cell.get("strike"):
-        formatted = f"<strike>{formatted}</strike>"
-    color = cell.get("color")
-    if color and color != "muted":
-        formatted = f"<font color=\"{color}\">{formatted}</font>"
-    return formatted
+    base_text = str(cell.get("text", ""))
+    platform_text = cell.get("platformText")
+    formatted_time = base_text
+    if formatted_time:
+        if cell.get("bold"):
+            formatted_time = f"<b>{formatted_time}</b>"
+        if cell.get("italic"):
+            formatted_time = f"<i>{formatted_time}</i>"
+        if cell.get("strike"):
+            formatted_time = f"<strike>{formatted_time}</strike>"
+        color = cell.get("color")
+        if color and color != "muted":
+            formatted_time = f"<font color=\"{color}\">{formatted_time}</font>"
+    formatted_platform = ""
+    if platform_text:
+        formatted_platform = str(platform_text)
+        if cell.get("platformConfirmed"):
+            formatted_platform = f"<b>{formatted_platform}</b>"
+        if cell.get("platformChanged"):
+            formatted_platform = (
+                f"<font color=\"#a33b32\">{formatted_platform}</font>"
+            )
+    if formatted_time and formatted_platform:
+        return f"{formatted_time} {formatted_platform}"
+    if formatted_time:
+        return formatted_time
+    if formatted_platform:
+        return formatted_platform
+    text = _cell_text(cell)
+    if not text:
+        return text
+    return text
 
 
 def _build_key_item(
@@ -353,6 +381,8 @@ def build_timetable_pdf(tables, meta=None):
                 "no_report": False,
                 "out_of_order": False,
                 "dep_before_arrival": False,
+                "platform_confirmed": False,
+                "platform_changed": False,
             }
             for row in chunk_rows[1:]:
                 label = _cell_text(row[0]).strip() if row else ""
@@ -371,6 +401,10 @@ def build_timetable_pdf(tables, meta=None):
                         format_flags["color"] = True
                     if cell.get("noReport"):
                         format_flags["no_report"] = True
+                    if cell.get("platformConfirmed"):
+                        format_flags["platform_confirmed"] = True
+                    if cell.get("platformChanged"):
+                        format_flags["platform_changed"] = True
                     if cell.get("bgColor"):
                         bg_color = str(cell.get("bgColor")).lower()
                         if bg_color == "#fce3b0":
@@ -408,6 +442,17 @@ def build_timetable_pdf(tables, meta=None):
                     (
                         None,
                         "<font backColor=\"#e6d9ff\">12:34</font> Departs before previous arrival",
+                    )
+                )
+            if format_flags["platform_confirmed"]:
+                key_items.append(
+                    (None, "12:34 <b>[1]</b> Platform confirmed")
+                )
+            if format_flags["platform_changed"]:
+                key_items.append(
+                    (
+                        None,
+                        "12:34 <font color=\"#a33b32\">[1]</font> Platform changed",
                     )
                 )
 

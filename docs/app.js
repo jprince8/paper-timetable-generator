@@ -187,7 +187,9 @@ const buildBtn = document.getElementById("buildBtn");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 const shareBtn = document.getElementById("shareBtn");
 const realtimeBtn = document.getElementById("realtimeBtn");
+const platformBtn = document.getElementById("platformBtn");
 const nowBtn = document.getElementById("nowBtn");
+const PLATFORM_TOGGLE_STORAGE_KEY = "corridor_showPlatforms";
 
 // === Mutable state ===
 const viaFields = [];
@@ -201,6 +203,7 @@ let lastTimetableContext = null;
 let lastSortLog = "";
 let realtimeEnabled = false;
 let realtimeAvailable = false;
+let showPlatformsEnabled = false;
 let buildAbortController = null;
 let buildInProgress = false;
 let buildCancelled = false;
@@ -275,6 +278,32 @@ if (realtimeBtn) {
       enabled: realtimeAvailable,
       active: !realtimeEnabled,
     });
+    if (lastTimetableContext) {
+      renderTimetablesFromContext(lastTimetableContext);
+    }
+  });
+}
+
+function setPlatformToggleState(active, { persist = true } = {}) {
+  showPlatformsEnabled = Boolean(active);
+  if (platformBtn) {
+    platformBtn.classList.toggle("is-active", showPlatformsEnabled);
+    platformBtn.setAttribute(
+      "aria-pressed",
+      showPlatformsEnabled ? "true" : "false",
+    );
+  }
+  if (persist && window.localStorage) {
+    localStorage.setItem(
+      PLATFORM_TOGGLE_STORAGE_KEY,
+      showPlatformsEnabled ? "true" : "false",
+    );
+  }
+}
+
+if (platformBtn) {
+  platformBtn.addEventListener("click", () => {
+    setPlatformToggleState(!showPlatformsEnabled);
     if (lastTimetableContext) {
       renderTimetablesFromContext(lastTimetableContext);
     }
@@ -594,6 +623,8 @@ function loadSavedInputsFromStorage() {
   const start = localStorage.getItem("corridor_startTime") || "";
   const end = localStorage.getItem("corridor_endTime") || "";
   const viasStr = localStorage.getItem("corridor_vias") || "";
+  const showPlatformsRaw =
+    localStorage.getItem(PLATFORM_TOGGLE_STORAGE_KEY) || "";
 
   if (from) {
     fromField.crsInput.value = normaliseCrs(from);
@@ -604,6 +635,9 @@ function loadSavedInputsFromStorage() {
   if (date) document.getElementById("serviceDate").value = date;
   if (start) document.getElementById("startTime").value = start;
   if (end) document.getElementById("endTime").value = end;
+  if (showPlatformsRaw) {
+    setPlatformToggleState(showPlatformsRaw === "true", { persist: false });
+  }
 
   // Default to NO vias on first run.
   // On subsequent runs, recreate one via field per saved CRS.
@@ -674,6 +708,13 @@ function loadInputsFromQuery() {
 const { shouldAutoSubmit, autoBuildRequested } = loadInputsFromQuery();
 if (new URLSearchParams(window.location.search).size === 0) {
   loadSavedInputsFromStorage();
+}
+if (new URLSearchParams(window.location.search).size > 0) {
+  const showPlatformsRaw =
+    localStorage.getItem(PLATFORM_TOGGLE_STORAGE_KEY) || "";
+  if (showPlatformsRaw) {
+    setPlatformToggleState(showPlatformsRaw === "true", { persist: false });
+  }
 }
 hydratePrefilledStations().then(() => {
   if (shouldAutoSubmit) {
@@ -751,7 +792,12 @@ function rttTimeToMinutes(hhmm) {
 
 function cellToText(cell) {
   if (!cell) return "";
-  if (typeof cell === "object") return cell.text || "";
+  if (typeof cell === "object") {
+    const base = cell.text || "";
+    const platform = cell.platform?.text || "";
+    if (base && platform) return `${base} ${platform}`;
+    return base || platform;
+  }
   return String(cell);
 }
 
@@ -1110,7 +1156,7 @@ function buildPdfTableData(model) {
     const cells = orderedSvcIndices.map((svcIndex) => {
       const val = row.cells[svcIndex];
       if (val && typeof val === "object") {
-        const text = cellToText(val);
+        const text = val.text || "";
         const format = val.format || {};
         const cellData = { text };
         if (val.title) cellData.title = val.title;
@@ -1120,6 +1166,9 @@ function buildPdfTableData(model) {
         if (format.bold) cellData.bold = true;
         if (format.color) cellData.color = format.color;
         if (format.noReport) cellData.noReport = true;
+        if (val.platform?.text) cellData.platformText = val.platform.text;
+        if (val.platform?.confirmed) cellData.platformConfirmed = true;
+        if (val.platform?.changed) cellData.platformChanged = true;
         return cellData;
       }
       return cellToText(val);
@@ -1288,9 +1337,11 @@ function renderTimetablesFromContext(context) {
   if (servicesAB.length > 0) {
     const modelAB = buildTimetableModel(stations, stationSet, servicesAB, {
       realtimeEnabled,
+      showPlatforms: showPlatformsEnabled,
     });
     const pdfModelAB = buildTimetableModel(stations, stationSet, servicesAB, {
       realtimeEnabled: false,
+      showPlatforms: showPlatformsEnabled,
     });
     headingAB.textContent =
       forwardStopsLabel + " (" + modelAB.serviceCount + " services)";
@@ -1333,9 +1384,11 @@ function renderTimetablesFromContext(context) {
     const stationsRev = stations.slice().reverse();
     const modelBA = buildTimetableModel(stationsRev, stationSet, servicesBA, {
       realtimeEnabled,
+      showPlatforms: showPlatformsEnabled,
     });
     const pdfModelBA = buildTimetableModel(stationsRev, stationSet, servicesBA, {
       realtimeEnabled: false,
+      showPlatforms: showPlatformsEnabled,
     });
     headingBA.textContent =
       reverseStopsLabel + " (" + modelBA.serviceCount + " services)";
@@ -2403,7 +2456,10 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     servicesWithDetails,
     options = {},
   ) {
-    const { realtimeEnabled: realtimeToggleEnabled = false } = options;
+    const {
+      realtimeEnabled: realtimeToggleEnabled = false,
+      showPlatforms = false,
+    } = options;
     // --- Helper: decide which stations get rows (only those with at least one PUBLIC call) ---
     function computeDisplayStations(stationsList, svcs) {
       return stationsList.filter((station) => {
@@ -2869,6 +2925,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
 
         let timeStr = "";
         let timeFormat = null;
+        let platformInfo = null;
         if (mode === "arr") {
           const chosen = chooseDisplayedTimeAndStatus(
             loc,
@@ -2901,9 +2958,18 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         }
 
         if (timeStr) {
+          if (showPlatforms) {
+            const platform = String(loc.platform || "").trim();
+            platformInfo = {
+              text: platform ? `[${platform}]` : "[?]",
+              confirmed: loc.platformConfirmed === true,
+              changed: loc.platformChanged === true,
+            };
+          }
           rows[r].cells[s] = {
             text: timeStr,
             format: timeFormat,
+            platform: platformInfo,
           };
           if (firstRowForService[s] === null || r < firstRowForService[s])
             firstRowForService[s] = r;
@@ -4186,6 +4252,8 @@ function renderTableKey(model, keyEl) {
     noReport: false,
     outOfOrder: false,
     depBeforeArrival: false,
+    platformConfirmed: false,
+    platformChanged: false,
   };
 
   rows.forEach((row) => {
@@ -4202,6 +4270,8 @@ function renderTableKey(model, keyEl) {
       if (format.strike) formatFlags.strike = true;
       if (format.color && format.color !== "muted") formatFlags.color = true;
       if (format.noReport) formatFlags.noReport = true;
+      if (val.platform?.confirmed) formatFlags.platformConfirmed = true;
+      if (val.platform?.changed) formatFlags.platformChanged = true;
       if (format.bgColor) {
         const bg = String(format.bgColor).toLowerCase();
         if (bg === HIGHLIGHT_OUT_OF_ORDER_COLOR) {
@@ -4265,6 +4335,20 @@ function renderTableKey(model, keyEl) {
       sampleHtml:
         '<span class="table-key-sample table-key-sample--dep-before" title="Departs before previous arrival example" aria-label="Departs before previous arrival example">12:34</span>',
       label: "Departs before previous arrival",
+    });
+  }
+  if (formatFlags.platformConfirmed) {
+    items.push({
+      sampleHtml:
+        '<span class="table-key-sample">12:34 <span class="platform-tag platform-confirmed" title="Platform confirmed example" aria-label="Platform confirmed example">[1]</span></span>',
+      label: "Platform confirmed",
+    });
+  }
+  if (formatFlags.platformChanged) {
+    items.push({
+      sampleHtml:
+        '<span class="table-key-sample">12:34 <span class="platform-tag platform-changed" title="Platform changed example" aria-label="Platform changed example">[1]</span></span>',
+      label: "Platform changed",
     });
   }
 
@@ -4478,6 +4562,18 @@ function renderTimetable(
           }
           if (titleParts.length) span.title = titleParts.join(" ");
           td.appendChild(span);
+          if (val.platform?.text) {
+            const platformSpan = document.createElement("span");
+            platformSpan.classList.add("platform-tag");
+            if (val.platform.confirmed) {
+              platformSpan.classList.add("platform-confirmed");
+            }
+            if (val.platform.changed) {
+              platformSpan.classList.add("platform-changed");
+            }
+            platformSpan.textContent = val.platform.text;
+            td.appendChild(platformSpan);
+          }
         }
       } else {
         td.textContent = val || "";

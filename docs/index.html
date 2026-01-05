@@ -645,6 +645,19 @@
         text-decoration: line-through;
       }
 
+      .platform-tag {
+        display: inline-block;
+        margin-left: 0.2rem;
+      }
+
+      .platform-confirmed {
+        font-weight: 700;
+      }
+
+      .platform-changed {
+        color: var(--danger);
+      }
+
       .service-header {
         font-weight: 700;
         white-space: nowrap;
@@ -884,6 +897,14 @@
                 disabled
               >
                 Realtime
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-toggle"
+                id="platformBtn"
+                aria-pressed="false"
+              >
+                Show Platforms
               </button>
             </div>
             <div id="status" hidden>
