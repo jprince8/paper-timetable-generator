@@ -216,6 +216,7 @@ let buildAbortController = null;
 let buildInProgress = false;
 let buildCancelled = false;
 let suppressNextSubmit = false;
+let hasCompletedBuild = false;
 
 function setBuildInProgress(active) {
   buildInProgress = active;
@@ -369,10 +370,18 @@ function hideRotatePrompt() {
 
 function maybeShowRotatePrompt() {
   if (!rotateModal) return;
+  if (!hasCompletedBuild) return;
   if (!isPortraitPhoneSize()) return;
   if (readSessionFlag(ROTATE_PROMPT_DISMISSED_KEY)) return;
   if (readSessionFlag(ROTATE_PROMPT_SHOWN_KEY)) return;
   showRotatePrompt();
+}
+
+function handleRotateOrientationChange() {
+  if (!rotateModal) return;
+  if (window.matchMedia("(orientation: landscape)").matches) {
+    hideRotatePrompt();
+  }
 }
 
 if (platformBtn) {
@@ -390,6 +399,16 @@ if (rotateModalOk) {
     writeSessionFlag(ROTATE_PROMPT_DISMISSED_KEY);
     hideRotatePrompt();
   });
+}
+
+if (rotateModal) {
+  const orientationQuery = window.matchMedia("(orientation: landscape)");
+  if (orientationQuery?.addEventListener) {
+    orientationQuery.addEventListener("change", handleRotateOrientationChange);
+  } else if (orientationQuery?.addListener) {
+    orientationQuery.addListener(handleRotateOrientationChange);
+  }
+  window.addEventListener("orientationchange", handleRotateOrientationChange);
 }
 
 async function fetchStationMatches(query) {
@@ -1960,6 +1979,7 @@ form.addEventListener("submit", async (e) => {
     renderTimetablesFromContext(lastTimetableContext);
     if (!statusEl?.classList.contains("is-error")) {
       hideStatus();
+      hasCompletedBuild = true;
       maybeShowRotatePrompt();
     }
   } finally {
