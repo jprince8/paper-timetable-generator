@@ -1,5 +1,5 @@
-function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
-  orderedSvcIndices.forEach((svcIndex) => {
+function findMonotonicViolation(rows, orderedSvcIndices, servicesWithDetails) {
+  for (const svcIndex of orderedSvcIndices) {
     let dayOffset = 0;
     let prevAbs = null;
     let prevText = "";
@@ -33,24 +33,170 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       if (prevAbs !== null && base < prevAbs) {
         const currentRowLabel = rowLabelText(rows[r]) || "current stop";
         const previousRowLabel = prevRowLabel || "previous stop";
-        const detailParts = [
-          `${previousRowLabel}: ${prevText} to ${currentRowLabel}: ${rawText}`,
-        ];
-        if (headcode) detailParts.push(`headcode: ${headcode}`);
-        assertWithStatus(
-          false,
-          "Timetable times go backwards in this route",
-          detailParts.join(", "),
-          { keepOutputs: true, allowContinue: true },
-        );
-        break;
+        return {
+          headcode,
+          previousRowLabel,
+          prevText,
+          currentRowLabel,
+          rawText,
+        };
       }
 
       prevAbs = base;
       prevText = rawText;
       prevRowLabel = rowLabelText(rows[r]);
     }
+  }
+
+  return null;
+}
+
+function buildMonotonicRowOrder(rows, rowSpecs, orderedSvcIndices) {
+  const stationRowIndices = [];
+  const rowOrderIndex = new Map();
+  rowSpecs.forEach((spec, idx) => {
+    if (spec.kind === "station") {
+      rowOrderIndex.set(idx, stationRowIndices.length);
+      stationRowIndices.push(idx);
+    }
   });
+  if (stationRowIndices.length < 2) return null;
+
+  const edges = new Map();
+  const indegree = new Map();
+  stationRowIndices.forEach((idx) => {
+    edges.set(idx, new Set());
+    indegree.set(idx, 0);
+  });
+
+  function addEdge(fromIdx, toIdx) {
+    if (fromIdx === toIdx) return;
+    const outgoing = edges.get(fromIdx);
+    if (!outgoing || outgoing.has(toIdx)) return;
+    outgoing.add(toIdx);
+    indegree.set(toIdx, (indegree.get(toIdx) || 0) + 1);
+  }
+
+  orderedSvcIndices.forEach((svcIndex) => {
+    let dayOffset = 0;
+    let prevAbs = null;
+    const entries = [];
+
+    for (const rowIdx of stationRowIndices) {
+      const val = rows[rowIdx].cells[svcIndex];
+      const rawText = cellToText(val);
+      if (!rawText) continue;
+      if (val && typeof val === "object" && val.format?.strike) continue;
+      if (val && typeof val === "object" && val.format?.noReport) continue;
+      if (rawText.includes("?")) continue;
+
+      const mins = timeStrToMinutes(rawText);
+      if (mins === null) continue;
+
+      let base = mins + dayOffset;
+      if (prevAbs !== null && base < prevAbs) {
+        const diff = prevAbs - base;
+        if (diff > 6 * 60) {
+          dayOffset += 1440;
+          base = mins + dayOffset;
+        }
+      }
+
+      entries.push({
+        rowIdx,
+        absTime: base,
+        order: entries.length,
+      });
+      prevAbs = base;
+    }
+
+    if (entries.length < 2) return;
+    entries
+      .slice()
+      .sort((a, b) => {
+        if (a.absTime !== b.absTime) return a.absTime - b.absTime;
+        return a.order - b.order;
+      })
+      .forEach((entry, idx, list) => {
+        if (idx === 0) return;
+        addEdge(list[idx - 1].rowIdx, entry.rowIdx);
+      });
+  });
+
+  const queue = [];
+  stationRowIndices.forEach((idx) => {
+    if ((indegree.get(idx) || 0) === 0) {
+      queue.push(idx);
+    }
+  });
+  queue.sort((a, b) => rowOrderIndex.get(a) - rowOrderIndex.get(b));
+
+  const sorted = [];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    sorted.push(current);
+    edges.get(current).forEach((nextIdx) => {
+      indegree.set(nextIdx, indegree.get(nextIdx) - 1);
+      if (indegree.get(nextIdx) === 0) {
+        queue.push(nextIdx);
+        queue.sort(
+          (a, b) => rowOrderIndex.get(a) - rowOrderIndex.get(b),
+        );
+      }
+    });
+  }
+
+  if (sorted.length !== stationRowIndices.length) {
+    return null;
+  }
+
+  const unchanged = stationRowIndices.every(
+    (idx, pos) => idx === sorted[pos],
+  );
+  if (unchanged) return null;
+  return sorted;
+}
+
+function applyRowOrder(rows, rowSpecs, stationRowOrder) {
+  if (!stationRowOrder) return;
+  const reorderedRows = [];
+  const reorderedSpecs = [];
+  let stationIdx = 0;
+  rowSpecs.forEach((spec, idx) => {
+    if (spec.kind !== "station") {
+      reorderedRows.push(rows[idx]);
+      reorderedSpecs.push(spec);
+      return;
+    }
+    const targetRowIdx = stationRowOrder[stationIdx];
+    reorderedRows.push(rows[targetRowIdx]);
+    reorderedSpecs.push(rowSpecs[targetRowIdx]);
+    stationIdx += 1;
+  });
+  rows.splice(0, rows.length, ...reorderedRows);
+  rowSpecs.splice(0, rowSpecs.length, ...reorderedSpecs);
+}
+
+function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
+  const violation = findMonotonicViolation(
+    rows,
+    orderedSvcIndices,
+    servicesWithDetails,
+  );
+  if (!violation) return;
+
+  const detailParts = [
+    `${violation.previousRowLabel}: ${violation.prevText} to ${violation.currentRowLabel}: ${violation.rawText}`,
+  ];
+  if (violation.headcode) {
+    detailParts.push(`headcode: ${violation.headcode}`);
+  }
+  assertWithStatus(
+    false,
+    "Timetable times go backwards in this route",
+    detailParts.join(", "),
+    { keepOutputs: true, allowContinue: true },
+  );
 }
 
 function sortTimetableColumns({
@@ -821,6 +967,25 @@ function sortTimetableColumns({
   const HIGHLIGHT_DEP_AFTER_ARRIVAL_COLOR =
     highlightColors?.depAfterArrival || "#e6d9ff";
 
+  const originalRows = rows.slice();
+  const originalSpecs = rowSpecs.slice();
+  const rowOrder = buildMonotonicRowOrder(
+    rows,
+    rowSpecs,
+    orderedSvcIndices,
+  );
+  if (rowOrder) {
+    applyRowOrder(rows, rowSpecs, rowOrder);
+    const violation = findMonotonicViolation(
+      rows,
+      orderedSvcIndices,
+      servicesWithDetails,
+    );
+    if (violation) {
+      rows.splice(0, rows.length, ...originalRows);
+      rowSpecs.splice(0, rowSpecs.length, ...originalSpecs);
+    }
+  }
   checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails);
 
   function tryResortForHighlighting() {
