@@ -207,6 +207,69 @@
       </main>
     </div>
 
+    <div class="rotate-modal" id="rotateModal" hidden>
+      <div class="rotate-modal__backdrop" aria-hidden="true"></div>
+      <div
+        class="rotate-modal__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rotateModalTitle"
+      >
+        <h2 id="rotateModalTitle">Rotate your phone</h2>
+        <p>Switch to landscape for the best timetable view.</p>
+        <div class="rotate-modal__icon" aria-hidden="true">
+          <svg
+            class="rotate-modal__spin"
+            viewBox="0 0 200 200"
+            role="img"
+            aria-label="Rotate device"
+          >
+            <defs>
+              <marker
+                id="rotateArrow"
+                markerWidth="8"
+                markerHeight="8"
+                refX="6"
+                refY="4"
+                orient="auto"
+              >
+                <path d="M0,0 L8,4 L0,8 Z" fill="currentColor" />
+              </marker>
+            </defs>
+            <path
+              d="M40 100a60 60 0 0 1 120 0"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="6"
+              marker-end="url(#rotateArrow)"
+            />
+            <path
+              d="M160 100a60 60 0 0 1 -120 0"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="6"
+              marker-end="url(#rotateArrow)"
+            />
+            <rect
+              x="70"
+              y="40"
+              width="60"
+              height="120"
+              rx="10"
+              ry="10"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="6"
+            />
+            <circle cx="100" cy="140" r="4" fill="currentColor" />
+          </svg>
+        </div>
+        <button class="btn btn-primary" type="button" id="rotateModalOk">
+          OK
+        </button>
+      </div>
+    </div>
+
     <script src="./config.js"></script>
     <script src="./js/timetable-utils.js"></script>
     <script src="./js/timetable-sort.js"></script>

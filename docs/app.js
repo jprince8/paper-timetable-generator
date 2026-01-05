@@ -189,8 +189,12 @@ const shareBtn = document.getElementById("shareBtn");
 const realtimeBtn = document.getElementById("realtimeBtn");
 const platformBtn = document.getElementById("platformBtn");
 const nowBtn = document.getElementById("nowBtn");
+const rotateModal = document.getElementById("rotateModal");
+const rotateModalOk = document.getElementById("rotateModalOk");
 const PLATFORM_TOGGLE_STORAGE_KEY = "corridor_showPlatforms";
 const REALTIME_TOGGLE_STORAGE_KEY = "corridor_showRealtime";
+const ROTATE_PROMPT_DISMISSED_KEY = "corridor_rotatePromptDismissed";
+const ROTATE_PROMPT_SHOWN_KEY = "corridor_rotatePromptShown";
 
 // === Mutable state ===
 const viaFields = [];
@@ -330,6 +334,47 @@ function setPlatformToggleAvailability(enabled) {
   }
 }
 
+function readSessionFlag(key) {
+  try {
+    return window.sessionStorage?.getItem(key) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function writeSessionFlag(key) {
+  try {
+    window.sessionStorage?.setItem(key, "true");
+  } catch {
+    // ignore session storage failures
+  }
+}
+
+function isPortraitPhoneSize() {
+  return window.matchMedia(
+    "(max-width: 600px) and (orientation: portrait)",
+  ).matches;
+}
+
+function showRotatePrompt() {
+  if (!rotateModal) return;
+  rotateModal.hidden = false;
+  writeSessionFlag(ROTATE_PROMPT_SHOWN_KEY);
+}
+
+function hideRotatePrompt() {
+  if (!rotateModal) return;
+  rotateModal.hidden = true;
+}
+
+function maybeShowRotatePrompt() {
+  if (!rotateModal) return;
+  if (!isPortraitPhoneSize()) return;
+  if (readSessionFlag(ROTATE_PROMPT_DISMISSED_KEY)) return;
+  if (readSessionFlag(ROTATE_PROMPT_SHOWN_KEY)) return;
+  showRotatePrompt();
+}
+
 if (platformBtn) {
   platformBtn.addEventListener("click", () => {
     if (platformBtn.disabled) return;
@@ -337,6 +382,13 @@ if (platformBtn) {
     if (lastTimetableContext) {
       renderTimetablesFromContext(lastTimetableContext);
     }
+  });
+}
+
+if (rotateModalOk) {
+  rotateModalOk.addEventListener("click", () => {
+    writeSessionFlag(ROTATE_PROMPT_DISMISSED_KEY);
+    hideRotatePrompt();
   });
 }
 
@@ -1908,6 +1960,7 @@ form.addEventListener("submit", async (e) => {
     renderTimetablesFromContext(lastTimetableContext);
     if (!statusEl?.classList.contains("is-error")) {
       hideStatus();
+      maybeShowRotatePrompt();
     }
   } finally {
     buildAbortController = null;
