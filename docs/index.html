@@ -354,6 +354,7 @@
         border-color: #9aabbf;
       }
 
+
       #addViaBtn {
         align-self: flex-start;
         transform: none;
@@ -645,6 +646,19 @@
         text-decoration: line-through;
       }
 
+      .platform-tag {
+        display: inline-block;
+        margin-left: 0.2rem;
+      }
+
+      .platform-confirmed {
+        font-weight: 700;
+      }
+
+      .platform-changed {
+        color: #8243a8;
+      }
+
       .service-header {
         font-weight: 700;
         white-space: nowrap;
@@ -884,6 +898,15 @@
                 disabled
               >
                 Realtime
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-toggle"
+                id="platformBtn"
+                aria-pressed="false"
+                disabled
+              >
+                Show Platforms
               </button>
             </div>
             <div id="status" hidden>
