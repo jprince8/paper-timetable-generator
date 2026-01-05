@@ -439,7 +439,7 @@ def build_timetable_pdf(tables, meta=None):
                 key_items.append(
                     (
                         None,
-                        "<font backColor=\"#fce3b0\">12:34</font> Incorrect order",
+                        "<font backColor=\"#fce3b0\">12:34</font> Non-chronological",
                     )
                 )
             if format_flags["dep_before_arrival"]:

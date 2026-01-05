@@ -4343,7 +4343,7 @@ function renderTableKey(model, keyEl) {
     items.push({
       sampleHtml:
         '<span class="table-key-sample table-key-sample--out-of-order" title="Out of order example" aria-label="Out of order example">12:34</span>',
-      label: "Incorrect order",
+      label: "Non-chronological",
     });
   }
   if (formatFlags.depBeforeArrival) {
