@@ -37,6 +37,19 @@ function busSvgMarkup() {
   `;
 }
 
+function walkSvgMarkup() {
+  return `
+<span class="walk-icon" title="Walking connection" aria-label="Walking connection">
+  <svg viewBox="0 0 24 24" role="img" focusable="false" aria-hidden="true">
+    <circle cx="12" cy="4" r="2" fill="currentColor"/>
+    <path d="M12 6l-2 5l-3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <path d="M10 11l4 2l2 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <path d="M9 21l2-6l3-1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  </svg>
+</span>
+  `;
+}
+
 function renderTableKey(model, keyEl) {
   if (!keyEl) return;
   const { rows, orderedSvcIndices, servicesMeta } = model;
@@ -49,6 +62,7 @@ function renderTableKey(model, keyEl) {
     firstClass: servicesMeta.some((meta) => meta.firstClassAvailable),
     sleeper: servicesMeta.some((meta) => meta.isSleeper),
     bus: servicesMeta.some((meta) => meta.isBus),
+    walk: servicesMeta.some((meta) => meta.isWalk),
   };
 
   if (facilityFlags.firstClass) {
@@ -63,6 +77,12 @@ function renderTableKey(model, keyEl) {
   }
   if (facilityFlags.bus) {
     items.push({ sampleHtml: busSvgMarkup(), label: "Bus service" });
+  }
+  if (facilityFlags.walk) {
+    items.push({
+      sampleHtml: walkSvgMarkup(),
+      label: "Walking connection",
+    });
   }
 
   const formatFlags = {
@@ -321,6 +341,9 @@ function renderTimetable(
     }
     if (meta.isBus) {
       icons.push(busSvgMarkup());
+    }
+    if (meta.isWalk) {
+      icons.push(walkSvgMarkup());
     }
 
     th.innerHTML = icons.length

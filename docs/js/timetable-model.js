@@ -7,6 +7,7 @@ function buildTimetableModel(
   const {
     realtimeEnabled: realtimeToggleEnabled = false,
     showPlatforms = false,
+    atocNameByCode = {},
   } = options;
 
   function computeDisplayStations(stationsList, svcs) {
@@ -591,50 +592,6 @@ function buildTimetableModel(
     }
   }
 
-  const ATOC_NAME_BY_CODE = {
-    LM: "WMT",
-    LF: "LWC",
-    CC: "C2C",
-    LE: "GA",
-    SW: "SWR",
-    XR: "EL",
-    CS: "CS",
-    TP: "TPE",
-    SR: "SR",
-    LD: "LEC",
-    SE: "SE",
-    GM: "TfGM",
-    AW: "TfW",
-    NT: "N",
-    GR: "LNER",
-    IL: "IL",
-    LO: "LO",
-    SN: "S",
-    GX: "GEx",
-    GN: "GN",
-    TL: "TL",
-    ES: "E",
-    EM: "EMR",
-    VT: "AWC",
-    XC: "XC",
-    GC: "GC",
-    GW: "GWR",
-    NY: "NYMR",
-    ME: "M",
-    HT: "HT",
-    HX: "HEx",
-    WR: "WCR",
-    CH: "CR",
-    LS: "LS",
-    MV: "VR",
-    SJ: "SST",
-    SO: "RA",
-    SP: "Swanage",
-    TY: "VT",
-    YG: "Other",
-    ZZ: "Other",
-  };
-
   const servicesMeta = servicesWithDetails.map(({ svc, detail }) => {
     const originText = safePairText(detail.origin);
     const destText = safePairText(detail.destination);
@@ -649,7 +606,7 @@ function buildTimetableModel(
     const opCode = svc.atocCode || detail.atocCode || "";
     const opName = svc.atocName || detail.atocName || opCode;
 
-    const visible = ATOC_NAME_BY_CODE[opCode] || opCode || headcode || "?";
+    const visible = atocNameByCode[opCode] || opCode || headcode || "?";
 
     const line1Parts = [];
     if (opName) line1Parts.push(opName);
@@ -675,7 +632,9 @@ function buildTimetableModel(
     const isSleeper = sl !== "";
 
     const serviceType = (detail.serviceType || svc.serviceType || "").trim();
-    const isBus = serviceType.toLowerCase() === "bus";
+    const serviceTypeLower = serviceType.toLowerCase();
+    const isBus = serviceTypeLower === "bus";
+    const isWalk = serviceTypeLower === "walk";
     const busFirstClassAvailable = isBus ? false : firstClassAvailable;
 
     return {
@@ -685,6 +644,7 @@ function buildTimetableModel(
       firstClassAvailable: busFirstClassAvailable,
       isSleeper,
       isBus,
+      isWalk,
     };
   });
 
