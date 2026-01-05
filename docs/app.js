@@ -2201,12 +2201,43 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
 
     const ready = allStations.filter((crs) => inDegree.get(crs) === 0);
     const ordered = [];
-    const compareStations = (a, b, lastPicked) => {
-      if (lastPicked) {
+    const adjacencyRank = (candidate, orderedList) => {
+      for (let i = orderedList.length - 1; i >= 0; i--) {
+        const crs = orderedList[i];
+        const counts = adjacencyCounts.get(crs);
+        if (!counts) continue;
+        const weight = counts.get(candidate) || 0;
+        if (weight > 0) {
+          return { recentIndex: i, weight };
+        }
+      }
+      return null;
+    };
+
+    const compareStations = (a, b, orderedList) => {
+      if (orderedList.length > 0) {
+        const lastPicked = orderedList[orderedList.length - 1];
         const lastCounts = adjacencyCounts.get(lastPicked);
         const scoreA = lastCounts?.get(a) || 0;
         const scoreB = lastCounts?.get(b) || 0;
         if (scoreA !== scoreB) return scoreB - scoreA;
+
+        if (scoreA === 0 && scoreB === 0) {
+          const rankA = adjacencyRank(a, orderedList);
+          const rankB = adjacencyRank(b, orderedList);
+          if (rankA && rankB) {
+            if (rankA.recentIndex !== rankB.recentIndex) {
+              return rankB.recentIndex - rankA.recentIndex;
+            }
+            if (rankA.weight !== rankB.weight) {
+              return rankB.weight - rankA.weight;
+            }
+          } else if (rankA) {
+            return -1;
+          } else if (rankB) {
+            return 1;
+          }
+        }
       }
       const scoreDiff = positionScore[a] - positionScore[b];
       if (scoreDiff !== 0) return scoreDiff;
@@ -2223,12 +2254,11 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
     };
 
     while (ready.length > 0) {
-      const lastPicked = ordered.length > 0 ? ordered[ordered.length - 1] : null;
-      ready.sort((a, b) => compareStations(a, b, lastPicked));
+      ready.sort((a, b) => compareStations(a, b, ordered));
       debugOrderLog("toposort candidates", {
         candidates: [...ready],
         orderedCrs: [...ordered],
-        lastPicked,
+        lastPicked: ordered.length > 0 ? ordered[ordered.length - 1] : null,
       });
       const next = ready.shift();
       ordered.push(next);
