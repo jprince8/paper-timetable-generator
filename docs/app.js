@@ -3403,12 +3403,17 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     return false;
   }
 
+  function recordSortSequence(serviceIdx) {
+    sortSequence.push(serviceIdx);
+  }
+
   function resolveUnboundedServices(remainingServices, orderedSvcIndices) {
     sortLogLines.push("Resolution pass 0: start");
     for (let idx = 0; idx < remainingServices.length; idx++) {
       const svcIdx = remainingServices[idx];
       if (insertFirstCandidate(svcIdx, orderedSvcIndices)) {
         remainingServices.splice(idx, 1);
+        recordSortSequence(svcIdx);
         return true;
       }
     }
@@ -3447,6 +3452,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         ) {
           orderedSvcIndices.splice(0, orderedSvcIndices.length, ...attemptA);
           remainingServices.splice(idx, 1);
+          recordSortSequence(svcIdx);
           return true;
         }
 
@@ -3478,6 +3484,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
                 ...attemptB,
               );
               remainingServices.splice(idx, 1);
+              recordSortSequence(svcIdx);
               return true;
             }
           }
@@ -3505,6 +3512,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
                 ...attemptC,
               );
               remainingServices.splice(idx, 1);
+              recordSortSequence(svcIdx);
               return true;
             }
           }
@@ -3568,6 +3576,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
               ...attemptDep,
             );
             remainingServices.splice(idx, 1);
+            recordSortSequence(svcIdx);
             return true;
           }
         }
@@ -3603,6 +3612,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
               ...attemptArrDep,
             );
             remainingServices.splice(idx, 1);
+            recordSortSequence(svcIdx);
             return true;
           }
         }
@@ -3620,6 +3630,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   }
 
   const orderedSvcIndices = [];
+  const sortSequence = [];
   let unsortedServices = null;
   let unsortedLabels = null;
   const remainingServices = Array.from(
@@ -3666,6 +3677,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   if (remainingServices.length > 0) {
     const seedService = remainingServices.shift();
     orderedSvcIndices.push(seedService);
+    recordSortSequence(seedService);
     sortLogLines.push("");
     sortLogLines.push(`Seed service: ${serviceLabel(seedService)}`);
   }
@@ -3710,6 +3722,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
 
     const svcIdx = remainingServices.shift();
     if (attemptInsertService(svcIdx, orderedSvcIndices)) {
+      recordSortSequence(svcIdx);
       rotationsWithoutInsert = 0;
     } else {
       remainingServices.push(svcIdx);
@@ -3725,6 +3738,13 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     `Final order: ${
       orderedSvcIndices.length > 0
         ? orderedSvcIndices.map(serviceLabel).join(", ")
+        : "(none)"
+    }`,
+  );
+  sortLogLines.push(
+    `Sort sequence: ${
+      sortSequence.length > 0
+        ? sortSequence.map(serviceLabel).join(", ")
         : "(none)"
     }`,
   );
