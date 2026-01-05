@@ -3657,8 +3657,13 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     }
 
     if (attemptedServices === 0) {
+      const deferredLabels = remainingServices
+        .filter((svcIdx) => deferredOptionsByService.has(svcIdx))
+        .map((svcIdx) => serviceLabel(svcIdx));
+      const deferredText =
+        deferredLabels.length > 0 ? deferredLabels.join(", ") : "none";
       sortLogLines.push(
-        `Resolution pass 1: no candidates evaluated (deferred ${deferredServices} services)`,
+        `Resolution pass 1: no candidates evaluated (deferred ${deferredServices} services: ${deferredText})`,
       );
     }
     sortLogLines.push("Resolution pass 1: no resolution found");
@@ -3785,8 +3790,13 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     }
 
     if (attemptedServices === 0) {
+      const deferredLabels = remainingServices
+        .filter((svcIdx) => deferredOptionsByService.has(svcIdx))
+        .map((svcIdx) => serviceLabel(svcIdx));
+      const deferredText =
+        deferredLabels.length > 0 ? deferredLabels.join(", ") : "none";
       sortLogLines.push(
-        `Resolution pass 2: no candidates evaluated (deferred ${deferredServices} services)`,
+        `Resolution pass 2: no candidates evaluated (deferred ${deferredServices} services: ${deferredText})`,
       );
     }
     sortLogLines.push("Resolution pass 2: no resolution found");
