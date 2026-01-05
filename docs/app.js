@@ -206,6 +206,7 @@ let realtimeEnabled = false;
 let realtimeAvailable = false;
 let realtimePreferred = false;
 let showPlatformsEnabled = false;
+let showPlatformsPreferred = false;
 let platformAvailable = false;
 let buildAbortController = null;
 let buildInProgress = false;
@@ -267,12 +268,12 @@ if (nowBtn) {
 
 function setRealtimeToggleState({ enabled, active }, { persist = false } = {}) {
   realtimeAvailable = enabled;
-  realtimeEnabled = enabled && active;
+  realtimePreferred = Boolean(active);
+  realtimeEnabled = enabled && realtimePreferred;
   if (!realtimeBtn) return;
-  const displayActive = enabled ? realtimeEnabled : realtimePreferred;
   realtimeBtn.disabled = !enabled;
-  realtimeBtn.classList.toggle("is-active", displayActive);
-  realtimeBtn.setAttribute("aria-pressed", displayActive ? "true" : "false");
+  realtimeBtn.classList.toggle("is-active", realtimeEnabled);
+  realtimeBtn.setAttribute("aria-pressed", realtimeEnabled ? "true" : "false");
   if (persist && window.localStorage) {
     localStorage.setItem(
       REALTIME_TOGGLE_STORAGE_KEY,
@@ -284,11 +285,14 @@ function setRealtimeToggleState({ enabled, active }, { persist = false } = {}) {
 if (realtimeBtn) {
   realtimeBtn.addEventListener("click", () => {
     if (realtimeBtn.disabled) return;
-    realtimePreferred = !realtimeEnabled;
-    setRealtimeToggleState({
-      enabled: realtimeAvailable,
-      active: realtimePreferred,
-    }, { persist: true });
+    const nextPreferred = !realtimePreferred;
+    setRealtimeToggleState(
+      {
+        enabled: realtimeAvailable,
+        active: nextPreferred,
+      },
+      { persist: true },
+    );
     if (lastTimetableContext) {
       renderTimetablesFromContext(lastTimetableContext);
     }
@@ -296,7 +300,8 @@ if (realtimeBtn) {
 }
 
 function setPlatformToggleState(active, { persist = true } = {}) {
-  showPlatformsEnabled = Boolean(active);
+  showPlatformsPreferred = Boolean(active);
+  showPlatformsEnabled = platformAvailable && showPlatformsPreferred;
   if (platformBtn) {
     platformBtn.classList.toggle("is-active", showPlatformsEnabled);
     platformBtn.setAttribute(
@@ -307,7 +312,7 @@ function setPlatformToggleState(active, { persist = true } = {}) {
   if (persist && window.localStorage) {
     localStorage.setItem(
       PLATFORM_TOGGLE_STORAGE_KEY,
-      showPlatformsEnabled ? "true" : "false",
+      showPlatformsPreferred ? "true" : "false",
     );
   }
 }
@@ -316,6 +321,12 @@ function setPlatformToggleAvailability(enabled) {
   platformAvailable = Boolean(enabled);
   if (platformBtn) {
     platformBtn.disabled = !platformAvailable;
+    showPlatformsEnabled = platformAvailable && showPlatformsPreferred;
+    platformBtn.classList.toggle("is-active", showPlatformsEnabled);
+    platformBtn.setAttribute(
+      "aria-pressed",
+      showPlatformsEnabled ? "true" : "false",
+    );
   }
 }
 
@@ -1080,7 +1091,7 @@ function resetOutputs() {
   lastPdfPayload = null;
   lastTimetableContext = null;
   lastSortLog = "";
-  setRealtimeToggleState({ enabled: false, active: false });
+  setRealtimeToggleState({ enabled: false, active: realtimePreferred });
   setPlatformToggleAvailability(false);
 }
 
@@ -1100,7 +1111,7 @@ function clearTimetableOutputs() {
   lastPdfPayload = null;
   lastTimetableContext = null;
   lastSortLog = "";
-  setRealtimeToggleState({ enabled: false, active: false });
+  setRealtimeToggleState({ enabled: false, active: realtimePreferred });
   setPlatformToggleAvailability(false);
 }
 
@@ -2108,7 +2119,7 @@ form.addEventListener("submit", async (e) => {
     servicesBA.some((entry) => entry.detail?.realtimeActivated === true);
   setRealtimeToggleState({
     enabled: hasRealtimeServices,
-    active: hasRealtimeServices && realtimePreferred,
+    active: realtimePreferred,
   });
 
   lastTimetableContext = {
