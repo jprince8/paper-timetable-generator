@@ -448,16 +448,16 @@ def build_timetable_pdf(tables, meta=None):
                     )
                 )
             if format_flags["platform_any"]:
-                key_items.append((None, "12:34 [1] Platform"))
+                key_items.append((None, "[1] Platform"))
             if format_flags["platform_confirmed"]:
                 key_items.append(
-                    (None, "12:34 <b>[1]</b> Confirmed platform")
+                    (None, "<b>[1]</b> Confirmed platform")
                 )
             if format_flags["platform_changed"]:
                 key_items.append(
                     (
                         None,
-                        "12:34 <font color=\"#a33b32\">[1]</font> Changed platform",
+                        "<font color=\"#a33b32\">[1]</font> Changed platform",
                     )
                 )
 

@@ -204,6 +204,7 @@ let lastSortLog = "";
 let realtimeEnabled = false;
 let realtimeAvailable = false;
 let showPlatformsEnabled = false;
+let platformAvailable = false;
 let buildAbortController = null;
 let buildInProgress = false;
 let buildCancelled = false;
@@ -301,8 +302,16 @@ function setPlatformToggleState(active, { persist = true } = {}) {
   }
 }
 
+function setPlatformToggleAvailability(enabled) {
+  platformAvailable = Boolean(enabled);
+  if (platformBtn) {
+    platformBtn.disabled = !platformAvailable;
+  }
+}
+
 if (platformBtn) {
   platformBtn.addEventListener("click", () => {
+    if (platformBtn.disabled) return;
     setPlatformToggleState(!showPlatformsEnabled);
     if (lastTimetableContext) {
       renderTimetablesFromContext(lastTimetableContext);
@@ -1052,6 +1061,7 @@ function resetOutputs() {
   lastTimetableContext = null;
   lastSortLog = "";
   setRealtimeToggleState({ enabled: false, active: false });
+  setPlatformToggleAvailability(false);
 }
 
 function clearTimetableOutputs() {
@@ -1071,6 +1081,7 @@ function clearTimetableOutputs() {
   lastTimetableContext = null;
   lastSortLog = "";
   setRealtimeToggleState({ enabled: false, active: false });
+  setPlatformToggleAvailability(false);
 }
 
 function formatAssertDetail(detail) {
@@ -1330,6 +1341,8 @@ function renderTimetablesFromContext(context) {
     dateLabel,
     generatedTimestamp,
   } = context;
+  const hasServices = servicesAB.length > 0 || servicesBA.length > 0;
+  setPlatformToggleAvailability(hasServices);
   const pdfTables = [];
   const sortLogs = [];
   context.partialSort = null;
@@ -4343,21 +4356,21 @@ function renderTableKey(model, keyEl) {
   if (formatFlags.platformAny) {
     items.push({
       sampleHtml:
-        '<span class="table-key-sample">12:34 <span class="platform-tag" title="Platform example" aria-label="Platform example">[1]</span></span>',
+        '<span class="table-key-sample"><span class="platform-tag" title="Platform example" aria-label="Platform example">[1]</span></span>',
       label: "Platform",
     });
   }
   if (formatFlags.platformConfirmed) {
     items.push({
       sampleHtml:
-        '<span class="table-key-sample">12:34 <span class="platform-tag platform-confirmed" title="Confirmed platform example" aria-label="Confirmed platform example">[1]</span></span>',
+        '<span class="table-key-sample"><span class="platform-tag platform-confirmed" title="Confirmed platform example" aria-label="Confirmed platform example">[1]</span></span>',
       label: "Confirmed platform",
     });
   }
   if (formatFlags.platformChanged) {
     items.push({
       sampleHtml:
-        '<span class="table-key-sample">12:34 <span class="platform-tag platform-changed" title="Changed platform example" aria-label="Changed platform example">[1]</span></span>',
+        '<span class="table-key-sample"><span class="platform-tag platform-changed" title="Changed platform example" aria-label="Changed platform example">[1]</span></span>',
       label: "Changed platform",
     });
   }
