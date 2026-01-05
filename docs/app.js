@@ -1676,7 +1676,7 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
-  const stations = buildStationsUnion(
+  let stations = buildStationsUnion(
     corridorStations,
     okCorridorDetails,
   );
@@ -1933,6 +1933,12 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
+  stations = refineStationOrder(
+    stations,
+    allDetails,
+    corridorStations,
+  );
+
   // Split into A->B vs B->A, based on order of corridor stations in the calling pattern.
   const split = splitByDirection(allDetails, stations);
   const servicesAB = split.ab;
@@ -2111,13 +2117,8 @@ function dedupeServiceEntries(entries) {
   return deduped;
 }
 
-// Build station union over a possibly multi-via corridor.
-// corridorStations is e.g. ["SHR", "VIA1", "VIA2", "WRX"].
-function buildStationsUnion(corridorStations, servicesWithDetails) {
-  const stationMap = {};
-  const corridorIndex = {};
-  const sequences = [];
-  const debugOrderLog = (message, payload) => {
+function createStationOrderLogger() {
+  return (message, payload) => {
     if (!DEBUG_STATIONS) return;
     if (payload === undefined) {
       console.log(`[station-order] ${message}`);
@@ -2125,6 +2126,177 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
       console.log(`[station-order] ${message}`, payload);
     }
   };
+}
+
+function buildStationOrderFromSequences(
+  sequences,
+  stationMap,
+  corridorIndex,
+  debugOrderLog,
+) {
+  const adjacency = new Map();
+  const adjacencyCounts = new Map();
+  const inDegree = new Map();
+  const positionSum = new Map();
+  const positionCount = new Map();
+  let edgeCount = 0;
+
+  const allStations = Object.keys(stationMap);
+  allStations.forEach((crs) => {
+    adjacency.set(crs, new Set());
+    adjacencyCounts.set(crs, new Map());
+    inDegree.set(crs, 0);
+    positionSum.set(crs, 0);
+    positionCount.set(crs, 0);
+  });
+
+  sequences.forEach((sequence) => {
+    sequence.forEach((crs, idx) => {
+      if (!positionSum.has(crs)) return;
+      positionSum.set(crs, positionSum.get(crs) + idx);
+      positionCount.set(crs, positionCount.get(crs) + 1);
+    });
+
+    for (let i = 0; i < sequence.length - 1; i++) {
+      const from = sequence[i];
+      const to = sequence[i + 1];
+      if (!adjacency.has(from) || !adjacency.has(to)) continue;
+      const neighbors = adjacency.get(from);
+      const counts = adjacencyCounts.get(from);
+      counts.set(to, (counts.get(to) || 0) + 1);
+      if (!neighbors.has(to)) {
+        neighbors.add(to);
+        inDegree.set(to, (inDegree.get(to) || 0) + 1);
+        edgeCount += 1;
+      }
+    }
+  });
+
+  const positionScore = {};
+  allStations.forEach((crs) => {
+    const count = positionCount.get(crs) || 0;
+    positionScore[crs] = count > 0 ? positionSum.get(crs) / count : Infinity;
+  });
+
+  debugOrderLog("order graph", {
+    nodes: allStations.length,
+    edges: edgeCount,
+    sequences: sequences.length,
+  });
+
+  const ready = allStations.filter((crs) => inDegree.get(crs) === 0);
+  const ordered = [];
+  const adjacencyRank = (candidate, orderedList) => {
+    for (let i = orderedList.length - 1; i >= 0; i--) {
+      const crs = orderedList[i];
+      const counts = adjacencyCounts.get(crs);
+      if (!counts) continue;
+      const weight = counts.get(candidate) || 0;
+      if (weight > 0) {
+        return { recentIndex: i, weight };
+      }
+    }
+    return null;
+  };
+
+  const compareStations = (a, b, orderedList) => {
+    if (orderedList.length > 0) {
+      const lastPicked = orderedList[orderedList.length - 1];
+      const lastCounts = adjacencyCounts.get(lastPicked);
+      const scoreA = lastCounts?.get(a) || 0;
+      const scoreB = lastCounts?.get(b) || 0;
+      if (scoreA !== scoreB) return scoreB - scoreA;
+
+      if (scoreA === 0 && scoreB === 0) {
+        const rankA = adjacencyRank(a, orderedList);
+        const rankB = adjacencyRank(b, orderedList);
+        if (rankA && rankB) {
+          if (rankA.recentIndex !== rankB.recentIndex) {
+            return rankB.recentIndex - rankA.recentIndex;
+          }
+          if (rankA.weight !== rankB.weight) {
+            return rankB.weight - rankA.weight;
+          }
+        } else if (rankA) {
+          return -1;
+        } else if (rankB) {
+          return 1;
+        }
+      }
+    }
+    const scoreDiff = positionScore[a] - positionScore[b];
+    if (scoreDiff !== 0) return scoreDiff;
+    const corridorA = corridorIndex[a];
+    const corridorB = corridorIndex[b];
+    if (corridorA !== undefined && corridorB !== undefined) {
+      if (corridorA !== corridorB) return corridorA - corridorB;
+    } else if (corridorA !== undefined) {
+      return -1;
+    } else if (corridorB !== undefined) {
+      return 1;
+    }
+    return a.localeCompare(b);
+  };
+
+  while (ready.length > 0) {
+    ready.sort((a, b) => compareStations(a, b, ordered));
+    debugOrderLog("toposort candidates", {
+      candidates: [...ready],
+      orderedCrs: [...ordered],
+      lastPicked: ordered.length > 0 ? ordered[ordered.length - 1] : null,
+    });
+    const next = ready.shift();
+    ordered.push(next);
+    debugOrderLog("toposort pick", { picked: next, orderedCrs: [...ordered] });
+
+    const neighbors = adjacency.get(next) || new Set();
+    neighbors.forEach((neighbor) => {
+      const nextDegree = (inDegree.get(neighbor) || 0) - 1;
+      inDegree.set(neighbor, nextDegree);
+      if (nextDegree === 0) {
+        ready.push(neighbor);
+      }
+    });
+  }
+
+  if (ordered.length !== allStations.length) {
+    const remaining = allStations.filter((crs) => !ordered.includes(crs));
+    assertWithStatus(
+      false,
+      "Could not build a consistent station order for this route",
+      {
+        reason: "cycle",
+        remaining,
+        orderedCrs: [...ordered],
+      },
+    );
+  }
+
+  sequences.forEach((sequence) => {
+    const indices = sequence.map((crs) => ordered.indexOf(crs));
+    for (let i = 1; i < indices.length; i++) {
+      assertWithStatus(
+        indices[i - 1] < indices[i],
+        "Service calling pattern conflicts with the station order",
+        {
+          sequence: [...sequence],
+          sequenceIndices: indices,
+          orderedCrs: [...ordered],
+        },
+      );
+    }
+  });
+
+  return ordered;
+}
+
+// Build station union over a possibly multi-via corridor.
+// corridorStations is e.g. ["SHR", "VIA1", "VIA2", "WRX"].
+function buildStationsUnion(corridorStations, servicesWithDetails) {
+  const stationMap = {};
+  const corridorIndex = {};
+  const sequences = [];
+  const debugOrderLog = createStationOrderLogger();
 
   debugOrderLog("start build", {
     corridorStations: [...corridorStations],
@@ -2146,163 +2318,6 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         name: name || crs,
       };
     }
-  }
-
-  function buildOrderedCrs() {
-    const adjacency = new Map();
-    const adjacencyCounts = new Map();
-    const inDegree = new Map();
-    const positionSum = new Map();
-    const positionCount = new Map();
-    let edgeCount = 0;
-
-    const allStations = Object.keys(stationMap);
-    allStations.forEach((crs) => {
-      adjacency.set(crs, new Set());
-      adjacencyCounts.set(crs, new Map());
-      inDegree.set(crs, 0);
-      positionSum.set(crs, 0);
-      positionCount.set(crs, 0);
-    });
-
-    sequences.forEach((sequence) => {
-      sequence.forEach((crs, idx) => {
-        if (!positionSum.has(crs)) return;
-        positionSum.set(crs, positionSum.get(crs) + idx);
-        positionCount.set(crs, positionCount.get(crs) + 1);
-      });
-
-      for (let i = 0; i < sequence.length - 1; i++) {
-        const from = sequence[i];
-        const to = sequence[i + 1];
-        if (!adjacency.has(from) || !adjacency.has(to)) continue;
-        const neighbors = adjacency.get(from);
-        const counts = adjacencyCounts.get(from);
-        counts.set(to, (counts.get(to) || 0) + 1);
-        if (!neighbors.has(to)) {
-          neighbors.add(to);
-          inDegree.set(to, (inDegree.get(to) || 0) + 1);
-          edgeCount += 1;
-        }
-      }
-    });
-
-    const positionScore = {};
-    allStations.forEach((crs) => {
-      const count = positionCount.get(crs) || 0;
-      positionScore[crs] = count > 0 ? positionSum.get(crs) / count : Infinity;
-    });
-
-    debugOrderLog("order graph", {
-      nodes: allStations.length,
-      edges: edgeCount,
-      sequences: sequences.length,
-    });
-
-    const ready = allStations.filter((crs) => inDegree.get(crs) === 0);
-    const ordered = [];
-    const adjacencyRank = (candidate, orderedList) => {
-      for (let i = orderedList.length - 1; i >= 0; i--) {
-        const crs = orderedList[i];
-        const counts = adjacencyCounts.get(crs);
-        if (!counts) continue;
-        const weight = counts.get(candidate) || 0;
-        if (weight > 0) {
-          return { recentIndex: i, weight };
-        }
-      }
-      return null;
-    };
-
-    const compareStations = (a, b, orderedList) => {
-      if (orderedList.length > 0) {
-        const lastPicked = orderedList[orderedList.length - 1];
-        const lastCounts = adjacencyCounts.get(lastPicked);
-        const scoreA = lastCounts?.get(a) || 0;
-        const scoreB = lastCounts?.get(b) || 0;
-        if (scoreA !== scoreB) return scoreB - scoreA;
-
-        if (scoreA === 0 && scoreB === 0) {
-          const rankA = adjacencyRank(a, orderedList);
-          const rankB = adjacencyRank(b, orderedList);
-          if (rankA && rankB) {
-            if (rankA.recentIndex !== rankB.recentIndex) {
-              return rankB.recentIndex - rankA.recentIndex;
-            }
-            if (rankA.weight !== rankB.weight) {
-              return rankB.weight - rankA.weight;
-            }
-          } else if (rankA) {
-            return -1;
-          } else if (rankB) {
-            return 1;
-          }
-        }
-      }
-      const scoreDiff = positionScore[a] - positionScore[b];
-      if (scoreDiff !== 0) return scoreDiff;
-      const corridorA = corridorIndex[a];
-      const corridorB = corridorIndex[b];
-      if (corridorA !== undefined && corridorB !== undefined) {
-        if (corridorA !== corridorB) return corridorA - corridorB;
-      } else if (corridorA !== undefined) {
-        return -1;
-      } else if (corridorB !== undefined) {
-        return 1;
-      }
-      return a.localeCompare(b);
-    };
-
-    while (ready.length > 0) {
-      ready.sort((a, b) => compareStations(a, b, ordered));
-      debugOrderLog("toposort candidates", {
-        candidates: [...ready],
-        orderedCrs: [...ordered],
-        lastPicked: ordered.length > 0 ? ordered[ordered.length - 1] : null,
-      });
-      const next = ready.shift();
-      ordered.push(next);
-      debugOrderLog("toposort pick", { picked: next, orderedCrs: [...ordered] });
-
-      const neighbors = adjacency.get(next) || new Set();
-      neighbors.forEach((neighbor) => {
-        const nextDegree = (inDegree.get(neighbor) || 0) - 1;
-        inDegree.set(neighbor, nextDegree);
-        if (nextDegree === 0) {
-          ready.push(neighbor);
-        }
-      });
-    }
-
-    if (ordered.length !== allStations.length) {
-      const remaining = allStations.filter((crs) => !ordered.includes(crs));
-      assertWithStatus(
-        false,
-        "Could not build a consistent station order for this route",
-        {
-          reason: "cycle",
-          remaining,
-          orderedCrs: [...ordered],
-        },
-      );
-    }
-
-    sequences.forEach((sequence) => {
-      const indices = sequence.map((crs) => ordered.indexOf(crs));
-      for (let i = 1; i < indices.length; i++) {
-        assertWithStatus(
-          indices[i - 1] < indices[i],
-          "Service calling pattern conflicts with the station order",
-          {
-            sequence: [...sequence],
-            sequenceIndices: indices,
-            orderedCrs: [...ordered],
-          },
-        );
-      }
-    });
-
-    return ordered;
   }
 
   servicesWithDetails.forEach(({ detail }) => {
@@ -2359,8 +2374,70 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
     }
   });
 
-  const orderedCrs = buildOrderedCrs();
+  const orderedCrs = buildStationOrderFromSequences(
+    sequences,
+    stationMap,
+    corridorIndex,
+    debugOrderLog,
+  );
   debugOrderLog("final order", { orderedCrs: [...orderedCrs] });
+  return orderedCrs.map((crs) => stationMap[crs]).filter(Boolean);
+}
+
+function refineStationOrder(
+  stations,
+  servicesWithDetails,
+  corridorStations,
+) {
+  const stationMap = {};
+  const stationSet = {};
+  const corridorIndex = {};
+  const sequences = [];
+  const debugOrderLog = createStationOrderLogger();
+
+  stations.forEach((station) => {
+    if (!station?.crs) return;
+    stationMap[station.crs] = station;
+    stationSet[station.crs] = true;
+  });
+
+  corridorStations.forEach((crs, idx) => {
+    if (crs) corridorIndex[crs] = idx;
+  });
+
+  servicesWithDetails.forEach(({ detail }) => {
+    const locs = detail.locations || [];
+    if (!locs.length) return;
+    const sequence = [];
+
+    for (const loc of locs) {
+      const disp = (loc.displayAs || "").toUpperCase();
+      if (disp === "PASS" || disp === "CANCELLED_PASS") continue;
+      const crs = loc.crs || "";
+      if (!stationSet[crs]) continue;
+      if (sequence.length === 0 || sequence[sequence.length - 1] !== crs) {
+        sequence.push(crs);
+      }
+    }
+
+    if (sequence.length >= 2) {
+      sequences.push(sequence);
+      debugOrderLog("refine sequence", { sequence: [...sequence] });
+    }
+  });
+
+  if (sequences.length === 0) {
+    debugOrderLog("refine skipped", { reason: "no sequences" });
+    return stations;
+  }
+
+  const orderedCrs = buildStationOrderFromSequences(
+    sequences,
+    stationMap,
+    corridorIndex,
+    debugOrderLog,
+  );
+  debugOrderLog("refined order", { orderedCrs: [...orderedCrs] });
   return orderedCrs.map((crs) => stationMap[crs]).filter(Boolean);
 }
 
