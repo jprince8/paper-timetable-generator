@@ -218,6 +218,12 @@ let atocNameByCode = {};
 let connectionsByStation = {};
 let lookupLoadPromise = null;
 
+function resolveInputStationLabel(crs, inputValue, fallback) {
+  const trimmed = (inputValue || "").trim();
+  if (trimmed) return trimmed;
+  return fallback || crs || "";
+}
+
 function normaliseConnectionList(value) {
   if (!value) return null;
   if (Array.isArray(value)) {
@@ -1975,9 +1981,26 @@ form.addEventListener("submit", async (e) => {
   const servicesAB = split.ab;
   const servicesBA = split.ba;
 
-  const fromName = findStationNameByCrs(stations, from);
-  const toName = findStationNameByCrs(stations, to);
-  const viaNames = viaValues.map((crs) => findStationNameByCrs(stations, crs));
+  const fromName = resolveInputStationLabel(
+    from,
+    fromStationInput.value,
+    findStationNameByCrs(stations, from),
+  );
+  const toName = resolveInputStationLabel(
+    to,
+    toStationInput.value,
+    findStationNameByCrs(stations, to),
+  );
+  const viaNames = viaValues.map((crs) => {
+    const viaField = viaFields.find(
+      (field) => normaliseCrs(field.crsInput.value) === crs,
+    );
+    return resolveInputStationLabel(
+      crs,
+      viaField?.textInput?.value,
+      findStationNameByCrs(stations, crs),
+    );
+  });
   const viaNamesForward = viaNames.filter(Boolean);
   const forwardStopsLabel = [fromName, ...viaNamesForward, toName]
     .filter(Boolean)
@@ -2197,23 +2220,71 @@ function buildConnectionServiceEntries(
     if (!entry?.detail || !Array.isArray(entry.detail.locations)) return;
     const { last, previous } = getLastCallingPair(entry.detail);
     const terminalCrs = normaliseCrs(last?.crs || "");
-    if (!terminalCrs || !corridorSet.has(terminalCrs)) return;
+    if (!terminalCrs) {
+      console.info("Connection skip: missing terminal CRS", entry);
+      return;
+    }
+    if (!corridorSet.has(terminalCrs)) {
+      console.info("Connection skip: terminal not in corridor", terminalCrs);
+      return;
+    }
 
     const previousCrs = normaliseCrs(previous?.crs || "");
     const terminalEntries = getConnectionEntriesForStation(terminalCrs);
-    if (!terminalEntries.length) return;
+    if (!terminalEntries.length) {
+      console.info(
+        "Connection skip: no connections for terminal",
+        terminalCrs,
+      );
+      return;
+    }
 
     const arrivalMins = locationTimeMinutes(last);
-    if (arrivalMins === null) return;
+    if (arrivalMins === null) {
+      console.info(
+        "Connection skip: terminal arrival time missing",
+        terminalCrs,
+      );
+      return;
+    }
 
     terminalEntries.forEach((terminalEntry) => {
-      if (!matchConnectionEntry(terminalEntry, previousCrs)) return;
+      if (!matchConnectionEntry(terminalEntry, previousCrs)) {
+        console.info(
+          "Connection skip: previous station mismatch",
+          terminalCrs,
+          previousCrs,
+          terminalEntry.previousStations,
+        );
+        return;
+      }
       Object.entries(terminalEntry.connections || {}).forEach(
         ([destCrsRaw, meta]) => {
           const destCrs = normaliseCrs(destCrsRaw);
-          if (!destCrs || !corridorSet.has(destCrs)) return;
+          if (!destCrs) {
+            console.info(
+              "Connection skip: missing destination CRS",
+              terminalCrs,
+            );
+            return;
+          }
+          if (!corridorSet.has(destCrs)) {
+            console.info(
+              "Connection skip: destination not in corridor",
+              terminalCrs,
+              destCrs,
+            );
+            return;
+          }
           const durationMinutes = meta.durationMinutes;
-          if (!durationMinutes) return;
+          if (!durationMinutes) {
+            console.info(
+              "Connection skip: missing duration",
+              terminalCrs,
+              destCrs,
+            );
+            return;
+          }
           const departMins = arrivalMins + bufferMinutes;
           const arriveMins = departMins + durationMinutes;
           const departTime = minutesToRttTime(departMins);
