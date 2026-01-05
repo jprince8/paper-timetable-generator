@@ -122,8 +122,10 @@ def _format_cell_text(cell):
             formatted_platform = f"<b>{formatted_platform}</b>"
         if cell.get("platformChanged"):
             formatted_platform = (
-                f"<font color=\"#e53935\">{formatted_platform}</font>"
+                f"<font color=\"#8243a8\">{formatted_platform}</font>"
             )
+        if cell.get("strike"):
+            formatted_platform = f"<strike>{formatted_platform}</strike>"
     if formatted_time and formatted_platform:
         return f"{formatted_time} {formatted_platform}"
     if formatted_time:
@@ -457,7 +459,7 @@ def build_timetable_pdf(tables, meta=None):
                 key_items.append(
                     (
                         None,
-                        "<font color=\"#e53935\"><b>[1]</b></font> Changed platform",
+                        "<font color=\"#8243a8\"><b>[1]</b></font> Changed platform",
                     )
                 )
 

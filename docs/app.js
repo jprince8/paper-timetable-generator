@@ -4594,6 +4594,9 @@ function renderTimetable(
             if (val.platform.changed) {
               platformSpan.classList.add("platform-changed");
             }
+            if (val.format?.strike) {
+              platformSpan.classList.add("time-cancelled");
+            }
             platformSpan.textContent = val.platform.text;
             td.appendChild(platformSpan);
           }
