@@ -2126,6 +2126,11 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
     }
   };
 
+  debugOrderLog("start build", {
+    corridorStations: [...corridorStations],
+    services: servicesWithDetails.length,
+  });
+
   // Map each corridor CRS to its index in the chain (A=0, VIA1=1, ..., Z=n)
   corridorStations.forEach((crs, idx) => {
     if (crs) corridorIndex[crs] = idx;
@@ -2226,6 +2231,10 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         },
       );
     }
+    debugOrderLog("merge result", {
+      sequence: [...sequence],
+      orderedCrs: [...orderedCrs],
+    });
   }
 
   servicesWithDetails.forEach(({ detail }) => {
@@ -2283,6 +2292,7 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
     }
   });
 
+  debugOrderLog("final order", { orderedCrs: [...orderedCrs] });
   return orderedCrs.map((crs) => stationMap[crs]).filter(Boolean);
 }
 
