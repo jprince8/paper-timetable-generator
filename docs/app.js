@@ -2962,8 +2962,9 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
             const platform = String(loc.platform || "").trim();
             platformInfo = {
               text: platform ? `[${platform}]` : "[?]",
-              confirmed: loc.platformConfirmed === true,
-              changed: loc.platformChanged === true,
+              confirmed:
+                realtimeToggleEnabled && loc.platformConfirmed === true,
+              changed: realtimeToggleEnabled && loc.platformChanged === true,
             };
           }
           rows[r].cells[s] = {
@@ -4252,6 +4253,7 @@ function renderTableKey(model, keyEl) {
     noReport: false,
     outOfOrder: false,
     depBeforeArrival: false,
+    platformAny: false,
     platformConfirmed: false,
     platformChanged: false,
   };
@@ -4270,6 +4272,7 @@ function renderTableKey(model, keyEl) {
       if (format.strike) formatFlags.strike = true;
       if (format.color && format.color !== "muted") formatFlags.color = true;
       if (format.noReport) formatFlags.noReport = true;
+      if (val.platform?.text) formatFlags.platformAny = true;
       if (val.platform?.confirmed) formatFlags.platformConfirmed = true;
       if (val.platform?.changed) formatFlags.platformChanged = true;
       if (format.bgColor) {
@@ -4337,18 +4340,25 @@ function renderTableKey(model, keyEl) {
       label: "Departs before previous arrival",
     });
   }
+  if (formatFlags.platformAny) {
+    items.push({
+      sampleHtml:
+        '<span class="table-key-sample">12:34 <span class="platform-tag" title="Platform example" aria-label="Platform example">[1]</span></span>',
+      label: "Platform",
+    });
+  }
   if (formatFlags.platformConfirmed) {
     items.push({
       sampleHtml:
-        '<span class="table-key-sample">12:34 <span class="platform-tag platform-confirmed" title="Platform confirmed example" aria-label="Platform confirmed example">[1]</span></span>',
-      label: "Platform confirmed",
+        '<span class="table-key-sample">12:34 <span class="platform-tag platform-confirmed" title="Confirmed platform example" aria-label="Confirmed platform example">[1]</span></span>',
+      label: "Confirmed platform",
     });
   }
   if (formatFlags.platformChanged) {
     items.push({
       sampleHtml:
-        '<span class="table-key-sample">12:34 <span class="platform-tag platform-changed" title="Platform changed example" aria-label="Platform changed example">[1]</span></span>',
-      label: "Platform changed",
+        '<span class="table-key-sample">12:34 <span class="platform-tag platform-changed" title="Changed platform example" aria-label="Changed platform example">[1]</span></span>',
+      label: "Changed platform",
     });
   }
 

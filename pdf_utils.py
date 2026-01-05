@@ -381,6 +381,7 @@ def build_timetable_pdf(tables, meta=None):
                 "no_report": False,
                 "out_of_order": False,
                 "dep_before_arrival": False,
+                "platform_any": False,
                 "platform_confirmed": False,
                 "platform_changed": False,
             }
@@ -401,6 +402,8 @@ def build_timetable_pdf(tables, meta=None):
                         format_flags["color"] = True
                     if cell.get("noReport"):
                         format_flags["no_report"] = True
+                    if cell.get("platformText"):
+                        format_flags["platform_any"] = True
                     if cell.get("platformConfirmed"):
                         format_flags["platform_confirmed"] = True
                     if cell.get("platformChanged"):
@@ -444,15 +447,17 @@ def build_timetable_pdf(tables, meta=None):
                         "<font backColor=\"#e6d9ff\">12:34</font> Departs before previous arrival",
                     )
                 )
+            if format_flags["platform_any"]:
+                key_items.append((None, "12:34 [1] Platform"))
             if format_flags["platform_confirmed"]:
                 key_items.append(
-                    (None, "12:34 <b>[1]</b> Platform confirmed")
+                    (None, "12:34 <b>[1]</b> Confirmed platform")
                 )
             if format_flags["platform_changed"]:
                 key_items.append(
                     (
                         None,
-                        "12:34 <font color=\"#a33b32\">[1]</font> Platform changed",
+                        "12:34 <font color=\"#a33b32\">[1]</font> Changed platform",
                     )
                 )
 
