@@ -146,7 +146,7 @@ form#form {
 }
 
 .form-row-stations {
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   overflow-y: visible;
   width: 100%;
   row-gap: 1rem;
@@ -214,6 +214,7 @@ input:focus {
 .via-scroll .station-field {
   flex: 0 0 auto;
   min-width: 18ch;
+  width: 100%;
 }
 
 .station-input {
@@ -222,11 +223,50 @@ input:focus {
   text-transform: none;
 }
 
+.via-scroll .station-input {
+  min-width: 0;
+}
+
 .station-field-row {
   display: flex;
   align-items: center;
   gap: 0.35rem;
   width: 100%;
+}
+
+.via-row {
+  gap: 0.5rem;
+}
+
+.via-required-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  margin: 0;
+}
+
+.via-required-toggle input {
+  appearance: none;
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 2px;
+  border: 1px solid var(--accent);
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.via-required-toggle input:checked {
+  background: var(--accent);
+}
+
+.via-row.is-optional .via-required-toggle {
+  border-color: transparent;
+  background: transparent;
+}
+
+.via-row.is-optional .via-required-toggle input {
+  border-color: var(--accent-blue);
 }
 
 .station-suggest {

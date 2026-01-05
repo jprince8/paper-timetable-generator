@@ -249,7 +249,7 @@ if (buildBtn) {
 
 // === Form helpers ===
 addViaBtn.addEventListener("click", () => {
-  createViaField("");
+  createViaField({ crs: "", required: true });
 });
 
 if (nowBtn) {
@@ -563,9 +563,32 @@ async function hydrateStationField(field) {
   updateStationValidity(field);
 }
 
-function createViaField(initialCrs = "") {
+function updateViaRequirementUi(field) {
+  const isRequired = field.requiredToggle.checked;
+  field.row.classList.toggle("is-optional", !isRequired);
+}
+
+function createViaField(initialConfig = {}) {
+  const config =
+    typeof initialConfig === "string"
+      ? { crs: initialConfig, required: true }
+      : {
+          crs: initialConfig.crs || "",
+          required: initialConfig.required !== false,
+        };
   const label = document.createElement("label");
   label.className = "station-field";
+
+  const requiredToggle = document.createElement("label");
+  requiredToggle.className = "via-required-toggle";
+  requiredToggle.title = "Toggle mandatory/optional via";
+
+  const requiredInput = document.createElement("input");
+  requiredInput.type = "checkbox";
+  requiredInput.checked = config.required;
+  requiredInput.setAttribute("aria-label", "Mandatory via");
+
+  requiredToggle.appendChild(requiredInput);
 
   const input = document.createElement("input");
   input.type = "text";
@@ -585,7 +608,8 @@ function createViaField(initialCrs = "") {
   removeBtn.className = "via-remove";
 
   const row = document.createElement("div");
-  row.className = "station-field-row";
+  row.className = "station-field-row via-row";
+  row.appendChild(requiredToggle);
   row.appendChild(input);
   row.appendChild(removeBtn);
 
@@ -599,6 +623,10 @@ function createViaField(initialCrs = "") {
     if (idx !== -1) {
       viaFields.splice(idx, 1);
     }
+  });
+
+  requiredInput.addEventListener("change", () => {
+    updateViaRequirementUi(field);
   });
 
   label.appendChild(row);
@@ -616,11 +644,14 @@ function createViaField(initialCrs = "") {
     crsInput,
     suggestBox,
     required: false,
+    requiredToggle: requiredInput,
+    row,
   });
+  updateViaRequirementUi(field);
   viaFields.push(field);
 
-  if (initialCrs) {
-    field.crsInput.value = normaliseCrs(initialCrs);
+  if (config.crs) {
+    field.crsInput.value = normaliseCrs(config.crs);
     hydrateStationField(field);
   }
 }
@@ -681,7 +712,10 @@ function loadSavedInputsFromStorage() {
       .split(",")
       .map((v) => v.trim())
       .filter((v) => v)
-      .forEach((v) => createViaField(v));
+      .forEach((v) => {
+        const parsed = parseViaToken(v);
+        createViaField(parsed);
+      });
   } else {
     clearViaFields();
   }
@@ -729,7 +763,10 @@ function loadInputsFromQuery() {
       .split(",")
       .map((v) => v.trim())
       .filter((v) => v)
-      .forEach((v) => createViaField(normaliseCrs(v)));
+      .forEach((v) => {
+        const parsed = parseViaToken(v);
+        createViaField(parsed);
+      });
   }
 
   return {
@@ -897,6 +934,47 @@ function clearTimetableOutputs() {
   setPlatformToggleAvailability(false);
 }
 
+function buildCorridorPaths(from, to, viaEntries) {
+  const paths = [];
+  const totalVia = viaEntries.length;
+
+  function collectPaths(index, current) {
+    if (index >= totalVia) {
+      paths.push([from, ...current, to]);
+      return;
+    }
+    const via = viaEntries[index];
+    if (via.required) {
+      collectPaths(index + 1, [...current, via.crs]);
+      return;
+    }
+    collectPaths(index + 1, current);
+    collectPaths(index + 1, [...current, via.crs]);
+  }
+
+  collectPaths(0, []);
+  return paths.length ? paths : [[from, to]];
+}
+
+function buildCorridorLegs(paths) {
+  const legMap = new Map();
+  paths.forEach((path) => {
+    for (let i = 0; i < path.length - 1; i += 1) {
+      const fromCrs = path[i];
+      const toCrs = path[i + 1];
+      const key = `${fromCrs}|${toCrs}`;
+      if (!legMap.has(key)) {
+        legMap.set(key, {
+          from: fromCrs,
+          to: toCrs,
+        });
+      }
+    }
+  });
+
+  return Array.from(legMap.values());
+}
+
 function formatAssertDetail(detail) {
   if (!detail) return "";
   if (typeof detail === "string") return detail;
@@ -976,7 +1054,7 @@ function buildUrlFromInputs({ includeAutoBuild = false } = {}) {
   const start = document.getElementById("startTime").value;
   const end = document.getElementById("endTime").value;
   const viaValues = viaFields
-    .map((field) => normaliseCrs(field.crsInput.value))
+    .map((field) => serializeViaField(field))
     .filter((v) => v);
 
   url.searchParams.set("from", from);
@@ -996,6 +1074,21 @@ function buildUrlFromInputs({ includeAutoBuild = false } = {}) {
 
 function buildShareUrl() {
   return buildUrlFromInputs({ includeAutoBuild: true }).toString();
+}
+
+function parseViaToken(token) {
+  const cleaned = (token || "").trim();
+  if (!cleaned) return { crs: "", required: true };
+  const isOptional = cleaned.endsWith("?");
+  const crs = normaliseCrs(isOptional ? cleaned.slice(0, -1) : cleaned);
+  return { crs, required: !isOptional };
+}
+
+function serializeViaField(field) {
+  const crs = normaliseCrs(field.crsInput.value);
+  if (!crs) return null;
+  const required = field.requiredToggle ? field.requiredToggle.checked : true;
+  return required ? crs : `${crs}?`;
 }
 
 async function copyToClipboard(text) {
@@ -1234,9 +1327,13 @@ form.addEventListener("submit", async (e) => {
   const endInput = document.getElementById("endTime").value;
 
   // Collect via CRS values (non-empty only)
-  const viaValues = viaFields
-    .map((field) => normaliseCrs(field.crsInput.value))
-    .filter((v) => v);
+  const viaEntries = viaFields
+    .map((field) => ({
+      crs: normaliseCrs(field.crsInput.value),
+      required: field.requiredToggle ? field.requiredToggle.checked : true,
+    }))
+    .filter((entry) => entry.crs);
+  const viaValues = viaEntries.map((entry) => entry.crs);
 
   // Persist current form values + vias for next visit
   localStorage.setItem("corridor_fromCrs", from);
@@ -1244,7 +1341,10 @@ form.addEventListener("submit", async (e) => {
   localStorage.setItem("corridor_serviceDate", dateInput);
   localStorage.setItem("corridor_startTime", startInput);
   localStorage.setItem("corridor_endTime", endInput);
-  localStorage.setItem("corridor_vias", viaValues.join(","));
+  const viaTokens = viaFields
+    .map((field) => serializeViaField(field))
+    .filter((v) => v);
+  localStorage.setItem("corridor_vias", viaTokens.join(","));
   const updatedUrl = buildUrlFromInputs();
   if (autoBuildRequested) {
     updatedUrl.hash = "";
@@ -1267,19 +1367,13 @@ form.addEventListener("submit", async (e) => {
   // Full corridor chain including vias
   const corridorStations = [from, ...viaValues, to];
 
-  // Legs: A->B, B->C, ..., for each adjacent pair in the corridor chain
-  const corridorLegs = [];
-  for (let i = 0; i < corridorStations.length - 1; i++) {
-    corridorLegs.push({
-      from: corridorStations[i],
-      to: corridorStations[i + 1],
-    });
-  }
+  const corridorPaths = buildCorridorPaths(from, to, viaEntries);
+  const corridorLegs = buildCorridorLegs(corridorPaths);
 
   // Step 1: fetch all corridor services across all legs, deduplicated by serviceUid|runDate
   const corridorServicesMap = new Map();
   const stationNameByCrs = {};
-  let noServicesLeg = null;
+  const legServiceCounts = new Map();
   let invalidInputsDetected = false;
   let rttTimeoutDetected = false;
   const rttTimeoutMessage = "Error fetching data from RTT. Please try again.";
@@ -1288,11 +1382,11 @@ form.addEventListener("submit", async (e) => {
   let rttConnectionDetected = false;
 
   try {
-    const searchPromises = corridorLegs.map(async (leg) => {
-      const url =
-        PROXY_SEARCH +
-        "?crs=" +
-        encodeURIComponent(leg.from) +
+  const searchPromises = corridorLegs.map(async (leg) => {
+    const url =
+      PROXY_SEARCH +
+      "?crs=" +
+      encodeURIComponent(leg.from) +
         "&to=" +
         encodeURIComponent(leg.to) +
         "&date=" +
@@ -1344,16 +1438,10 @@ form.addEventListener("submit", async (e) => {
         if (svc.plannedCancel) return;
         return true;
       });
-      if (eligibleServices.length === 0 && !noServicesLeg) {
-        const fromName = stationNameByCrs[leg.from] || leg.from;
-        const toName = stationNameByCrs[leg.to] || leg.to;
-        noServicesLeg = {
-          from: leg.from,
-          to: leg.to,
-          fromName,
-          toName,
-        };
-      }
+      legServiceCounts.set(
+        `${leg.from}|${leg.to}`,
+        eligibleServices.length,
+      );
       eligibleServices.forEach((svc) => {
         const key = (svc.serviceUid || "") + "|" + (svc.runDate || "");
         if (!corridorServicesMap.has(key)) {
@@ -1391,13 +1479,28 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
-  if (noServicesLeg) {
+  const invalidPaths = corridorPaths
+    .map((path) => {
+      const missing = [];
+      for (let i = 0; i < path.length - 1; i += 1) {
+        const fromCrs = path[i];
+        const toCrs = path[i + 1];
+        const count =
+          legServiceCounts.get(`${fromCrs}|${toCrs}`) || 0;
+        if (count === 0) {
+          missing.push({ from: fromCrs, to: toCrs });
+        }
+      }
+      return { path, missing };
+    })
+    .filter((entry) => entry.missing.length > 0);
+  if (invalidPaths.length === corridorPaths.length) {
+    invalidPaths.sort((a, b) => a.missing.length - b.missing.length);
+    const gap = invalidPaths[0].missing[0];
+    const fromName = stationNameByCrs[gap.from] || gap.from;
+    const toName = stationNameByCrs[gap.to] || gap.to;
     setStatus(
-      "No passenger services between " +
-        noServicesLeg.fromName +
-        " and " +
-        noServicesLeg.toName +
-        ".",
+      "No passenger services between " + fromName + " and " + toName + ".",
       { isError: true },
     );
     return;
