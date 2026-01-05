@@ -2116,7 +2116,7 @@ function dedupeServiceEntries(entries) {
 function buildStationsUnion(corridorStations, servicesWithDetails) {
   const stationMap = {};
   const corridorIndex = {};
-  const orderedCrs = [];
+  const sequences = [];
   const debugOrderLog = (message, payload) => {
     if (!DEBUG_STATIONS) return;
     if (payload === undefined) {
@@ -2148,93 +2148,119 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
     }
   }
 
-  function mergeIntoOrder(sequence) {
-    debugOrderLog("merge sequence", {
-      sequence: [...sequence],
-      orderedCrs: [...orderedCrs],
+  function buildOrderedCrs() {
+    const adjacency = new Map();
+    const inDegree = new Map();
+    const positionSum = new Map();
+    const positionCount = new Map();
+    let edgeCount = 0;
+
+    const allStations = Object.keys(stationMap);
+    allStations.forEach((crs) => {
+      adjacency.set(crs, new Set());
+      inDegree.set(crs, 0);
+      positionSum.set(crs, 0);
+      positionCount.set(crs, 0);
     });
-    sequence.forEach((crs, idx) => {
-      if (!crs) return;
-      if (orderedCrs.includes(crs)) return;
 
-      let prevKnown = null;
-      for (let i = idx - 1; i >= 0; i--) {
-        if (orderedCrs.includes(sequence[i])) {
-          prevKnown = sequence[i];
-          break;
+    sequences.forEach((sequence) => {
+      sequence.forEach((crs, idx) => {
+        if (!positionSum.has(crs)) return;
+        positionSum.set(crs, positionSum.get(crs) + idx);
+        positionCount.set(crs, positionCount.get(crs) + 1);
+      });
+
+      for (let i = 0; i < sequence.length - 1; i++) {
+        const from = sequence[i];
+        const to = sequence[i + 1];
+        if (!adjacency.has(from) || !adjacency.has(to)) continue;
+        const neighbors = adjacency.get(from);
+        if (!neighbors.has(to)) {
+          neighbors.add(to);
+          inDegree.set(to, (inDegree.get(to) || 0) + 1);
+          edgeCount += 1;
         }
-      }
-
-      let nextKnown = null;
-      for (let i = idx + 1; i < sequence.length; i++) {
-        if (orderedCrs.includes(sequence[i])) {
-          nextKnown = sequence[i];
-          break;
-        }
-      }
-
-      if (prevKnown && nextKnown) {
-        const prevIndex = orderedCrs.indexOf(prevKnown);
-        const nextIndex = orderedCrs.indexOf(nextKnown);
-        assertWithStatus(
-          prevIndex < nextIndex,
-          "Could not build a consistent station order for this route",
-          {
-            inserting: crs,
-            between: [prevKnown, nextKnown],
-            sequenceIndex: idx,
-            prevIndex,
-            nextIndex,
-            sequence: [...sequence],
-            orderedCrs: [...orderedCrs],
-          },
-        );
-        orderedCrs.splice(nextIndex, 0, crs);
-        debugOrderLog("insert between", {
-          inserting: crs,
-          between: [prevKnown, nextKnown],
-          orderedCrs: [...orderedCrs],
-        });
-      } else if (prevKnown) {
-        const prevIndex = orderedCrs.indexOf(prevKnown);
-        orderedCrs.splice(prevIndex + 1, 0, crs);
-        debugOrderLog("insert after", {
-          inserting: crs,
-          after: prevKnown,
-          orderedCrs: [...orderedCrs],
-        });
-      } else if (nextKnown) {
-        const nextIndex = orderedCrs.indexOf(nextKnown);
-        orderedCrs.splice(nextIndex, 0, crs);
-        debugOrderLog("insert before", {
-          inserting: crs,
-          before: nextKnown,
-          orderedCrs: [...orderedCrs],
-        });
-      } else {
-        orderedCrs.push(crs);
-        debugOrderLog("append", { inserting: crs, orderedCrs: [...orderedCrs] });
       }
     });
 
-    const orderedSet = new Set(orderedCrs);
-    const filteredSequence = sequence.filter((crs) => orderedSet.has(crs));
-    const indices = filteredSequence.map((crs) => orderedCrs.indexOf(crs));
-    for (let i = 1; i < indices.length; i++) {
+    const positionScore = {};
+    allStations.forEach((crs) => {
+      const count = positionCount.get(crs) || 0;
+      positionScore[crs] = count > 0 ? positionSum.get(crs) / count : Infinity;
+    });
+
+    debugOrderLog("order graph", {
+      nodes: allStations.length,
+      edges: edgeCount,
+      sequences: sequences.length,
+    });
+
+    const ready = allStations.filter((crs) => inDegree.get(crs) === 0);
+    const ordered = [];
+    const compareStations = (a, b) => {
+      const scoreDiff = positionScore[a] - positionScore[b];
+      if (scoreDiff !== 0) return scoreDiff;
+      const corridorA = corridorIndex[a];
+      const corridorB = corridorIndex[b];
+      if (corridorA !== undefined && corridorB !== undefined) {
+        if (corridorA !== corridorB) return corridorA - corridorB;
+      } else if (corridorA !== undefined) {
+        return -1;
+      } else if (corridorB !== undefined) {
+        return 1;
+      }
+      return a.localeCompare(b);
+    };
+
+    while (ready.length > 0) {
+      ready.sort(compareStations);
+      debugOrderLog("toposort candidates", {
+        candidates: [...ready],
+        orderedCrs: [...ordered],
+      });
+      const next = ready.shift();
+      ordered.push(next);
+      debugOrderLog("toposort pick", { picked: next, orderedCrs: [...ordered] });
+
+      const neighbors = adjacency.get(next) || new Set();
+      neighbors.forEach((neighbor) => {
+        const nextDegree = (inDegree.get(neighbor) || 0) - 1;
+        inDegree.set(neighbor, nextDegree);
+        if (nextDegree === 0) {
+          ready.push(neighbor);
+        }
+      });
+    }
+
+    if (ordered.length !== allStations.length) {
+      const remaining = allStations.filter((crs) => !ordered.includes(crs));
       assertWithStatus(
-        indices[i - 1] < indices[i],
-        "Service calling pattern conflicts with the station order",
+        false,
+        "Could not build a consistent station order for this route",
         {
-          sequence: filteredSequence,
-          sequenceIndices: indices,
-          orderedCrs: [...orderedCrs],
+          reason: "cycle",
+          remaining,
+          orderedCrs: [...ordered],
         },
       );
     }
-    debugOrderLog("merge result", {
-      sequence: [...sequence],
-      orderedCrs: [...orderedCrs],
+
+    sequences.forEach((sequence) => {
+      const indices = sequence.map((crs) => ordered.indexOf(crs));
+      for (let i = 1; i < indices.length; i++) {
+        assertWithStatus(
+          indices[i - 1] < indices[i],
+          "Service calling pattern conflicts with the station order",
+          {
+            sequence: [...sequence],
+            sequenceIndices: indices,
+            orderedCrs: [...ordered],
+          },
+        );
+      }
     });
+
+    return ordered;
   }
 
   servicesWithDetails.forEach(({ detail }) => {
@@ -2285,13 +2311,13 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         debugOrderLog("segment sequence", {
           corridorPair: [corridorStations[c1], corridorStations[c2]],
           sequence: [...segmentSequence],
-          orderedCrs: [...orderedCrs],
         });
-        mergeIntoOrder(segmentSequence);
+        sequences.push(segmentSequence);
       }
     }
   });
 
+  const orderedCrs = buildOrderedCrs();
   debugOrderLog("final order", { orderedCrs: [...orderedCrs] });
   return orderedCrs.map((crs) => stationMap[crs]).filter(Boolean);
 }
