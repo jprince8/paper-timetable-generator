@@ -189,8 +189,11 @@ const shareBtn = document.getElementById("shareBtn");
 const realtimeBtn = document.getElementById("realtimeBtn");
 const platformBtn = document.getElementById("platformBtn");
 const nowBtn = document.getElementById("nowBtn");
+const rotateModal = document.getElementById("rotateModal");
+const rotateModalOk = document.getElementById("rotateModalOk");
 const PLATFORM_TOGGLE_STORAGE_KEY = "corridor_showPlatforms";
 const REALTIME_TOGGLE_STORAGE_KEY = "corridor_showRealtime";
+const ROTATE_PROMPT_DISMISSED_KEY = "corridor_rotatePromptDismissed";
 
 // === Mutable state ===
 const viaFields = [];
@@ -212,6 +215,7 @@ let buildAbortController = null;
 let buildInProgress = false;
 let buildCancelled = false;
 let suppressNextSubmit = false;
+let hasCompletedBuild = false;
 
 function setBuildInProgress(active) {
   buildInProgress = active;
@@ -330,6 +334,58 @@ function setPlatformToggleAvailability(enabled) {
   }
 }
 
+function readSessionFlag(key) {
+  try {
+    return window.sessionStorage?.getItem(key) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function writeSessionFlag(key) {
+  try {
+    window.sessionStorage?.setItem(key, "true");
+  } catch {
+    // ignore session storage failures
+  }
+}
+
+function isPortraitPhoneSize() {
+  return window.innerWidth <= 600 && window.innerHeight > window.innerWidth;
+}
+
+function shouldHideRotatePrompt() {
+  return !isPortraitPhoneSize();
+}
+
+function showRotatePrompt() {
+  if (!rotateModal) return;
+  rotateModal.hidden = false;
+  console.debug("Rotate prompt shown.");
+}
+
+function hideRotatePrompt() {
+  if (!rotateModal) return;
+  rotateModal.hidden = true;
+  console.debug("Rotate prompt hidden.");
+}
+
+function maybeShowRotatePrompt() {
+  if (!rotateModal) return;
+  if (!hasCompletedBuild) return;
+  if (!isPortraitPhoneSize()) return;
+  if (readSessionFlag(ROTATE_PROMPT_DISMISSED_KEY)) return;
+  console.debug("Rotate prompt eligible after build.");
+  showRotatePrompt();
+}
+
+function handleRotatePromptViewportChange() {
+  if (!rotateModal) return;
+  if (shouldHideRotatePrompt()) {
+    hideRotatePrompt();
+  }
+}
+
 if (platformBtn) {
   platformBtn.addEventListener("click", () => {
     if (platformBtn.disabled) return;
@@ -338,6 +394,19 @@ if (platformBtn) {
       renderTimetablesFromContext(lastTimetableContext);
     }
   });
+}
+
+if (rotateModalOk) {
+  rotateModalOk.addEventListener("click", () => {
+    writeSessionFlag(ROTATE_PROMPT_DISMISSED_KEY);
+    hideRotatePrompt();
+  });
+}
+
+if (rotateModal) {
+  rotateModal.hidden = true;
+  window.addEventListener("orientationchange", handleRotatePromptViewportChange);
+  window.addEventListener("resize", handleRotatePromptViewportChange);
 }
 
 async function fetchStationMatches(query) {
@@ -1908,6 +1977,9 @@ form.addEventListener("submit", async (e) => {
     renderTimetablesFromContext(lastTimetableContext);
     if (!statusEl?.classList.contains("is-error")) {
       hideStatus();
+      hasCompletedBuild = true;
+      console.debug("Timetable build finished successfully.");
+      maybeShowRotatePrompt();
     }
   } finally {
     buildAbortController = null;
