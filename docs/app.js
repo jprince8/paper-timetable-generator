@@ -4370,7 +4370,7 @@ function renderTableKey(model, keyEl) {
   if (formatFlags.platformChanged) {
     items.push({
       sampleHtml:
-        '<span class="table-key-sample"><span class="platform-tag platform-changed" title="Changed platform example" aria-label="Changed platform example">[1]</span></span>',
+        '<span class="table-key-sample"><span class="platform-tag platform-changed platform-confirmed" title="Changed platform example" aria-label="Changed platform example">[1]</span></span>',
       label: "Changed platform",
     });
   }
