@@ -216,7 +216,6 @@ let buildInProgress = false;
 let buildCancelled = false;
 let suppressNextSubmit = false;
 let hasCompletedBuild = false;
-let rotatePromptWatchdogId = null;
 
 function setBuildInProgress(active) {
   buildInProgress = active;
@@ -352,40 +351,23 @@ function writeSessionFlag(key) {
 }
 
 function isPortraitPhoneSize() {
-  return window.matchMedia(
-    "(max-width: 600px) and (orientation: portrait)",
-  ).matches;
+  return window.innerWidth <= 600 && window.innerHeight > window.innerWidth;
 }
 
-function clearRotatePromptWatchdog() {
-  if (rotatePromptWatchdogId === null) return;
-  window.clearInterval(rotatePromptWatchdogId);
-  rotatePromptWatchdogId = null;
-}
-
-function startRotatePromptWatchdog() {
-  clearRotatePromptWatchdog();
-  rotatePromptWatchdogId = window.setInterval(() => {
-    if (!rotateModal || rotateModal.hidden) {
-      clearRotatePromptWatchdog();
-      return;
-    }
-    if (window.matchMedia("(orientation: landscape)").matches) {
-      hideRotatePrompt();
-    }
-  }, 500);
+function shouldHideRotatePrompt() {
+  return !isPortraitPhoneSize();
 }
 
 function showRotatePrompt() {
   if (!rotateModal) return;
   rotateModal.hidden = false;
-  startRotatePromptWatchdog();
+  console.debug("Rotate prompt shown.");
 }
 
 function hideRotatePrompt() {
   if (!rotateModal) return;
   rotateModal.hidden = true;
-  clearRotatePromptWatchdog();
+  console.debug("Rotate prompt hidden.");
 }
 
 function maybeShowRotatePrompt() {
@@ -396,9 +378,9 @@ function maybeShowRotatePrompt() {
   showRotatePrompt();
 }
 
-function handleRotateOrientationChange() {
+function handleRotatePromptViewportChange() {
   if (!rotateModal) return;
-  if (window.matchMedia("(orientation: landscape)").matches) {
+  if (shouldHideRotatePrompt()) {
     hideRotatePrompt();
   }
 }
@@ -422,13 +404,8 @@ if (rotateModalOk) {
 
 if (rotateModal) {
   rotateModal.hidden = true;
-  const orientationQuery = window.matchMedia("(orientation: landscape)");
-  if (orientationQuery?.addEventListener) {
-    orientationQuery.addEventListener("change", handleRotateOrientationChange);
-  } else if (orientationQuery?.addListener) {
-    orientationQuery.addListener(handleRotateOrientationChange);
-  }
-  window.addEventListener("orientationchange", handleRotateOrientationChange);
+  window.addEventListener("orientationchange", handleRotatePromptViewportChange);
+  window.addEventListener("resize", handleRotatePromptViewportChange);
 }
 
 async function fetchStationMatches(query) {
