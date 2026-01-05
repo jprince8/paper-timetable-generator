@@ -3394,7 +3394,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     const { hasConstraint, lowerBound, upperBound } = bounds;
     const maxPos = orderedSvcIndices.length;
     const candidateStart = hasConstraint ? lowerBound : 0;
-    const candidateEnd = hasConstraint ? lowerBound : maxPos;
+    const candidateEnd = hasConstraint ? upperBound : maxPos;
     const candidates =
       candidateStart <= candidateEnd
         ? Array.from(
