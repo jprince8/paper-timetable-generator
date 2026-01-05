@@ -3390,6 +3390,29 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     return false;
   }
 
+  function getCandidateRange(serviceIdx, orderedSvcIndices, options = {}) {
+    const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
+      serviceIdx,
+      orderedSvcIndices,
+      { ...options, logEnabled: false },
+    );
+    const maxPos = orderedSvcIndices.length;
+    const candidateStart = hasConstraint ? lowerBound : 0;
+    const candidateEnd = hasConstraint ? upperBound : maxPos;
+    const count =
+      candidateStart <= candidateEnd
+        ? candidateEnd - candidateStart + 1
+        : 0;
+    return {
+      hasConstraint,
+      lowerBound,
+      upperBound,
+      candidateStart,
+      candidateEnd,
+      count,
+    };
+  }
+
   function logNoStrictBoundsFromBounds(bounds, orderedSvcIndices) {
     const { hasConstraint, lowerBound, upperBound } = bounds;
     const maxPos = orderedSvcIndices.length;
@@ -3408,7 +3431,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         : `conflicting bounds ${lowerBound}-${upperBound}`
       : "no station constraints";
     sortLogLines.push(
-      `No strict bounds (${reason}); possible positions: ${candidates}. Moved to end of queue.`,
+      `No strict bounds (${reason}); possible positions: ${candidates}.`,
     );
   }
 
@@ -3424,29 +3447,57 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     );
   }
 
+  const deferredOptionsByService = new Map();
+
   function hasMultipleCandidatePositions(
     serviceIdx,
     orderedSvcIndices,
     options = {},
   ) {
-    const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
-      serviceIdx,
-      orderedSvcIndices,
-      { ...options, logEnabled: false },
+    if (deferredOptionsByService.has(serviceIdx)) return true;
+    const range = getCandidateRange(serviceIdx, orderedSvcIndices, options);
+    return range.count > 1;
+  }
+
+  function deferServiceToEnd(
+    serviceIdx,
+    remainingServices,
+    idx,
+    orderedSvcIndices,
+    options,
+    logPrefix,
+  ) {
+    if (deferredOptionsByService.has(serviceIdx)) return false;
+    const range = getCandidateRange(serviceIdx, orderedSvcIndices, options);
+    if (range.count <= 1) return false;
+    deferredOptionsByService.set(serviceIdx, options);
+    remainingServices.splice(idx, 1);
+    remainingServices.push(serviceIdx);
+    sortLogLines.push(
+      `${logPrefix}: multiple candidate positions ${range.candidateStart}-${range.candidateEnd} for ${serviceLabel(serviceIdx)}; deferring to pass 3.`,
     );
-    const maxPos = orderedSvcIndices.length;
-    const candidateStart = hasConstraint ? lowerBound : 0;
-    const candidateEnd = hasConstraint ? upperBound : maxPos;
-    if (candidateEnd < candidateStart) return false;
-    return candidateEnd - candidateStart + 1 > 1;
+    sortLogLines.push(`Moved ${serviceLabel(serviceIdx)} to end of queue.`);
+    return true;
   }
 
   function resolveUnboundedServices(remainingServices, orderedSvcIndices) {
     sortLogLines.push("Resolution pass 1: start");
     for (let idx = 0; idx < remainingServices.length; idx++) {
       const svcIdx = remainingServices[idx];
-      if (hasMultipleCandidatePositions(svcIdx, orderedSvcIndices)) {
+      if (deferredOptionsByService.has(svcIdx)) {
         continue;
+      }
+      if (
+        deferServiceToEnd(
+          svcIdx,
+          remainingServices,
+          idx,
+          orderedSvcIndices,
+          deferredOptionsByService.get(svcIdx) || {},
+          "Resolution pass 1",
+        )
+      ) {
+        return true;
       }
       sortLogLines.push(
         `Resolution pass 1: evaluating ${serviceLabel(svcIdx)} for arr-only fixes`,
@@ -3464,10 +3515,25 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         );
 
         const attemptA = orderedSvcIndices.slice();
+        const attemptAOptions = { arrOnlyStationIdx: stationIdx };
+        if (
+          deferServiceToEnd(
+            svcIdx,
+            remainingServices,
+            idx,
+            attemptA,
+            attemptAOptions,
+            "Resolution pass 1",
+          )
+        ) {
+          return true;
+        }
         sortLogLines.push("  Option A: insert service with arr-only at station.");
-        const attemptAInserted = attemptInsertService(svcIdx, attemptA, {
-          arrOnlyStationIdx: stationIdx,
-        });
+        const attemptAInserted = attemptInsertService(
+          svcIdx,
+          attemptA,
+          attemptAOptions,
+        );
         if (attemptAInserted) {
           orderedSvcIndices.splice(0, orderedSvcIndices.length, ...attemptA);
           remainingServices.splice(idx, 1);
@@ -3486,6 +3552,18 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           );
           const attemptB = orderedSvcIndices.slice();
           const [removedSvc] = attemptB.splice(lastPos, 1);
+          if (
+            deferServiceToEnd(
+              svcIdx,
+              remainingServices,
+              idx,
+              attemptB,
+              {},
+              "Resolution pass 1",
+            )
+          ) {
+            return true;
+          }
           const attemptBInserted = attemptInsertService(svcIdx, attemptB);
           if (attemptBInserted) {
             if (
@@ -3510,6 +3588,18 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           );
           const attemptC = orderedSvcIndices.slice();
           const [removedSvc] = attemptC.splice(firstPos, 1);
+          if (
+            deferServiceToEnd(
+              svcIdx,
+              remainingServices,
+              idx,
+              attemptC,
+              {},
+              "Resolution pass 1",
+            )
+          ) {
+            return true;
+          }
           const attemptCInserted = attemptInsertService(svcIdx, attemptC);
           if (attemptCInserted) {
             if (
@@ -3547,8 +3637,20 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     sortLogLines.push("Resolution pass 2: start");
     for (let idx = 0; idx < remainingServices.length; idx++) {
       const svcIdx = remainingServices[idx];
-      if (hasMultipleCandidatePositions(svcIdx, orderedSvcIndices)) {
+      if (deferredOptionsByService.has(svcIdx)) {
         continue;
+      }
+      if (
+        deferServiceToEnd(
+          svcIdx,
+          remainingServices,
+          idx,
+          orderedSvcIndices,
+          deferredOptionsByService.get(svcIdx) || {},
+          "Resolution pass 2",
+        )
+      ) {
+        return true;
       }
       sortLogLines.push(
         `Resolution pass 2: evaluating ${serviceLabel(svcIdx)} for ignore-value fixes`,
@@ -3567,6 +3669,22 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
             `Resolution pass 2 for ${serviceLabel(svcIdx)} at ${stationName}: ignore dep time and all rows below.`,
           );
           const attemptDep = orderedSvcIndices.slice();
+          const attemptDepOptions = {
+            arrOnlyStationIdx: stationIdx,
+            ignoreFromStationIdx: stationIdx + 1,
+          };
+          if (
+            deferServiceToEnd(
+              svcIdx,
+              remainingServices,
+              idx,
+              attemptDep,
+              attemptDepOptions,
+              "Resolution pass 2",
+            )
+          ) {
+            return true;
+          }
           const attemptDepInserted = attemptInsertService(svcIdx, attemptDep, {
             arrOnlyStationIdx: stationIdx,
             ignoreFromStationIdx: stationIdx + 1,
@@ -3587,13 +3705,26 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
             `Resolution pass 2 for ${serviceLabel(svcIdx)} at ${stationName}: ignore arr+dep time and all rows below.`,
           );
           const attemptArrDep = orderedSvcIndices.slice();
+          const attemptArrDepOptions = {
+            ignoreFromStationIdx: stationIdx + 1,
+            ignoreStationIdx: stationIdx,
+          };
+          if (
+            deferServiceToEnd(
+              svcIdx,
+              remainingServices,
+              idx,
+              attemptArrDep,
+              attemptArrDepOptions,
+              "Resolution pass 2",
+            )
+          ) {
+            return true;
+          }
           const attemptArrDepInserted = attemptInsertService(
             svcIdx,
             attemptArrDep,
-            {
-              ignoreFromStationIdx: stationIdx + 1,
-              ignoreStationIdx: stationIdx,
-            },
+            attemptArrDepOptions,
           );
           if (attemptArrDepInserted) {
             orderedSvcIndices.splice(
@@ -3624,7 +3755,11 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   ) {
     if (
       !remainingServices.every((svcIdx) =>
-        hasMultipleCandidatePositions(svcIdx, orderedSvcIndices),
+        hasMultipleCandidatePositions(
+          svcIdx,
+          orderedSvcIndices,
+          deferredOptionsByService.get(svcIdx) || {},
+        ),
       )
     ) {
       return false;
@@ -3633,9 +3768,9 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     sortLogLines.push("Resolution pass 3: start");
     for (let idx = 0; idx < remainingServices.length; idx++) {
       const svcIdx = remainingServices[idx];
-      if (
-        insertFirstCandidate(svcIdx, orderedSvcIndices, {}, "Resolution pass 3")
-      ) {
+      const options = deferredOptionsByService.get(svcIdx) || {};
+      if (insertFirstCandidate(svcIdx, orderedSvcIndices, options, "Resolution pass 3")) {
+        deferredOptionsByService.delete(svcIdx);
         remainingServices.splice(idx, 1);
         return true;
       }
@@ -3750,7 +3885,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       );
       const maxPos = orderedSvcIndices.length;
       const candidateStart = hasConstraint ? lowerBound : 0;
-      const candidateEnd = hasConstraint ? lowerBound : maxPos;
+      const candidateEnd = hasConstraint ? upperBound : maxPos;
       const candidates =
         candidateStart <= candidateEnd
           ? Array.from(
@@ -3766,8 +3901,9 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       remainingServices.push(svcIdx);
       rotationsWithoutInsert += 1;
       sortLogLines.push(
-        `No strict bounds (${reason}); possible positions: ${candidates}. Moved to end of queue.`,
+        `No strict bounds (${reason}); possible positions: ${candidates}.`,
       );
+      sortLogLines.push(`Moved ${serviceLabel(svcIdx)} to end of queue.`);
     }
   }
 
