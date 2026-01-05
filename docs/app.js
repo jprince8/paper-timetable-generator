@@ -3482,9 +3482,12 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
 
   function resolveUnboundedServices(remainingServices, orderedSvcIndices) {
     sortLogLines.push("Resolution pass 1: start");
+    let attemptedServices = 0;
+    let deferredServices = 0;
     for (let idx = 0; idx < remainingServices.length; idx++) {
       const svcIdx = remainingServices[idx];
       if (deferredOptionsByService.has(svcIdx)) {
+        deferredServices += 1;
         continue;
       }
       if (
@@ -3499,6 +3502,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       ) {
         return true;
       }
+      attemptedServices += 1;
       sortLogLines.push(
         `Resolution pass 1: evaluating ${serviceLabel(svcIdx)} for arr-only fixes`,
       );
@@ -3626,6 +3630,11 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       }
     }
 
+    if (attemptedServices === 0) {
+      sortLogLines.push(
+        `Resolution pass 1: no candidates evaluated (deferred ${deferredServices} services)`,
+      );
+    }
     sortLogLines.push("Resolution pass 1: no resolution found");
     return false;
   }
@@ -3635,9 +3644,12 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     orderedSvcIndices,
   ) {
     sortLogLines.push("Resolution pass 2: start");
+    let attemptedServices = 0;
+    let deferredServices = 0;
     for (let idx = 0; idx < remainingServices.length; idx++) {
       const svcIdx = remainingServices[idx];
       if (deferredOptionsByService.has(svcIdx)) {
+        deferredServices += 1;
         continue;
       }
       if (
@@ -3652,6 +3664,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       ) {
         return true;
       }
+      attemptedServices += 1;
       sortLogLines.push(
         `Resolution pass 2: evaluating ${serviceLabel(svcIdx)} for ignore-value fixes`,
       );
@@ -3745,6 +3758,11 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       }
     }
 
+    if (attemptedServices === 0) {
+      sortLogLines.push(
+        `Resolution pass 2: no candidates evaluated (deferred ${deferredServices} services)`,
+      );
+    }
     sortLogLines.push("Resolution pass 2: no resolution found");
     return false;
   }
