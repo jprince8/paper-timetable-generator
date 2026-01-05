@@ -1944,16 +1944,12 @@ form.addEventListener("submit", async (e) => {
     allDetails,
     stationSetForOrder,
     stationOrderLogger.log,
-    "combined sequence",
+    "candidate sequence",
   );
-  const combinedSequences = [
-    ...stationData.sequences,
-    ...additionalSequences,
-  ];
   let orderedCrs = [];
   try {
     orderedCrs = buildStationOrderFromSequences(
-      combinedSequences,
+      stationData.sequences,
       stationData.stationMap,
       stationData.corridorIndex,
       stationOrderLogger.log,
@@ -1962,6 +1958,39 @@ form.addEventListener("submit", async (e) => {
     stationOrderLogger.download();
     throw err;
   }
+
+  const conflictingSequences = [];
+  additionalSequences.forEach((sequence) => {
+    const indices = sequence.map((crs) => orderedCrs.indexOf(crs));
+    if (isSequenceMonotonic(indices)) return;
+    const selection = pickBestSequenceDirection(sequence, indices);
+    conflictingSequences.push(selection.sequence);
+    stationOrderLogger.log("conflict sequence", {
+      sequence,
+      direction: selection.direction,
+      forwardScore: selection.forwardScore,
+      reverseScore: selection.reverseScore,
+    });
+  });
+
+  if (conflictingSequences.length > 0) {
+    const combinedSequences = [
+      ...stationData.sequences,
+      ...conflictingSequences,
+    ];
+    try {
+      orderedCrs = buildStationOrderFromSequences(
+        combinedSequences,
+        stationData.stationMap,
+        stationData.corridorIndex,
+        stationOrderLogger.log,
+      );
+    } catch (err) {
+      stationOrderLogger.download();
+      throw err;
+    }
+  }
+
   stationOrderLogger.log("final order", { orderedCrs: [...orderedCrs] });
   stationOrderLogger.download();
   stations = orderedCrs
@@ -2362,6 +2391,47 @@ function buildSequencesFromServices(
     }
   });
   return sequences;
+}
+
+function isSequenceMonotonic(indices) {
+  let increasing = true;
+  let decreasing = true;
+  for (let i = 1; i < indices.length; i++) {
+    if (indices[i] < indices[i - 1]) {
+      increasing = false;
+    }
+    if (indices[i] > indices[i - 1]) {
+      decreasing = false;
+    }
+  }
+  return increasing || decreasing;
+}
+
+function pickBestSequenceDirection(sequence, indices) {
+  let forwardScore = 0;
+  let reverseScore = 0;
+  for (let i = 1; i < indices.length; i++) {
+    if (indices[i] >= indices[i - 1]) {
+      forwardScore += 1;
+    }
+    if (indices[i] <= indices[i - 1]) {
+      reverseScore += 1;
+    }
+  }
+  if (reverseScore > forwardScore) {
+    return {
+      sequence: [...sequence].reverse(),
+      direction: "reverse",
+      forwardScore,
+      reverseScore,
+    };
+  }
+  return {
+    sequence,
+    direction: "forward",
+    forwardScore,
+    reverseScore,
+  };
 }
 
 // Build station union over a possibly multi-via corridor.
