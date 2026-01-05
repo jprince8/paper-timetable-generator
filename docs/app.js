@@ -3343,7 +3343,12 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     orderedSvcIndices,
     options = {},
   ) {
-    const bounds = findInsertBounds(serviceIdx, orderedSvcIndices, options);
+    const { logFailure = true, ...boundsOptions } = options;
+    const bounds = findInsertBounds(
+      serviceIdx,
+      orderedSvcIndices,
+      boundsOptions,
+    );
     if (
       bounds.hasConstraint &&
       bounds.lowerBound <= bounds.upperBound &&
@@ -3354,6 +3359,9 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
         `Chosen position: ${bounds.lowerBound} (bounds ${bounds.lowerBound}-${bounds.upperBound})`,
       );
       return true;
+    }
+    if (logFailure && boundsOptions.logEnabled !== false) {
+      logNoStrictBoundsFromBounds(bounds, orderedSvcIndices);
     }
     return false;
   }
@@ -3382,12 +3390,8 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     return false;
   }
 
-  function logNoStrictBounds(serviceIdx, orderedSvcIndices, options = {}) {
-    const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
-      serviceIdx,
-      orderedSvcIndices,
-      { ...options, logEnabled: false },
-    );
+  function logNoStrictBoundsFromBounds(bounds, orderedSvcIndices) {
+    const { hasConstraint, lowerBound, upperBound } = bounds;
     const maxPos = orderedSvcIndices.length;
     const candidateStart = hasConstraint ? lowerBound : 0;
     const candidateEnd = hasConstraint ? lowerBound : maxPos;
@@ -3405,6 +3409,18 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       : "no station constraints";
     sortLogLines.push(
       `No strict bounds (${reason}); possible positions: ${candidates}. Moved to end of queue.`,
+    );
+  }
+
+  function logNoStrictBounds(serviceIdx, orderedSvcIndices, options = {}) {
+    const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
+      serviceIdx,
+      orderedSvcIndices,
+      { ...options, logEnabled: false },
+    );
+    logNoStrictBoundsFromBounds(
+      { hasConstraint, lowerBound, upperBound },
+      orderedSvcIndices,
     );
   }
 
@@ -3722,7 +3738,9 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     }
 
     const svcIdx = remainingServices.shift();
-    if (attemptInsertService(svcIdx, orderedSvcIndices)) {
+    if (
+      attemptInsertService(svcIdx, orderedSvcIndices, { logFailure: false })
+    ) {
       rotationsWithoutInsert = 0;
     } else {
       const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
