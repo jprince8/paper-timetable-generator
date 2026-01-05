@@ -3186,13 +3186,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     if (logEnabled) {
       sortLogLines.push("");
       sortLogLines.push(`Service: ${label}`);
-      sortLogLines.push(
-        `Current order: ${
-          orderedSvcIndices.length > 0
-            ? orderedSvcIndices.map(serviceLabel).join(", ")
-            : "(none)"
-        }`,
-      );
+      sortLogLines.push(`Sorted count: ${orderedSvcIndices.length}`);
     }
 
     let lowerBound = 0;
@@ -3315,6 +3309,33 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       }
     }
 
+    if (logEnabled) {
+      const maxPos = orderedSvcIndices.length;
+      const candidateStart = hasConstraint ? lowerBound : 0;
+      const candidateEnd = hasConstraint ? upperBound : maxPos;
+      const candidates =
+        candidateStart <= candidateEnd
+          ? Array.from(
+              { length: candidateEnd - candidateStart + 1 },
+              (_, idx) => candidateStart + idx,
+            ).join(", ")
+          : "(none)";
+      const reason = hasConstraint
+        ? lowerBound <= upperBound
+          ? `${lowerBound}-${upperBound}`
+          : `conflicting bounds ${lowerBound}-${upperBound}`
+        : "no station constraints";
+      const conclusion =
+        hasConstraint && lowerBound === upperBound
+          ? `strict position ${lowerBound}`
+          : hasConstraint
+            ? "no strict bounds"
+            : "no constraints";
+      sortLogLines.push(
+        `Combined bounds: ${reason}; available positions: ${candidates}. Conclusion: ${conclusion}.`,
+      );
+    }
+
     return { hasConstraint, lowerBound, upperBound };
   }
 
@@ -3380,32 +3401,6 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
       return true;
     }
     return false;
-  }
-
-  function logNoStrictBounds(serviceIdx, orderedSvcIndices, options = {}) {
-    const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
-      serviceIdx,
-      orderedSvcIndices,
-      { ...options, logEnabled: false },
-    );
-    const maxPos = orderedSvcIndices.length;
-    const candidateStart = hasConstraint ? lowerBound : 0;
-    const candidateEnd = hasConstraint ? lowerBound : maxPos;
-    const candidates =
-      candidateStart <= candidateEnd
-        ? Array.from(
-            { length: candidateEnd - candidateStart + 1 },
-            (_, idx) => candidateStart + idx,
-          ).join(", ")
-        : "(none)";
-    const reason = hasConstraint
-      ? lowerBound <= upperBound
-        ? `${lowerBound}-${upperBound}`
-        : `conflicting bounds ${lowerBound}-${upperBound}`
-      : "no station constraints";
-    sortLogLines.push(
-      `No strict bounds (${reason}); possible positions: ${candidates}. Moved to end of queue.`,
-    );
   }
 
   function resolveUnboundedServices(remainingServices, orderedSvcIndices) {
@@ -3575,10 +3570,6 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
             remainingServices.splice(idx, 1);
             return true;
           }
-          logNoStrictBounds(svcIdx, attemptDep, {
-            arrOnlyStationIdx: stationIdx,
-            ignoreFromStationIdx: stationIdx + 1,
-          });
         }
 
         if (t.arrMins !== null) {
@@ -3614,10 +3605,6 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
             remainingServices.splice(idx, 1);
             return true;
           }
-          logNoStrictBounds(svcIdx, attemptArrDep, {
-            ignoreFromStationIdx: stationIdx + 1,
-            ignoreStationIdx: stationIdx,
-          });
         }
       }
 
@@ -3686,6 +3673,11 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   let rotationsWithoutInsert = 0;
   while (remainingServices.length > 0) {
     if (rotationsWithoutInsert >= remainingServices.length) {
+      sortLogLines.push(
+        `Queue cycled with no inserts; contents: ${remainingServices
+          .map(serviceLabel)
+          .join(", ")}`,
+      );
       const resolved = resolveUnboundedServices(
         remainingServices,
         orderedSvcIndices,
@@ -3720,30 +3712,10 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     if (attemptInsertService(svcIdx, orderedSvcIndices)) {
       rotationsWithoutInsert = 0;
     } else {
-      const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
-        svcIdx,
-        orderedSvcIndices,
-        { logEnabled: false },
-      );
-      const maxPos = orderedSvcIndices.length;
-      const candidateStart = hasConstraint ? lowerBound : 0;
-      const candidateEnd = hasConstraint ? lowerBound : maxPos;
-      const candidates =
-        candidateStart <= candidateEnd
-          ? Array.from(
-              { length: candidateEnd - candidateStart + 1 },
-              (_, idx) => candidateStart + idx,
-            ).join(", ")
-          : "(none)";
-      const reason = hasConstraint
-        ? lowerBound <= upperBound
-          ? `${lowerBound}-${upperBound}`
-          : `conflicting bounds ${lowerBound}-${upperBound}`
-        : "no station constraints";
       remainingServices.push(svcIdx);
       rotationsWithoutInsert += 1;
       sortLogLines.push(
-        `No strict bounds (${reason}); possible positions: ${candidates}. Moved to end of queue.`,
+        `Moved to end of queue: ${serviceLabel(svcIdx)}`,
       );
     }
   }
@@ -3954,7 +3926,6 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
           movedAny = true;
           return;
         }
-        logNoStrictBounds(svcIndex, attempt, { logEnabled: false });
         if (
           insertFirstCandidate(
             svcIndex,
