@@ -2162,7 +2162,15 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         assertWithStatus(
           prevIndex < nextIndex,
           "Could not build a consistent station order for this route",
-          `inserting ${crs} between ${prevKnown} and ${nextKnown}`,
+          {
+            inserting: crs,
+            between: [prevKnown, nextKnown],
+            sequenceIndex: idx,
+            prevIndex,
+            nextIndex,
+            sequence: [...sequence],
+            orderedCrs: [...orderedCrs],
+          },
         );
         orderedCrs.splice(nextIndex, 0, crs);
       } else if (prevKnown) {
@@ -2183,7 +2191,11 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
       assertWithStatus(
         indices[i - 1] < indices[i],
         "Service calling pattern conflicts with the station order",
-        `sequence: ${filteredSequence.join(" → ")}`,
+        {
+          sequence: filteredSequence,
+          sequenceIndices: indices,
+          orderedCrs: [...orderedCrs],
+        },
       );
     }
   }
