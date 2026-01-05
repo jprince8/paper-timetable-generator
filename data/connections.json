@@ -1,0 +1,59 @@
+{
+  "KGX": [
+    {
+      "previousStations": null,
+      "connections": {
+        "STP": {
+          "durationMinutes": 5,
+          "mode": "walk"
+        },
+        "EUS": {
+          "durationMinutes": 20,
+          "mode": "walk"
+        },
+        "PAD": {
+          "durationMinutes": 30,
+          "mode": "Underground"
+        }
+      }
+    }
+  ],
+  "STP": [
+    {
+      "previousStations": [
+        "FPK",
+        "SAC",
+        "KTN"
+      ],
+      "connections": {
+        "EUS": {
+          "durationMinutes": 15,
+          "mode": "walk"
+        },
+        "PAD": {
+          "durationMinutes": 30,
+          "mode": "Underground"
+        }
+      }
+    },
+    {
+      "previousStations": [
+        "ZFD"
+      ],
+      "connections": {
+        "EUS": {
+          "durationMinutes": 15,
+          "mode": "walk"
+        },
+        "PAD": {
+          "durationMinutes": 30,
+          "mode": "Underground"
+        },
+        "KGX": {
+          "durationMinutes": 5,
+          "mode": "walk"
+        }
+      }
+    }
+  ]
+}

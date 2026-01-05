@@ -294,6 +294,7 @@ function buildPdfTableData(model) {
       if (meta.firstClassAvailable) icons.push("FC");
       if (meta.isSleeper) icons.push("SL");
       if (meta.isBus) icons.push("BUS");
+      if (meta.isWalk) icons.push("WALK");
       return icons.join(" ");
     }),
   ];

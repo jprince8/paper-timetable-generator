@@ -35,7 +35,10 @@ if not RTT_USER or not RTT_PASS:
 
 RTT_BASE = "https://api.rtt.io/api/v1"
 
-DATA_PATH = os.path.join(os.path.dirname(__file__), "data", "stations.json")
+DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+DATA_PATH = os.path.join(DATA_DIR, "stations.json")
+ATOC_CODES_PATH = os.path.join(DATA_DIR, "atoc_codes.json")
+CONNECTIONS_PATH = os.path.join(DATA_DIR, "connections.json")
 
 
 class RttTimeoutError(Exception):
@@ -56,6 +59,12 @@ def norm_station_query(value):
 
 with open(DATA_PATH, "r", encoding="utf-8") as f:
     STATIONS = json.load(f)
+
+with open(ATOC_CODES_PATH, "r", encoding="utf-8") as f:
+    ATOC_CODES = json.load(f)
+
+with open(CONNECTIONS_PATH, "r", encoding="utf-8") as f:
+    CONNECTIONS = json.load(f)
 
 STATIONS_N = [
     {
@@ -199,6 +208,16 @@ def api_stations():
             if len(results) >= 20:
                 break
     return jsonify(results)
+
+
+@app.get("/api/atoc-codes")
+def api_atoc_codes():
+    return jsonify(ATOC_CODES)
+
+
+@app.get("/api/connections")
+def api_connections():
+    return jsonify(CONNECTIONS)
 
 
 @app.route("/timetable/pdf", methods=["POST"])

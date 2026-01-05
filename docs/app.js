@@ -32,6 +32,8 @@ const PROXY_SEARCH = `${BACKEND_BASE}/rtt/search`;
 const PROXY_SERVICE = `${BACKEND_BASE}/rtt/service`;
 const PROXY_PDF = `${BACKEND_BASE}/timetable/pdf`; // if you call this from JS
 const PROXY_STATION = `${BACKEND_BASE}/api/stations`; // if you call this from JS
+const PROXY_ATOC = `${BACKEND_BASE}/api/atoc-codes`;
+const PROXY_CONNECTIONS = `${BACKEND_BASE}/api/connections`;
 
 const STATION_DEBOUNCE_MS = 180;
 const STATION_MIN_QUERY = 2;
@@ -212,6 +214,101 @@ let buildAbortController = null;
 let buildInProgress = false;
 let buildCancelled = false;
 let suppressNextSubmit = false;
+let atocNameByCode = {};
+let connectionsByStation = {};
+let lookupLoadPromise = null;
+
+function resolveInputStationLabel(crs, inputValue, fallback) {
+  const trimmed = (inputValue || "").trim();
+  if (trimmed) return trimmed;
+  return fallback || crs || "";
+}
+
+function normaliseConnectionList(value) {
+  if (!value) return null;
+  if (Array.isArray(value)) {
+    return value.map((crs) => normaliseCrs(crs)).filter(Boolean);
+  }
+  const crs = normaliseCrs(value);
+  return crs ? [crs] : null;
+}
+
+function normaliseConnectionData(raw) {
+  if (!raw || typeof raw !== "object") return {};
+  const normalised = {};
+  Object.entries(raw).forEach(([crs, entries]) => {
+    const stationCrs = normaliseCrs(crs);
+    if (!stationCrs) return;
+    if (!Array.isArray(entries)) return;
+    normalised[stationCrs] = entries
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const connections = entry.connections || {};
+        const cleanedConnections = {};
+        Object.entries(connections).forEach(([dest, meta]) => {
+          const destCrs = normaliseCrs(dest);
+          if (!destCrs || !meta || typeof meta !== "object") return;
+          const durationRaw = meta.durationMinutes ?? meta.duration ?? null;
+          let durationMinutes = null;
+          if (typeof durationRaw === "number") {
+            durationMinutes = durationRaw;
+          } else if (typeof durationRaw === "string") {
+            const match = durationRaw.match(/\d+/);
+            durationMinutes = match ? Number(match[0]) : null;
+          }
+          if (!durationMinutes || Number.isNaN(durationMinutes)) return;
+          cleanedConnections[destCrs] = {
+            durationMinutes,
+            mode: meta.mode || "",
+          };
+        });
+        if (Object.keys(cleanedConnections).length === 0) return null;
+        return {
+          previousStations: normaliseConnectionList(entry.previousStations),
+          connections: cleanedConnections,
+        };
+      })
+      .filter(Boolean);
+  });
+  return normalised;
+}
+
+function loadLookupData(fetcher = fetch) {
+  if (lookupLoadPromise) return lookupLoadPromise;
+  lookupLoadPromise = Promise.all([
+    fetcher(PROXY_ATOC).then((resp) =>
+      resp.ok ? resp.json() : Promise.resolve({}),
+    ),
+    fetcher(PROXY_CONNECTIONS).then((resp) =>
+      resp.ok ? resp.json() : Promise.resolve({}),
+    ),
+  ])
+    .then(([atocData, connectionsData]) => {
+      atocNameByCode = atocData || {};
+      connectionsByStation = normaliseConnectionData(connectionsData);
+    })
+    .catch((err) => {
+      console.warn("Failed to load lookup data:", err);
+      atocNameByCode = {};
+      connectionsByStation = {};
+    });
+  return lookupLoadPromise;
+}
+
+function getConnectionEntriesForStation(crs) {
+  return connectionsByStation[crs] || [];
+}
+
+function hasConnectionBetweenStations(from, to) {
+  if (!from || !to) return false;
+  const entries = getConnectionEntriesForStation(from);
+  return entries.some((entry) => entry.connections?.[to]);
+}
+
+function minutesToRttTime(mins) {
+  const time = minutesToTimeStr(mins);
+  return time.replace(":", "");
+}
 
 function setBuildInProgress(active) {
   buildInProgress = active;
@@ -1141,10 +1238,12 @@ function renderTimetablesFromContext(context) {
     const modelAB = buildTimetableModel(stations, stationSet, servicesAB, {
       realtimeEnabled,
       showPlatforms: showPlatformsEnabled,
+      atocNameByCode,
     });
     const pdfModelAB = buildTimetableModel(stations, stationSet, servicesAB, {
       realtimeEnabled: false,
       showPlatforms: showPlatformsEnabled,
+      atocNameByCode,
     });
     headingAB.textContent =
       forwardStopsLabel + " (" + modelAB.serviceCount + " services)";
@@ -1188,10 +1287,12 @@ function renderTimetablesFromContext(context) {
     const modelBA = buildTimetableModel(stationsRev, stationSet, servicesBA, {
       realtimeEnabled,
       showPlatforms: showPlatformsEnabled,
+      atocNameByCode,
     });
     const pdfModelBA = buildTimetableModel(stationsRev, stationSet, servicesBA, {
       realtimeEnabled: false,
       showPlatforms: showPlatformsEnabled,
+      atocNameByCode,
     });
     headingBA.textContent =
       reverseStopsLabel + " (" + modelBA.serviceCount + " services)";
@@ -1316,6 +1417,10 @@ form.addEventListener("submit", async (e) => {
   try {
     resetOutputs();
     setStatus("Initialising timetable...", { progress: 0 });
+    if (shouldAbort()) {
+      return;
+    }
+    await loadLookupData(fetchWithSignal);
     if (shouldAbort()) {
       return;
     }
@@ -1487,13 +1592,17 @@ form.addEventListener("submit", async (e) => {
         const toCrs = path[i + 1];
         const count =
           legServiceCounts.get(`${fromCrs}|${toCrs}`) || 0;
-        if (count === 0) {
+        if (count === 0 && !hasConnectionBetweenStations(fromCrs, toCrs)) {
           missing.push({ from: fromCrs, to: toCrs });
         }
       }
       return { path, missing };
     })
     .filter((entry) => entry.missing.length > 0);
+  const connectionsAllowAllLegs = corridorLegs.every((leg) => {
+    const count = legServiceCounts.get(`${leg.from}|${leg.to}`) || 0;
+    return count > 0 || hasConnectionBetweenStations(leg.from, leg.to);
+  });
   if (invalidPaths.length === corridorPaths.length) {
     invalidPaths.sort((a, b) => a.missing.length - b.missing.length);
     const gap = invalidPaths[0].missing[0];
@@ -1508,7 +1617,7 @@ form.addEventListener("submit", async (e) => {
 
   const corridorServices = Array.from(corridorServicesMap.values());
 
-  if (corridorServices.length === 0) {
+  if (corridorServices.length === 0 && !connectionsAllowAllLegs) {
     const fromLabel = stationNameByCrs[from] || from;
     const toLabel = stationNameByCrs[to] || to;
     setStatus(
@@ -1593,7 +1702,7 @@ form.addEventListener("submit", async (e) => {
   const okCorridorDetails = splitCorridorDetails.filter(
     (d) => d.detail && Array.isArray(d.detail.locations),
   );
-  if (okCorridorDetails.length === 0) {
+  if (okCorridorDetails.length === 0 && !connectionsAllowAllLegs) {
     setStatus("No usable service detail responses.");
     return;
   }
@@ -1862,13 +1971,36 @@ form.addEventListener("submit", async (e) => {
   }
 
   // Split into A->B vs B->A, based on order of corridor stations in the calling pattern.
-  const split = splitByDirection(allDetails, stations);
+  const corridorSet = new Set(corridorStations.filter(Boolean));
+  const connectionEntries = buildConnectionServiceEntries(
+    allDetails,
+    corridorSet,
+  );
+  const allDetailsWithConnections = allDetails.concat(connectionEntries);
+  const split = splitByDirection(allDetailsWithConnections, stations);
   const servicesAB = split.ab;
   const servicesBA = split.ba;
 
-  const fromName = findStationNameByCrs(stations, from);
-  const toName = findStationNameByCrs(stations, to);
-  const viaNames = viaValues.map((crs) => findStationNameByCrs(stations, crs));
+  const fromName = resolveInputStationLabel(
+    from,
+    fromStationInput.value,
+    findStationNameByCrs(stations, from),
+  );
+  const toName = resolveInputStationLabel(
+    to,
+    toStationInput.value,
+    findStationNameByCrs(stations, to),
+  );
+  const viaNames = viaValues.map((crs) => {
+    const viaField = viaFields.find(
+      (field) => normaliseCrs(field.crsInput.value) === crs,
+    );
+    return resolveInputStationLabel(
+      crs,
+      viaField?.textInput?.value,
+      findStationNameByCrs(stations, crs),
+    );
+  });
   const viaNamesForward = viaNames.filter(Boolean);
   const forwardStopsLabel = [fromName, ...viaNamesForward, toName]
     .filter(Boolean)
@@ -2036,12 +2168,202 @@ function dedupeServiceEntries(entries) {
   return deduped;
 }
 
+function isCallingLocation(loc) {
+  if (!loc) return false;
+  const disp = (loc.displayAs || "").toUpperCase();
+  return disp !== "PASS" && disp !== "CANCELLED_PASS";
+}
+
+function getLastCallingPair(detail) {
+  const locs = detail.locations || [];
+  let last = null;
+  let previous = null;
+  for (let i = locs.length - 1; i >= 0; i -= 1) {
+    const loc = locs[i];
+    if (!isCallingLocation(loc)) continue;
+    if (!last) {
+      last = loc;
+    } else {
+      previous = loc;
+      break;
+    }
+  }
+  return { last, previous };
+}
+
+function matchConnectionEntry(entry, previousCrs) {
+  const prevStations = entry.previousStations;
+  if (!prevStations) return true;
+  if (!previousCrs) return false;
+  return prevStations.includes(previousCrs);
+}
+
+function locationTimeMinutes(loc) {
+  const raw =
+    loc.gbttBookedArrival ||
+    loc.realtimeArrival ||
+    loc.gbttBookedDeparture ||
+    loc.realtimeDeparture ||
+    "";
+  return rttTimeToMinutes(raw);
+}
+
+function buildConnectionServiceEntries(
+  entries,
+  corridorSet,
+  bufferMinutes = 5,
+) {
+  const generated = [];
+  const seen = new Set();
+
+  entries.forEach((entry) => {
+    if (!entry?.detail || !Array.isArray(entry.detail.locations)) return;
+    const { last, previous } = getLastCallingPair(entry.detail);
+    const terminalCrs = normaliseCrs(last?.crs || "");
+    if (!terminalCrs) {
+      console.info("Connection skip: missing terminal CRS", entry);
+      return;
+    }
+    if (!corridorSet.has(terminalCrs)) {
+      console.info("Connection skip: terminal not in corridor", terminalCrs);
+      return;
+    }
+
+    const previousCrs = normaliseCrs(previous?.crs || "");
+    const terminalEntries = getConnectionEntriesForStation(terminalCrs);
+    if (!terminalEntries.length) {
+      console.info(
+        "Connection skip: no connections for terminal",
+        terminalCrs,
+      );
+      return;
+    }
+
+    const arrivalMins = locationTimeMinutes(last);
+    if (arrivalMins === null) {
+      console.info(
+        "Connection skip: terminal arrival time missing",
+        terminalCrs,
+      );
+      return;
+    }
+
+    terminalEntries.forEach((terminalEntry) => {
+      if (!matchConnectionEntry(terminalEntry, previousCrs)) {
+        console.info(
+          "Connection skip: previous station mismatch",
+          terminalCrs,
+          previousCrs,
+          terminalEntry.previousStations,
+        );
+        return;
+      }
+      Object.entries(terminalEntry.connections || {}).forEach(
+        ([destCrsRaw, meta]) => {
+          const destCrs = normaliseCrs(destCrsRaw);
+          if (!destCrs) {
+            console.info(
+              "Connection skip: missing destination CRS",
+              terminalCrs,
+            );
+            return;
+          }
+          if (!corridorSet.has(destCrs)) {
+            console.info(
+              "Connection skip: destination not in corridor",
+              terminalCrs,
+              destCrs,
+            );
+            return;
+          }
+          const durationMinutes = meta.durationMinutes;
+          if (!durationMinutes) {
+            console.info(
+              "Connection skip: missing duration",
+              terminalCrs,
+              destCrs,
+            );
+            return;
+          }
+          const departMins = arrivalMins + bufferMinutes;
+          const arriveMins = departMins + durationMinutes;
+          const departTime = minutesToRttTime(departMins);
+          const arriveTime = minutesToRttTime(arriveMins);
+          const mode = meta.mode || "walk";
+          const modeLower = mode.toLowerCase();
+          const atocCode = modeLower === "walk" ? "W" : "U";
+          const atocName =
+            modeLower === "walk" ? "Walk" : mode || "Connection";
+          const runDate =
+            entry.svc?.runDate ||
+            entry.detail?.runDate ||
+            entry.detail?.date ||
+            "";
+          const baseUid =
+            entry.svc?.serviceUid ||
+            entry.svc?.originalServiceUid ||
+            entry.svc?.trainIdentity ||
+            "CONN";
+          const uniqueKey = [
+            baseUid,
+            runDate,
+            terminalCrs,
+            destCrs,
+            departTime,
+          ].join("|");
+          if (seen.has(uniqueKey)) return;
+          seen.add(uniqueKey);
+          const svc = {
+            serviceUid: `CONN-${baseUid}-${terminalCrs}-${destCrs}-${departTime}`,
+            runDate,
+            atocCode,
+            atocName,
+            serviceType: modeLower === "walk" ? "walk" : "connection",
+            isPassenger: true,
+          };
+          const detail = {
+            runDate,
+            serviceType: modeLower === "walk" ? "walk" : "connection",
+            locations: [
+              {
+                crs: terminalCrs,
+                gbttBookedDeparture: departTime,
+                displayAs: "CALL",
+                isPublicCall: true,
+              },
+              {
+                crs: destCrs,
+                gbttBookedArrival: arriveTime,
+                displayAs: "CALL",
+                isPublicCall: true,
+              },
+            ],
+          };
+          generated.push({ svc, detail, seed: false, isConnection: true });
+        },
+      );
+    });
+  });
+
+  return generated;
+}
+
 // Build station union over a possibly multi-via corridor.
 // corridorStations is e.g. ["SHR", "VIA1", "VIA2", "WRX"].
 function buildStationsUnion(corridorStations, servicesWithDetails) {
   const stationMap = {};
   const corridorIndex = {};
   const orderedCrs = [];
+
+  if (!servicesWithDetails || servicesWithDetails.length === 0) {
+    return corridorStations
+      .filter((crs) => crs)
+      .map((crs) => ({
+        crs,
+        tiploc: "",
+        name: crs,
+      }));
+  }
 
   // Map each corridor CRS to its index in the chain (A=0, VIA1=1, ..., Z=n)
   corridorStations.forEach((crs, idx) => {
