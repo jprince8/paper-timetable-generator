@@ -194,7 +194,6 @@ const rotateModalOk = document.getElementById("rotateModalOk");
 const PLATFORM_TOGGLE_STORAGE_KEY = "corridor_showPlatforms";
 const REALTIME_TOGGLE_STORAGE_KEY = "corridor_showRealtime";
 const ROTATE_PROMPT_DISMISSED_KEY = "corridor_rotatePromptDismissed";
-const ROTATE_PROMPT_SHOWN_KEY = "corridor_rotatePromptShown";
 
 // === Mutable state ===
 const viaFields = [];
@@ -217,6 +216,7 @@ let buildInProgress = false;
 let buildCancelled = false;
 let suppressNextSubmit = false;
 let hasCompletedBuild = false;
+let rotatePromptWatchdogId = null;
 
 function setBuildInProgress(active) {
   buildInProgress = active;
@@ -357,15 +357,35 @@ function isPortraitPhoneSize() {
   ).matches;
 }
 
+function clearRotatePromptWatchdog() {
+  if (rotatePromptWatchdogId === null) return;
+  window.clearInterval(rotatePromptWatchdogId);
+  rotatePromptWatchdogId = null;
+}
+
+function startRotatePromptWatchdog() {
+  clearRotatePromptWatchdog();
+  rotatePromptWatchdogId = window.setInterval(() => {
+    if (!rotateModal || rotateModal.hidden) {
+      clearRotatePromptWatchdog();
+      return;
+    }
+    if (window.matchMedia("(orientation: landscape)").matches) {
+      hideRotatePrompt();
+    }
+  }, 500);
+}
+
 function showRotatePrompt() {
   if (!rotateModal) return;
   rotateModal.hidden = false;
-  writeSessionFlag(ROTATE_PROMPT_SHOWN_KEY);
+  startRotatePromptWatchdog();
 }
 
 function hideRotatePrompt() {
   if (!rotateModal) return;
   rotateModal.hidden = true;
+  clearRotatePromptWatchdog();
 }
 
 function maybeShowRotatePrompt() {
@@ -373,7 +393,6 @@ function maybeShowRotatePrompt() {
   if (!hasCompletedBuild) return;
   if (!isPortraitPhoneSize()) return;
   if (readSessionFlag(ROTATE_PROMPT_DISMISSED_KEY)) return;
-  if (readSessionFlag(ROTATE_PROMPT_SHOWN_KEY)) return;
   showRotatePrompt();
 }
 
@@ -402,6 +421,7 @@ if (rotateModalOk) {
 }
 
 if (rotateModal) {
+  rotateModal.hidden = true;
   const orientationQuery = window.matchMedia("(orientation: landscape)");
   if (orientationQuery?.addEventListener) {
     orientationQuery.addEventListener("change", handleRotateOrientationChange);
