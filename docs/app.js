@@ -1658,11 +1658,12 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
-  const splitCorridorDetails = splitServiceEntries(
+  const splitCorridorDetailsResult = splitServiceEntries(
     corridorDetails,
     corridorStations,
-    { from, to },
   );
+  const splitCorridorDetails = splitCorridorDetailsResult.entries;
+  const splitStations = splitCorridorDetailsResult.splitStations;
   const okCorridorDetails = splitCorridorDetails.filter(
     (d) => d.detail && Array.isArray(d.detail.locations),
   );
@@ -1893,7 +1894,10 @@ form.addEventListener("submit", async (e) => {
   const splitCandidateEntries = [];
   for (const entry of candidateMap.values()) {
     splitCandidateEntries.push(
-      ...splitServiceEntries([entry], corridorStations, { from, to }),
+      ...splitServiceEntries([entry], corridorStations, {
+        splitStations,
+        stationSet,
+      }).entries,
     );
   }
   const dedupedCandidateEntries =
@@ -2058,10 +2062,13 @@ form.addEventListener("submit", async (e) => {
 function splitServiceEntries(
   entries,
   corridorStations = [],
-  endpoints = {},
+  options = {},
 ) {
   const corridorSet = new Set(corridorStations.filter(Boolean));
   const splitEntries = [];
+  const splitStations = new Set();
+  const stationSet = options.stationSet || {};
+  const splitStationCandidates = options.splitStations || new Set();
   entries.forEach((entry) => {
     if (!entry?.detail || !Array.isArray(entry.detail.locations)) {
       splitEntries.push(entry);
@@ -2075,21 +2082,27 @@ function splitServiceEntries(
       entry.detail.locations,
       corridorSet,
     );
-    const endpointSplitIndex =
+    const stationSplitIndex =
       splitIndex === null
-        ? findEndpointSplitIndex(
+        ? findSplitStationIndex(
             entry.detail.locations,
-            corridorSet,
-            endpoints,
+            splitStationCandidates,
+            stationSet,
           )
         : null;
     const finalSplitIndex =
-      splitIndex === null ? endpointSplitIndex : splitIndex;
+      splitIndex === null ? stationSplitIndex : splitIndex;
     if (finalSplitIndex === null) {
       splitEntries.push(entry);
       return;
     }
     const locations = entry.detail.locations;
+    if (splitIndex !== null) {
+      const splitCrs = locations[finalSplitIndex]?.crs || "";
+      if (splitCrs) {
+        splitStations.add(splitCrs);
+      }
+    }
     const firstLocations = locations.slice(0, finalSplitIndex + 1);
     const secondLocations = locations.slice(finalSplitIndex);
     const firstSvc = withServiceSuffix(entry.svc, "(1)");
@@ -2108,7 +2121,7 @@ function splitServiceEntries(
       detail: { ...entry.detail, locations: secondLocations },
     });
   });
-  return splitEntries;
+  return { entries: splitEntries, splitStations };
 }
 
 function findRepeatedStationSplitIndex(locations, corridorSet) {
@@ -2136,31 +2149,33 @@ function findRepeatedStationSplitIndex(locations, corridorSet) {
   return null;
 }
 
-function findEndpointSplitIndex(locations, corridorSet, endpoints) {
-  const from = endpoints?.from || "";
-  const to = endpoints?.to || "";
-  if (!from && !to) return null;
+function findSplitStationIndex(
+  locations,
+  splitStations,
+  stationSet,
+) {
+  if (!splitStations || splitStations.size === 0) return null;
 
-  const hasCorridorBefore = (index) => {
+  const hasStationBefore = (index) => {
     for (let i = 0; i < index; i++) {
       const loc = locations[i];
       if (!loc) continue;
       const disp = (loc.displayAs || "").toUpperCase();
       if (disp === "PASS" || disp === "CANCELLED_PASS") continue;
       const crs = loc.crs || "";
-      if (crs && corridorSet.has(crs)) return true;
+      if (crs && stationSet[crs]) return true;
     }
     return false;
   };
 
-  const hasCorridorAfter = (index) => {
+  const hasStationAfter = (index) => {
     for (let i = index + 1; i < locations.length; i++) {
       const loc = locations[i];
       if (!loc) continue;
       const disp = (loc.displayAs || "").toUpperCase();
       if (disp === "PASS" || disp === "CANCELLED_PASS") continue;
       const crs = loc.crs || "";
-      if (crs && corridorSet.has(crs)) return true;
+      if (crs && stationSet[crs]) return true;
     }
     return false;
   };
@@ -2168,8 +2183,8 @@ function findEndpointSplitIndex(locations, corridorSet, endpoints) {
   for (let i = 0; i < locations.length; i++) {
     const crs = locations[i]?.crs || "";
     if (!crs) continue;
-    if (crs !== from && crs !== to) continue;
-    if (hasCorridorBefore(i) && hasCorridorAfter(i)) {
+    if (!splitStations.has(crs)) continue;
+    if (hasStationBefore(i) && hasStationAfter(i)) {
       return i;
     }
   }
