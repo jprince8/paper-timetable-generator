@@ -1676,9 +1676,11 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
+  const stationOrderLogger = createStationOrderLogger();
   const stationData = collectStationData(
     corridorStations,
     okCorridorDetails,
+    stationOrderLogger.log,
   );
   let stations = stationData.stations;
   if (stations.length === 0) {
@@ -1934,7 +1936,6 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
-  const debugOrderLog = createStationOrderLogger();
   const stationSetForOrder = {};
   stations.forEach((station) => {
     if (station?.crs) stationSetForOrder[station.crs] = true;
@@ -1942,20 +1943,27 @@ form.addEventListener("submit", async (e) => {
   const additionalSequences = buildSequencesFromServices(
     allDetails,
     stationSetForOrder,
-    debugOrderLog,
+    stationOrderLogger.log,
     "combined sequence",
   );
   const combinedSequences = [
     ...stationData.sequences,
     ...additionalSequences,
   ];
-  const orderedCrs = buildStationOrderFromSequences(
-    combinedSequences,
-    stationData.stationMap,
-    stationData.corridorIndex,
-    debugOrderLog,
-  );
-  debugOrderLog("final order", { orderedCrs: [...orderedCrs] });
+  let orderedCrs = [];
+  try {
+    orderedCrs = buildStationOrderFromSequences(
+      combinedSequences,
+      stationData.stationMap,
+      stationData.corridorIndex,
+      stationOrderLogger.log,
+    );
+  } catch (err) {
+    stationOrderLogger.download();
+    throw err;
+  }
+  stationOrderLogger.log("final order", { orderedCrs: [...orderedCrs] });
+  stationOrderLogger.download();
   stations = orderedCrs
     .map((crs) => stationData.stationMap[crs])
     .filter(Boolean);
@@ -2139,14 +2147,27 @@ function dedupeServiceEntries(entries) {
 }
 
 function createStationOrderLogger() {
-  return (message, payload) => {
+  const lines = [];
+  const log = (message, payload) => {
     if (!DEBUG_STATIONS) return;
     if (payload === undefined) {
-      console.log(`[station-order] ${message}`);
-    } else {
-      console.log(`[station-order] ${message}`, payload);
+      lines.push(`[station-order] ${message}`);
+      return;
     }
+    let rendered = "";
+    try {
+      rendered = JSON.stringify(payload);
+    } catch (err) {
+      rendered = String(payload);
+    }
+    lines.push(`[station-order] ${message} ${rendered}`);
   };
+  const download = () => {
+    if (!DEBUG_STATIONS || lines.length === 0) return;
+    const contents = lines.join("\n");
+    downloadTextFile("station-order-log.txt", contents);
+  };
+  return { log, download, lines };
 }
 
 function buildStationOrderFromSequences(
@@ -2345,11 +2366,14 @@ function buildSequencesFromServices(
 
 // Build station union over a possibly multi-via corridor.
 // corridorStations is e.g. ["SHR", "VIA1", "VIA2", "WRX"].
-function collectStationData(corridorStations, servicesWithDetails) {
+function collectStationData(
+  corridorStations,
+  servicesWithDetails,
+  debugOrderLog,
+) {
   const stationMap = {};
   const corridorIndex = {};
   const sequences = [];
-  const debugOrderLog = createStationOrderLogger();
 
   debugOrderLog("start build", {
     corridorStations: [...corridorStations],
