@@ -3838,11 +3838,29 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
     for (let idx = 0; idx < remainingServices.length; idx++) {
       const svcIdx = remainingServices[idx];
       const options = deferredOptionsByService.get(svcIdx) || {};
-      if (insertFirstCandidate(svcIdx, orderedSvcIndices, options, "Resolution pass 3")) {
+      const range = getCandidateRange(svcIdx, orderedSvcIndices, options);
+      sortLogLines.push(
+        `Resolution pass 3: evaluating ${serviceLabel(svcIdx)} with candidates ${range.candidateStart}-${range.candidateEnd}`,
+      );
+      if (
+        insertFirstCandidate(
+          svcIdx,
+          orderedSvcIndices,
+          options,
+          "Resolution pass 3",
+        )
+      ) {
         deferredOptionsByService.delete(svcIdx);
+        deferredReasonByService.delete(svcIdx);
         remainingServices.splice(idx, 1);
         return true;
       }
+      logNoStrictBoundsFromBounds(range, orderedSvcIndices);
+      sortLogLines.push(
+        `Resolution pass 3: unable to place ${serviceLabel(svcIdx)} with options ${
+          deferredReasonByService.get(svcIdx) || "default"
+        }`,
+      );
     }
 
     sortLogLines.push("Resolution pass 3: no resolution found");
