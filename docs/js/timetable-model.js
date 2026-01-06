@@ -243,43 +243,8 @@ function buildTimetableModel(
     if (hasArr && hasDep) {
       if (hasLongDwell) {
         mode = "two";
-
-        if (DEBUG_STATIONS) {
-          const station = displayStations[i];
-          const offenders = dwellDebugEntries.filter(
-            (e) => e.dwellMinutes !== null && e.dwellMinutes > 2,
-          );
-
-          console.groupCollapsed(
-            "[DWELL] Station not merged:",
-            station.crs,
-            station.name,
-            "— at least one service has dwell > 2 mins",
-          );
-          console.log(
-            "All services' arr/dep at this station:",
-            dwellDebugEntries,
-          );
-          console.log("Offending services (dwell > 2 mins):", offenders);
-          console.groupEnd();
-        }
       } else {
         mode = "merged";
-
-        if (DEBUG_STATIONS) {
-          const station = displayStations[i];
-          console.groupCollapsed(
-            "[DWELL] Station merged:",
-            station.crs,
-            station.name,
-            "— all dwells <= 2 mins",
-          );
-          console.log(
-            "All services' arr/dep at this station:",
-            dwellDebugEntries,
-          );
-          console.groupEnd();
-        }
       }
     } else if (hasAny) {
       mode = "single";
@@ -703,6 +668,7 @@ function buildTimetableModel(
     highlightColors: {
       outOfOrder: "#fce3b0",
       depAfterArrival: "#e6d9ff",
+      serviceMisorder: "#f7c9c9",
     },
   });
 
