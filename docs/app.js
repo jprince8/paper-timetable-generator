@@ -1387,7 +1387,15 @@ form.addEventListener("submit", async (e) => {
   setBuildInProgress(true);
   try {
     resetOutputs();
-    setStatus("Initialising timetable...", { progress: 0 });
+    const initStatusLabel = "Initialising timetable...";
+    let initTotal = 0;
+    let initCompleted = 0;
+    const updateInitProgress = () => {
+      if (initTotal <= 0) return;
+      const percent = Math.round((initCompleted / initTotal) * 100);
+      setStatus(initStatusLabel, { progress: percent });
+    };
+    setStatus(initStatusLabel, { progress: 0 });
     if (shouldAbort()) {
       return;
     }
@@ -1454,6 +1462,8 @@ form.addEventListener("submit", async (e) => {
   let rttConnectionDetected = false;
 
   try {
+  initTotal = corridorLegs.length;
+  updateInitProgress();
   const searchPromises = corridorLegs.map(async (leg) => {
     const url =
       PROXY_SEARCH +
@@ -1520,7 +1530,11 @@ form.addEventListener("submit", async (e) => {
           corridorServicesMap.set(key, svc);
         }
       });
-    });
+    })
+      .finally(() => {
+        initCompleted += 1;
+        updateInitProgress();
+      });
 
     await Promise.all(searchPromises);
   } catch (err) {
@@ -1595,6 +1609,8 @@ form.addEventListener("submit", async (e) => {
   }
 
   // Step 2: Get full details for corridor services to derive station union.
+  initTotal += corridorServices.length;
+  updateInitProgress();
   const corridorDetailPromises = corridorServices.map(async (svc) => {
     const uid = svc.serviceUid;
     const date = svc.runDate;
@@ -1632,7 +1648,12 @@ form.addEventListener("submit", async (e) => {
       statusText,
       seed: true,
     };
-  });
+  }).map((promise) =>
+    promise.finally(() => {
+      initCompleted += 1;
+      updateInitProgress();
+    }),
+  );
 
   let corridorDetails;
   try {
@@ -2063,7 +2084,14 @@ form.addEventListener("submit", async (e) => {
     const grouped = groupSequencesByStationSet(excludedSequences);
     grouped.sort((a, b) => b.items.length - a.items.length);
     const labelStations = grouped[0]?.stations || [];
-    const labelText = labelStations.join(", ");
+    const labelText = labelStations
+      .map(
+        (crs) =>
+          stationData.stationMap[crs]?.name ||
+          stationData.stationMap[crs]?.crs ||
+          crs,
+      )
+      .join(", ");
     setStatus(
       `${excludedSequences.length} services between ${labelText} were excluded to maintain consistent station order`,
       { isError: true },

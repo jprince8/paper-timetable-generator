@@ -622,6 +622,10 @@ form label button {
   background: #e6d9ff;
 }
 
+.table-key-sample--service-misorder {
+  background: #f7c9c9;
+}
+
 .table-key--crs {
   margin-top: 0.75rem;
   padding: 0.5rem;

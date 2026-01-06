@@ -668,6 +668,7 @@ function buildTimetableModel(
     highlightColors: {
       outOfOrder: "#fce3b0",
       depAfterArrival: "#e6d9ff",
+      serviceMisorder: "#f7c9c9",
     },
   });
 

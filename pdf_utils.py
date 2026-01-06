@@ -383,6 +383,7 @@ def build_timetable_pdf(tables, meta=None):
                 "no_report": False,
                 "out_of_order": False,
                 "dep_before_arrival": False,
+                "service_misorder": False,
                 "platform_any": False,
                 "platform_confirmed": False,
                 "platform_changed": False,
@@ -416,6 +417,8 @@ def build_timetable_pdf(tables, meta=None):
                             format_flags["out_of_order"] = True
                         elif bg_color == "#e6d9ff":
                             format_flags["dep_before_arrival"] = True
+                        elif bg_color == "#f7c9c9":
+                            format_flags["service_misorder"] = True
 
             key_items = []
             if "FC" in facilities_tokens:
@@ -447,6 +450,13 @@ def build_timetable_pdf(tables, meta=None):
                     (
                         None,
                         "<font backColor=\"#e6d9ff\">12:34</font> Departs before previous arrival",
+                    )
+                )
+            if format_flags.get("service_misorder"):
+                key_items.append(
+                    (
+                        None,
+                        "<font backColor=\"#f7c9c9\">12:34</font> Service internally misordered",
                     )
                 )
             if format_flags["platform_any"]:

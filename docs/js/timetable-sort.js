@@ -966,6 +966,8 @@ function sortTimetableColumns({
   const HIGHLIGHT_OUT_OF_ORDER_COLOR = highlightColors?.outOfOrder || "#fce3b0";
   const HIGHLIGHT_DEP_AFTER_ARRIVAL_COLOR =
     highlightColors?.depAfterArrival || "#e6d9ff";
+  const HIGHLIGHT_SERVICE_MISORDER_COLOR =
+    highlightColors?.serviceMisorder || "#f7c9c9";
 
   const originalRows = rows.slice();
   const originalSpecs = rowSpecs.slice();
@@ -987,6 +989,49 @@ function sortTimetableColumns({
     }
   }
   checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails);
+
+  function applyServiceMisorderHighlight() {
+    orderedSvcIndices.forEach((svcIndex) => {
+      let dayOffset = 0;
+      let prevAbs = null;
+      for (let r = 0; r < rows.length; r++) {
+        const val = rows[r].cells[svcIndex];
+        const rawText = cellToText(val);
+        if (!rawText) continue;
+        if (val && typeof val === "object" && val.format?.strike) continue;
+        if (val && typeof val === "object" && val.format?.noReport) continue;
+        if (rawText.includes("?")) continue;
+
+        const mins = timeStrToMinutes(rawText);
+        if (mins === null) continue;
+
+        let base = mins + dayOffset;
+        if (prevAbs !== null && base < prevAbs) {
+          const diff = prevAbs - base;
+          if (diff > 6 * 60) {
+            dayOffset += 1440;
+            base = mins + dayOffset;
+          }
+        }
+
+        if (prevAbs !== null && base < prevAbs) {
+          if (val && typeof val === "object") {
+            val.format = val.format || {};
+            val.format.bgColor = HIGHLIGHT_SERVICE_MISORDER_COLOR;
+          } else {
+            rows[r].cells[svcIndex] = {
+              text: rawText,
+              format: { bgColor: HIGHLIGHT_SERVICE_MISORDER_COLOR },
+            };
+          }
+        }
+
+        prevAbs = base;
+      }
+    });
+  }
+
+  applyServiceMisorderHighlight();
 
   function tryResortForHighlighting() {
     let movedAny = false;
