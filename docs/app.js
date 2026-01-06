@@ -1530,11 +1530,7 @@ form.addEventListener("submit", async (e) => {
           corridorServicesMap.set(key, svc);
         }
       });
-    })
-      .finally(() => {
-        initCompleted += 1;
-        updateInitProgress();
-      });
+    });
 
     await Promise.all(searchPromises);
   } catch (err) {

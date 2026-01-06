@@ -193,7 +193,7 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   }
   assertWithStatus(
     false,
-    "Timetable times go backwards in this route",
+    "Some services cannot show calling points in order (red highlighted)",
     detailParts.join(", "),
     { keepOutputs: true, allowContinue: true },
   );
@@ -620,20 +620,37 @@ function sortTimetableColumns({
     sortSequence.push(serviceIdx);
   }
 
-  function resolveUnboundedServices(remainingServices, orderedSvcIndices) {
-    sortLogLines.push("Resolution pass 0: start");
-    for (let idx = 0; idx < remainingServices.length; idx++) {
-      const svcIdx = remainingServices[idx];
-      if (insertFirstCandidate(svcIdx, orderedSvcIndices)) {
-        remainingServices.splice(idx, 1);
-        recordSortSequence(svcIdx);
-        return true;
-      }
-    }
+  // Add this helper near findInsertBounds / attemptInsertService helpers:
+  function countBaselineInsertPositions(serviceIdx, orderedSvcIndices) {
+    const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
+      serviceIdx,
+      orderedSvcIndices,
+      { logEnabled: false }, // baseline = no modifications
+    );
 
+    const maxPos = orderedSvcIndices.length;
+
+    const start = hasConstraint ? lowerBound : 0;
+    const end = hasConstraint ? upperBound : maxPos;
+
+    if (start > end) return 0;
+    return end - start + 1;
+  }
+
+  function resolveUnboundedServices(remainingServices, orderedSvcIndices) {
     sortLogLines.push("Resolution pass 1: start");
     for (let idx = 0; idx < remainingServices.length; idx++) {
       const svcIdx = remainingServices[idx];
+
+      // NEW: skip if baseline (unmodified) insert positions > 1
+      const baselineCount = countBaselineInsertPositions(svcIdx, orderedSvcIndices);
+      if (baselineCount > 1) {
+        sortLogLines.push(
+          `Resolution pass 1: skipping ${serviceLabel(svcIdx)} (baseline has ${baselineCount} possible positions; won't apply modifications)`,
+        );
+        continue;
+      }
+
       sortLogLines.push(
         `Resolution pass 1: evaluating ${serviceLabel(svcIdx)} for arr-only fixes`,
       );
@@ -750,6 +767,16 @@ function sortTimetableColumns({
     sortLogLines.push("Resolution pass 2: start");
     for (let idx = 0; idx < remainingServices.length; idx++) {
       const svcIdx = remainingServices[idx];
+
+      // NEW: skip if baseline (unmodified) insert positions > 1
+      const baselineCount = countBaselineInsertPositions(svcIdx, orderedSvcIndices);
+      if (baselineCount > 1) {
+        sortLogLines.push(
+          `Resolution pass 2: skipping ${serviceLabel(svcIdx)} (baseline has ${baselineCount} possible positions; won't apply modifications)`,
+        );
+        continue;
+      }
+
       sortLogLines.push(
         `Resolution pass 2: evaluating ${serviceLabel(svcIdx)} for ignore-value fixes`,
       );
@@ -842,6 +869,21 @@ function sortTimetableColumns({
     return false;
   }
 
+  function resolveUnboundedServicesByPickingFirst(
+    remainingServices,
+    orderedSvcIndices,
+  ) {
+    sortLogLines.push("Resolution pass 3: start");
+    for (let idx = 0; idx < remainingServices.length; idx++) {
+      const svcIdx = remainingServices[idx];
+      if (insertFirstCandidate(svcIdx, orderedSvcIndices)) {
+        remainingServices.splice(idx, 1);
+        recordSortSequence(svcIdx);
+        return true;
+      }
+    }
+  }
+
   const orderedSvcIndices = [];
   const sortSequence = [];
   let unsortedServices = null;
@@ -919,6 +961,14 @@ function sortTimetableColumns({
         rotationsWithoutInsert = 0;
         continue;
       }
+      const resolvedThirdPass = resolveUnboundedServicesByPickingFirst(
+        remainingServices,
+        orderedSvcIndices,
+      );
+      if (resolvedThirdPass) {
+        rotationsWithoutInsert = 0;
+        continue;
+      }
 
       unsortedLabels = remainingServices.map(serviceLabel);
       unsortedServices = remainingServices.slice();
@@ -993,10 +1043,14 @@ function sortTimetableColumns({
   function applyServiceMisorderHighlight() {
     orderedSvcIndices.forEach((svcIndex) => {
       let dayOffset = 0;
-      let prevAbs = null;
+
+      let prevAbs = null;  // for detecting day rollover
+      let maxAbs = null;   // max absolute time seen so far (monotonic requirement)
+
       for (let r = 0; r < rows.length; r++) {
         const val = rows[r].cells[svcIndex];
         const rawText = cellToText(val);
+
         if (!rawText) continue;
         if (val && typeof val === "object" && val.format?.strike) continue;
         if (val && typeof val === "object" && val.format?.noReport) continue;
@@ -1005,7 +1059,9 @@ function sortTimetableColumns({
         const mins = timeStrToMinutes(rawText);
         if (mins === null) continue;
 
+        // Compute absolute minutes, allowing a single (or multiple) midnight rollovers.
         let base = mins + dayOffset;
+
         if (prevAbs !== null && base < prevAbs) {
           const diff = prevAbs - base;
           if (diff > 6 * 60) {
@@ -1014,7 +1070,8 @@ function sortTimetableColumns({
           }
         }
 
-        if (prevAbs !== null && base < prevAbs) {
+        // Highlight if this time is earlier than ANY earlier time (max so far).
+        if (maxAbs !== null && base < maxAbs) {
           if (val && typeof val === "object") {
             val.format = val.format || {};
             val.format.bgColor = HIGHLIGHT_SERVICE_MISORDER_COLOR;
@@ -1027,6 +1084,7 @@ function sortTimetableColumns({
         }
 
         prevAbs = base;
+        if (maxAbs === null || base > maxAbs) maxAbs = base;
       }
     });
   }
