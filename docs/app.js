@@ -945,6 +945,67 @@ function serviceAnyStationInRange(detail, crsSet) {
   });
 }
 
+function serviceCallsAtLeastTwoInSet(detail, crsSet) {
+  const locs = detail.locations || [];
+  const seen = new Set();
+
+  for (const l of locs) {
+    const crs = l.crs || "";
+    if (!crsSet.has(crs)) continue;
+
+    const disp = (l.displayAs || "").toUpperCase();
+    if (disp === "PASS" || disp === "CANCELLED_PASS") continue;
+
+    seen.add(crs);
+    if (seen.size >= 2) return true;
+  }
+  return false;
+}
+
+function computeDisplayStations(stationsList, services) {
+  return stationsList.filter((station) => {
+    return services.some(({ detail }) => {
+      const locs = detail.locations || [];
+      return locs.some((locEntry) => {
+        if ((locEntry.crs || "") !== station.crs) return false;
+        const disp = (locEntry.displayAs || "").toUpperCase();
+        const isPublic = locEntry.isPublicCall === true;
+        if (disp === "PASS" || disp === "CANCELLED_PASS") return false;
+        return isPublic;
+      });
+    });
+  });
+}
+
+function filterServicesForDisplay(stationsList, services) {
+  let workingServices = services.slice();
+  let prevKey = "";
+  for (let iter = 0; iter < 5; iter++) {
+    const displayStations = computeDisplayStations(
+      stationsList,
+      workingServices,
+    );
+    const displaySet = new Set(
+      displayStations.map((s) => s.crs).filter(Boolean),
+    );
+    const filtered = workingServices.filter(
+      ({ detail }) =>
+        serviceCallsAtLeastTwoInSet(detail, displaySet) &&
+        serviceCallsAllStationsInRange(detail, displaySet),
+    );
+    const key =
+      displayStations.map((s) => s.crs).join(",") +
+      "|" +
+      filtered.length;
+    if (key === prevKey) {
+      return filtered;
+    }
+    prevKey = key;
+    workingServices = filtered;
+  }
+  return workingServices;
+}
+
 // === Status helpers ===
 function showStatus() {
   if (!statusEl) return;
@@ -2012,8 +2073,12 @@ form.addEventListener("submit", async (e) => {
   }
 
   // Split into A->B vs B->A, based on order of corridor stations in the calling pattern.
-  const connectionEntries = buildConnectionServiceEntries(
+  const filteredDetailsForConnections = filterServicesForDisplay(
+    stations,
     allDetails,
+  );
+  const connectionEntries = buildConnectionServiceEntries(
+    filteredDetailsForConnections,
     corridorSet,
     stationLabelByCrs,
     fromToSet,
@@ -2284,7 +2349,7 @@ function buildConnectionServiceEntries(
   stationLabelByCrs,
   fromToSet,
   timeRange,
-  bufferMinutes = 5,
+  bufferMinutes = 0,
 ) {
   const generated = [];
   const seen = new Set();
