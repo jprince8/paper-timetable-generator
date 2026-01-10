@@ -2661,6 +2661,22 @@ function buildConnectionServiceEntries(
     locByCrs.forEach((loc, stationCrs) => {
       if (!corridorSet.has(stationCrs)) return;
       if (!connectionStations.has(stationCrs)) return;
+      if (!locationHasDeparture(loc)) {
+        console.assert(
+          false,
+          "Inbound connection should use a departure time",
+          {
+            stationCrs,
+            serviceUid: entry.svc?.serviceUid || "",
+            runDate: entry.svc?.runDate || entry.detail?.runDate || "",
+          },
+        );
+        console.info(
+          "Connection skip: inbound base has no departure",
+          stationCrs,
+        );
+        return;
+      }
       const baseTimes = resolveConnectionBaseTimes(loc, false);
       const departureScheduled =
         baseTimes?.scheduled ?? baseTimes?.realtime ?? null;
