@@ -2310,6 +2310,10 @@ function isCallingLocation(loc) {
   return disp !== "PASS" && disp !== "CANCELLED_PASS";
 }
 
+function locationHasDeparture(loc) {
+  return Boolean(loc?.gbttBookedDeparture || loc?.realtimeDeparture);
+}
+
 function getLastCallingPair(detail) {
   const locs = detail.locations || [];
   let last = null;
@@ -2491,7 +2495,12 @@ function buildConnectionServiceEntries(
     entry.detail.locations.forEach((loc) => {
       const crs = normaliseCrs(loc?.crs || "");
       if (!crs || !isCallingLocation(loc)) return;
-      if (!locByCrs.has(crs)) {
+      const existing = locByCrs.get(crs);
+      if (!existing) {
+        locByCrs.set(crs, loc);
+        return;
+      }
+      if (!locationHasDeparture(existing) && locationHasDeparture(loc)) {
         locByCrs.set(crs, loc);
       }
     });
