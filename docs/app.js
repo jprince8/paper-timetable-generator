@@ -2083,6 +2083,8 @@ form.addEventListener("submit", async (e) => {
     stationLabelByCrs,
     fromToSet,
     { startMinutes, endMinutes },
+    0,
+    realtimePreferred,
   );
   console.info(
     "Connection summary: generated",
@@ -2333,16 +2335,6 @@ function matchConnectionEntry(entry, previousCrs) {
   return prevStations.includes(previousCrs);
 }
 
-function locationTimeMinutes(loc) {
-  const raw =
-    loc.gbttBookedArrival ||
-    loc.realtimeArrival ||
-    loc.gbttBookedDeparture ||
-    loc.realtimeDeparture ||
-    "";
-  return rttTimeToMinutes(raw);
-}
-
 function buildConnectionServiceEntries(
   entries,
   corridorSet,
@@ -2350,6 +2342,7 @@ function buildConnectionServiceEntries(
   fromToSet,
   timeRange,
   bufferMinutes = 0,
+  useRealtime = false,
 ) {
   const generated = [];
   const seen = new Set();
@@ -2367,6 +2360,34 @@ function buildConnectionServiceEntries(
     return true;
   }
 
+  function resolveConnectionMinutes(loc, preferArrival, realtimeActive) {
+    if (!loc) return null;
+    const bookedArr = loc.gbttBookedArrival || "";
+    const bookedDep = loc.gbttBookedDeparture || "";
+    const realtimeArr = loc.realtimeArrival || "";
+    const realtimeDep = loc.realtimeDeparture || "";
+    const preferRealtime = useRealtime && realtimeActive;
+    const primary = preferArrival
+      ? preferRealtime
+        ? realtimeArr
+        : bookedArr
+      : preferRealtime
+        ? realtimeDep
+        : bookedDep;
+    const secondary = preferArrival
+      ? preferRealtime
+        ? bookedArr
+        : realtimeArr
+      : preferRealtime
+        ? bookedDep
+        : realtimeDep;
+    const tertiary = preferArrival
+      ? bookedDep || realtimeDep
+      : bookedArr || realtimeArr;
+    const raw = primary || secondary || tertiary;
+    return rttTimeToMinutes(raw);
+  }
+
   function buildConnectionEntry({
     fromCrs,
     toCrs,
@@ -2376,6 +2397,8 @@ function buildConnectionServiceEntries(
     mode,
     cancelled,
     baseKey,
+    connectionBaseUid,
+    connectionInsertPosition,
     runDate,
   }) {
     if (!inRange(departMins) || !inRange(arriveMins)) {
@@ -2445,7 +2468,14 @@ function buildConnectionServiceEntries(
       toCrs,
       `${minutesToTimeStr(departMins)} +${durationMinutes}m`,
     );
-    generated.push({ svc, detail, seed: false, isConnection: true });
+    generated.push({
+      svc,
+      detail,
+      seed: false,
+      isConnection: true,
+      connectionBaseUid,
+      connectionInsertPosition,
+    });
   }
 
   entries.forEach((entry) => {
@@ -2485,7 +2515,12 @@ function buildConnectionServiceEntries(
       return;
     }
 
-    const arrivalMins = locationTimeMinutes(last);
+    const realtimeActive = entry.detail?.realtimeActivated === true;
+    const arrivalMins = resolveConnectionMinutes(
+      last,
+      true,
+      realtimeActive,
+    );
     if (arrivalMins === null) {
       console.info(
         "Connection skip: terminal arrival time missing",
@@ -2566,6 +2601,8 @@ function buildConnectionServiceEntries(
             mode,
             cancelled: terminalCancelled,
             baseKey: baseUid,
+            connectionBaseUid: baseUid,
+            connectionInsertPosition: "after",
             runDate,
           });
         },
@@ -2575,7 +2612,11 @@ function buildConnectionServiceEntries(
     locByCrs.forEach((loc, stationCrs) => {
       if (!corridorSet.has(stationCrs)) return;
       if (!connectionStations.has(stationCrs)) return;
-      const depMins = rttTimeToMinutes(loc.gbttBookedDeparture);
+      const depMins = resolveConnectionMinutes(
+        loc,
+        false,
+        realtimeActive,
+      );
       if (depMins === null) return;
       const stationConnections = getConnectionEntriesForStation(stationCrs);
       if (!stationConnections.length) return;
@@ -2614,6 +2655,8 @@ function buildConnectionServiceEntries(
               mode: meta.mode || "walk",
               cancelled,
               baseKey: `REV-${baseUid}`,
+              connectionBaseUid: baseUid,
+              connectionInsertPosition: "before",
               runDate,
             });
           },

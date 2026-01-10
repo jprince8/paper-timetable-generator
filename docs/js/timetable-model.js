@@ -42,6 +42,72 @@ function buildTimetableModel(
     return false;
   }
 
+  function serviceBaseUid(entry) {
+    const svc = entry?.svc || {};
+    return (
+      svc.serviceUid ||
+      svc.originalServiceUid ||
+      svc.trainIdentity ||
+      svc.runningIdentity ||
+      ""
+    );
+  }
+
+  function insertConnectionColumns(orderedSvcIndices, services) {
+    const connectionByBaseUid = new Map();
+    const connectionIndices = [];
+
+    services.forEach((entry, idx) => {
+      if (!entry?.isConnection) return;
+      connectionIndices.push(idx);
+      const baseUid = entry.connectionBaseUid || "";
+      if (baseUid) {
+        const position =
+          entry.connectionInsertPosition === "before" ? "before" : "after";
+        const group = connectionByBaseUid.get(baseUid) || {
+          before: [],
+          after: [],
+        };
+        group[position].push(idx);
+        connectionByBaseUid.set(baseUid, group);
+      }
+    });
+
+    if (connectionIndices.length === 0) {
+      return orderedSvcIndices.slice();
+    }
+
+    const finalOrder = [];
+    const inserted = new Set();
+    orderedSvcIndices.forEach((svcIndex) => {
+      const baseUid = serviceBaseUid(services[svcIndex]);
+      const group = connectionByBaseUid.get(baseUid);
+      if (group?.before?.length) {
+        group.before.forEach((idx) => {
+          if (inserted.has(idx)) return;
+          finalOrder.push(idx);
+          inserted.add(idx);
+        });
+      }
+      finalOrder.push(svcIndex);
+      if (group?.after?.length) {
+        group.after.forEach((idx) => {
+          if (inserted.has(idx)) return;
+          finalOrder.push(idx);
+          inserted.add(idx);
+        });
+      }
+    });
+
+    connectionIndices.forEach((idx) => {
+      if (inserted.has(idx)) return;
+      finalOrder.push(idx);
+      inserted.add(idx);
+    });
+
+    return finalOrder;
+  }
+
   let workingServices = servicesWithDetails.slice();
   let displayStations = [];
 
@@ -91,6 +157,13 @@ function buildTimetableModel(
   );
   const serviceAllCancelled = new Array(numServices).fill(false);
   const serviceAllNoReport = new Array(numServices).fill(false);
+  const baseServiceIndices = [];
+
+  servicesWithDetails.forEach((entry, idx) => {
+    if (!entry?.isConnection) {
+      baseServiceIndices.push(idx);
+    }
+  });
 
   const stationTimes = [];
   for (let i = 0; i < numStations; i++) {
@@ -672,15 +745,21 @@ function buildTimetableModel(
     serviceRealtimeFlags,
     realtimeToggleEnabled,
     servicesMeta,
+    serviceIndices: baseServiceIndices,
     highlightColors: {
       outOfOrder: "#fce3b0",
       depAfterArrival: "#e6d9ff",
     },
   });
 
+  const orderedSvcIndices = insertConnectionColumns(
+    sortResult.orderedSvcIndices,
+    servicesWithDetails,
+  );
+
   return {
     rows,
-    orderedSvcIndices: sortResult.orderedSvcIndices,
+    orderedSvcIndices,
     servicesMeta: sortResult.servicesMeta,
     sortLog: sortResult.sortLog,
     partialSort: sortResult.partialSort,
