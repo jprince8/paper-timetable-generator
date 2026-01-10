@@ -945,6 +945,67 @@ function serviceAnyStationInRange(detail, crsSet) {
   });
 }
 
+function serviceCallsAtLeastTwoInSet(detail, crsSet) {
+  const locs = detail.locations || [];
+  const seen = new Set();
+
+  for (const l of locs) {
+    const crs = l.crs || "";
+    if (!crsSet.has(crs)) continue;
+
+    const disp = (l.displayAs || "").toUpperCase();
+    if (disp === "PASS" || disp === "CANCELLED_PASS") continue;
+
+    seen.add(crs);
+    if (seen.size >= 2) return true;
+  }
+  return false;
+}
+
+function computeDisplayStations(stationsList, services) {
+  return stationsList.filter((station) => {
+    return services.some(({ detail }) => {
+      const locs = detail.locations || [];
+      return locs.some((locEntry) => {
+        if ((locEntry.crs || "") !== station.crs) return false;
+        const disp = (locEntry.displayAs || "").toUpperCase();
+        const isPublic = locEntry.isPublicCall === true;
+        if (disp === "PASS" || disp === "CANCELLED_PASS") return false;
+        return isPublic;
+      });
+    });
+  });
+}
+
+function filterServicesForDisplay(stationsList, services) {
+  let workingServices = services.slice();
+  let prevKey = "";
+  for (let iter = 0; iter < 5; iter++) {
+    const displayStations = computeDisplayStations(
+      stationsList,
+      workingServices,
+    );
+    const displaySet = new Set(
+      displayStations.map((s) => s.crs).filter(Boolean),
+    );
+    const filtered = workingServices.filter(
+      ({ detail }) =>
+        serviceCallsAtLeastTwoInSet(detail, displaySet) &&
+        serviceCallsAllStationsInRange(detail, displaySet),
+    );
+    const key =
+      displayStations.map((s) => s.crs).join(",") +
+      "|" +
+      filtered.length;
+    if (key === prevKey) {
+      return filtered;
+    }
+    prevKey = key;
+    workingServices = filtered;
+  }
+  return workingServices;
+}
+
 // === Status helpers ===
 function showStatus() {
   if (!statusEl) return;
@@ -2012,12 +2073,20 @@ form.addEventListener("submit", async (e) => {
   }
 
   // Split into A->B vs B->A, based on order of corridor stations in the calling pattern.
-  const connectionEntries = buildConnectionServiceEntries(
+  const filteredDetailsForConnections = filterServicesForDisplay(
+    stations,
     allDetails,
+  );
+  const connectionEntries = buildConnectionServiceEntries(
+    filteredDetailsForConnections,
     corridorSet,
     stationLabelByCrs,
     fromToSet,
     { startMinutes, endMinutes },
+    stations,
+    from,
+    to,
+    0,
   );
   console.info(
     "Connection summary: generated",
@@ -2244,6 +2313,21 @@ function isCallingLocation(loc) {
   return disp !== "PASS" && disp !== "CANCELLED_PASS";
 }
 
+function locationHasDeparture(loc) {
+  return Boolean(loc?.gbttBookedDeparture || loc?.realtimeDeparture);
+}
+
+function findDepartureLocation(detail, stationCrs) {
+  const locs = detail?.locations || [];
+  for (const loc of locs) {
+    const crs = normaliseCrs(loc?.crs || "");
+    if (!crs || crs !== stationCrs) continue;
+    if (!isCallingLocation(loc)) continue;
+    if (locationHasDeparture(loc)) return loc;
+  }
+  return null;
+}
+
 function getLastCallingPair(detail) {
   const locs = detail.locations || [];
   let last = null;
@@ -2268,66 +2352,71 @@ function matchConnectionEntry(entry, previousCrs) {
   return prevStations.includes(previousCrs);
 }
 
-function locationTimeMinutes(loc) {
-  const raw =
-    loc.gbttBookedArrival ||
-    loc.realtimeArrival ||
-    loc.gbttBookedDeparture ||
-    loc.realtimeDeparture ||
-    "";
-  return rttTimeToMinutes(raw);
-}
-
 function buildConnectionServiceEntries(
   entries,
   corridorSet,
   stationLabelByCrs,
   fromToSet,
   timeRange,
-  bufferMinutes = 5,
+  corridorStations,
+  routeFromCrs,
+  routeToCrs,
+  bufferMinutes = 0,
 ) {
   const generated = [];
   const seen = new Set();
   let loggedCorridorSkips = 0;
   let loggedTerminalSkips = 0;
   const connectionStations = new Set(Object.keys(connectionsByStation || {}));
+  const corridorOrderByCrs = {};
+  (corridorStations || []).forEach((station, index) => {
+    const crs = station?.crs || "";
+    if (crs) corridorOrderByCrs[crs] = index;
+  });
 
-  const rangeStart = timeRange?.startMinutes ?? null;
-  const rangeEnd = timeRange?.endMinutes ?? null;
-
-  function inRange(mins) {
-    if (mins === null) return false;
-    if (rangeStart !== null && mins < rangeStart) return false;
-    if (rangeEnd !== null && mins > rangeEnd) return false;
-    return true;
+  function resolveConnectionBaseTimes(loc, preferArrival) {
+    if (!loc) return null;
+    const bookedArr = loc.gbttBookedArrival || "";
+    const bookedDep = loc.gbttBookedDeparture || "";
+    const realtimeArr = loc.realtimeArrival || "";
+    const realtimeDep = loc.realtimeDeparture || "";
+    const scheduledRaw = preferArrival
+      ? bookedArr || bookedDep
+      : bookedDep || bookedArr;
+    const realtimeRaw = preferArrival
+      ? realtimeArr || realtimeDep
+      : realtimeDep || realtimeArr;
+    const scheduled = rttTimeToMinutes(scheduledRaw);
+    const realtime = rttTimeToMinutes(realtimeRaw);
+    return { scheduled, realtime };
   }
 
   function buildConnectionEntry({
     fromCrs,
     toCrs,
-    departMins,
-    arriveMins,
+    scheduledDepartMins,
+    scheduledArriveMins,
+    realtimeDepartMins,
+    realtimeArriveMins,
     durationMinutes,
     mode,
     cancelled,
     baseKey,
+    connectionBaseUid,
+    connectionInsertPosition,
+    realtimeActive,
     runDate,
+    baseServiceLabel,
+    baseServiceTimeLabel,
   }) {
-    if (!inRange(departMins) || !inRange(arriveMins)) {
-      if (loggedCorridorSkips < 5) {
-        console.info(
-          "Connection skip: connection time outside range",
-          fromCrs,
-          toCrs,
-          minutesToTimeStr(departMins),
-          minutesToTimeStr(arriveMins),
-        );
-        loggedCorridorSkips += 1;
-      }
+    if (
+      scheduledDepartMins === null ||
+      scheduledArriveMins === null
+    ) {
       return;
     }
-    const departTime = minutesToRttTime(departMins);
-    const arriveTime = minutesToRttTime(arriveMins);
+    const departTime = minutesToRttTime(scheduledDepartMins);
+    const arriveTime = minutesToRttTime(scheduledArriveMins);
     const modeLower = mode.toLowerCase();
     const isUnderground = modeLower.includes("underground");
     const atocCode = modeLower === "walk" ? "W" : isUnderground ? "U" : "U";
@@ -2355,6 +2444,7 @@ function buildConnectionServiceEntries(
       serviceType: modeLower === "walk" ? "walk" : "connection",
       trainClass: "S",
       isPassenger: true,
+      realtimeActivated: realtimeActive,
       connectionMode: connectionModeLabel,
       connectionFromLabel: stationLabelByCrs[fromCrs] || fromCrs,
       connectionToLabel: stationLabelByCrs[toCrs] || toCrs,
@@ -2362,25 +2452,78 @@ function buildConnectionServiceEntries(
         {
           crs: fromCrs,
           gbttBookedDeparture: departTime,
+          realtimeDeparture:
+            realtimeDepartMins === null
+              ? ""
+              : minutesToRttTime(realtimeDepartMins),
           displayAs,
           isPublicCall: true,
         },
         {
           crs: toCrs,
           gbttBookedArrival: arriveTime,
+          realtimeArrival:
+            realtimeArriveMins === null
+              ? ""
+              : minutesToRttTime(realtimeArriveMins),
           displayAs,
           isPublicCall: true,
         },
       ],
     };
-    console.info(
-      "Connection generated",
-      fromCrs,
-      "->",
-      toCrs,
-      `${minutesToTimeStr(departMins)} +${durationMinutes}m`,
-    );
-    generated.push({ svc, detail, seed: false, isConnection: true });
+    console.info("Connection generated", {
+      from: fromCrs,
+      to: toCrs,
+      mode: modeLower,
+      durationMinutes,
+      scheduled: {
+        depart: minutesToTimeStr(scheduledDepartMins),
+        arrive: minutesToTimeStr(scheduledArriveMins),
+      },
+      realtime:
+        realtimeDepartMins === null && realtimeArriveMins === null
+          ? null
+          : {
+              depart:
+                realtimeDepartMins === null
+                  ? null
+                  : minutesToTimeStr(realtimeDepartMins),
+              arrive:
+                realtimeArriveMins === null
+                  ? null
+                  : minutesToTimeStr(realtimeArriveMins),
+            },
+      cancelled,
+      connectionBaseUid,
+      insertPosition: connectionInsertPosition,
+      baseService: baseServiceLabel,
+      baseServiceTime: baseServiceTimeLabel,
+      baseKey,
+      runDate,
+    });
+    generated.push({
+      svc,
+      detail,
+      seed: false,
+      isConnection: true,
+      connectionBaseUid,
+      connectionInsertPosition,
+    });
+  }
+
+  function resolveServiceDirection(detail) {
+    const locs = detail?.locations || [];
+    const indices = [];
+    for (const loc of locs) {
+      const crs = loc?.crs || "";
+      if (crs && crs in corridorOrderByCrs) {
+        indices.push(corridorOrderByCrs[crs]);
+      }
+    }
+    if (indices.length < 2) return null;
+    return indices[0] <= indices[indices.length - 1]
+      ? "forward"
+      : "reverse";
   }
 
   entries.forEach((entry) => {
@@ -2389,7 +2532,12 @@ function buildConnectionServiceEntries(
     entry.detail.locations.forEach((loc) => {
       const crs = normaliseCrs(loc?.crs || "");
       if (!crs || !isCallingLocation(loc)) return;
-      if (!locByCrs.has(crs)) {
+      const existing = locByCrs.get(crs);
+      if (!existing) {
+        locByCrs.set(crs, loc);
+        return;
+      }
+      if (!locationHasDeparture(existing) && locationHasDeparture(loc)) {
         locByCrs.set(crs, loc);
       }
     });
@@ -2420,8 +2568,13 @@ function buildConnectionServiceEntries(
       return;
     }
 
-    const arrivalMins = locationTimeMinutes(last);
-    if (arrivalMins === null) {
+    const realtimeActive = entry.detail?.realtimeActivated === true;
+    const baseTimes = resolveConnectionBaseTimes(last, true);
+    const arrivalScheduled =
+      baseTimes?.scheduled ?? baseTimes?.realtime ?? null;
+    const arrivalRealtime =
+      baseTimes?.realtime ?? baseTimes?.scheduled ?? null;
+    if (arrivalScheduled === null) {
       console.info(
         "Connection skip: terminal arrival time missing",
         terminalCrs,
@@ -2429,6 +2582,24 @@ function buildConnectionServiceEntries(
       return;
     }
     const terminalCancelled = /CANCELLED/i.test(last?.displayAs || "");
+    const baseServiceLabel =
+      entry.svc?.serviceUid ||
+      entry.svc?.originalServiceUid ||
+      entry.svc?.trainIdentity ||
+      entry.svc?.runningIdentity ||
+      "";
+    const baseServiceTimeLabel = {
+      stationCrs: terminalCrs,
+      role: "arrival",
+      scheduled:
+        arrivalScheduled === null
+          ? null
+          : minutesToTimeStr(arrivalScheduled),
+      realtime:
+        arrivalRealtime === null
+          ? null
+          : minutesToTimeStr(arrivalRealtime),
+    };
 
     terminalEntries.forEach((terminalEntry) => {
       if (!matchConnectionEntry(terminalEntry, previousCrs)) {
@@ -2479,8 +2650,18 @@ function buildConnectionServiceEntries(
             }
             return;
           }
-          const departMins = arrivalMins + bufferMinutes;
-          const arriveMins = departMins + durationMinutes;
+          const scheduledDepartMins =
+            arrivalScheduled + bufferMinutes;
+          const scheduledArriveMins =
+            scheduledDepartMins + durationMinutes;
+          const realtimeDepartMins =
+            arrivalRealtime === null
+              ? null
+              : arrivalRealtime + bufferMinutes;
+          const realtimeArriveMins =
+            realtimeDepartMins === null
+              ? null
+              : realtimeDepartMins + durationMinutes;
           const mode = meta.mode || "walk";
           const runDate =
             entry.svc?.runDate ||
@@ -2495,26 +2676,59 @@ function buildConnectionServiceEntries(
           buildConnectionEntry({
             fromCrs: terminalCrs,
             toCrs: destCrs,
-            departMins,
-            arriveMins,
+            scheduledDepartMins,
+            scheduledArriveMins,
+            realtimeDepartMins,
+            realtimeArriveMins,
             durationMinutes,
             mode,
             cancelled: terminalCancelled,
             baseKey: baseUid,
+            connectionBaseUid: baseUid,
+            connectionInsertPosition: "after",
+            realtimeActive,
             runDate,
+            baseServiceLabel,
+            baseServiceTimeLabel,
           });
         },
       );
     });
 
+    const serviceDirection = resolveServiceDirection(entry.detail);
     locByCrs.forEach((loc, stationCrs) => {
       if (!corridorSet.has(stationCrs)) return;
       if (!connectionStations.has(stationCrs)) return;
-      const depMins = rttTimeToMinutes(loc.gbttBookedDeparture);
-      if (depMins === null) return;
+      const departureLoc =
+        locationHasDeparture(loc) &&
+        normaliseCrs(loc?.crs || "") === stationCrs
+          ? loc
+          : findDepartureLocation(entry.detail, stationCrs);
+      if (!departureLoc) {
+        console.assert(
+          false,
+          "Inbound connection should use a departure time",
+          {
+            stationCrs,
+            serviceUid: entry.svc?.serviceUid || "",
+            runDate: entry.svc?.runDate || entry.detail?.runDate || "",
+          },
+        );
+        console.info(
+          "Connection skip: inbound base has no departure",
+          stationCrs,
+        );
+        return;
+      }
+      const baseTimes = resolveConnectionBaseTimes(departureLoc, false);
+      const departureScheduled =
+        baseTimes?.scheduled ?? baseTimes?.realtime ?? null;
+      const departureRealtime =
+        baseTimes?.realtime ?? baseTimes?.scheduled ?? null;
+      if (departureScheduled === null) return;
       const stationConnections = getConnectionEntriesForStation(stationCrs);
       if (!stationConnections.length) return;
-      const cancelled = /CANCELLED/i.test(loc?.displayAs || "");
+      const cancelled = /CANCELLED/i.test(departureLoc?.displayAs || "");
       const runDate =
         entry.svc?.runDate ||
         entry.detail?.runDate ||
@@ -2525,11 +2739,53 @@ function buildConnectionServiceEntries(
         entry.svc?.originalServiceUid ||
         entry.svc?.trainIdentity ||
         "CONN";
+      const baseServiceLabel =
+        entry.svc?.serviceUid ||
+        entry.svc?.originalServiceUid ||
+        entry.svc?.trainIdentity ||
+        entry.svc?.runningIdentity ||
+        "";
+      const baseServiceTimeLabel = {
+        stationCrs,
+        role: "departure",
+        scheduled:
+          departureScheduled === null
+            ? null
+            : minutesToTimeStr(departureScheduled),
+        realtime:
+          departureRealtime === null
+            ? null
+            : minutesToTimeStr(departureRealtime),
+      };
       stationConnections.forEach((stationEntry) => {
         Object.entries(stationEntry.connections || {}).forEach(
           ([destCrsRaw, meta]) => {
             const destCrs = normaliseCrs(destCrsRaw);
             if (!destCrs || !corridorSet.has(destCrs)) return;
+            if (destCrs === routeFromCrs && serviceDirection !== "forward") {
+              if (loggedCorridorSkips < 5) {
+                console.info(
+                  "Connection skip: inbound base direction mismatch",
+                  stationCrs,
+                  destCrs,
+                  serviceDirection,
+                );
+                loggedCorridorSkips += 1;
+              }
+              return;
+            }
+            if (destCrs === routeToCrs && serviceDirection !== "reverse") {
+              if (loggedCorridorSkips < 5) {
+                console.info(
+                  "Connection skip: inbound base direction mismatch",
+                  stationCrs,
+                  destCrs,
+                  serviceDirection,
+                );
+                loggedCorridorSkips += 1;
+              }
+              return;
+            }
             if (
               !fromToSet.has(stationCrs) &&
               !fromToSet.has(destCrs)
@@ -2538,18 +2794,32 @@ function buildConnectionServiceEntries(
             }
             const durationMinutes = meta.durationMinutes;
             if (!durationMinutes) return;
-            const arriveMins = depMins - bufferMinutes;
-            const departMins = arriveMins - durationMinutes;
+            const scheduledArriveMins = departureScheduled;
+            const scheduledDepartMins =
+              scheduledArriveMins - durationMinutes;
+            const realtimeArriveMins =
+              departureRealtime === null ? null : departureRealtime;
+            const realtimeDepartMins =
+              realtimeArriveMins === null
+                ? null
+                : realtimeArriveMins - durationMinutes;
             buildConnectionEntry({
               fromCrs: destCrs,
               toCrs: stationCrs,
-              departMins,
-              arriveMins,
+              scheduledDepartMins,
+              scheduledArriveMins,
+              realtimeDepartMins,
+              realtimeArriveMins,
               durationMinutes,
               mode: meta.mode || "walk",
               cancelled,
               baseKey: `REV-${baseUid}`,
+              connectionBaseUid: baseUid,
+              connectionInsertPosition: "before",
+              realtimeActive,
               runDate,
+              baseServiceLabel,
+              baseServiceTimeLabel,
             });
           },
         );

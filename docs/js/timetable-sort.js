@@ -212,6 +212,7 @@ function sortTimetableColumns({
   realtimeToggleEnabled,
   servicesMeta,
   highlightColors,
+  serviceIndices = null,
 }) {
   const numStations = displayStations.length;
   const numServices = servicesWithDetails.length;
@@ -221,7 +222,10 @@ function sortTimetableColumns({
   );
   sortLogLines.push("Column sort log");
   sortLogLines.push(`Stations: ${stationLabels.join(" → ")}`);
-  sortLogLines.push(`Services: ${numServices}`);
+  const sortableServices = Array.isArray(serviceIndices)
+    ? serviceIndices.slice()
+    : Array.from({ length: numServices }, (_, idx) => idx);
+  sortLogLines.push(`Services: ${sortableServices.length}`);
 
   function logHighlight(
     reason,
@@ -846,10 +850,7 @@ function sortTimetableColumns({
   const sortSequence = [];
   let unsortedServices = null;
   let unsortedLabels = null;
-  const remainingServices = Array.from(
-    { length: numServices },
-    (_, idx) => idx,
-  );
+  const remainingServices = sortableServices.slice();
   remainingServices.sort((a, b) => {
     const infoA = firstTimeInfo(a);
     const infoB = firstTimeInfo(b);
