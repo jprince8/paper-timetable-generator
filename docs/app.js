@@ -2291,6 +2291,7 @@ function buildConnectionServiceEntries(
   let loggedCorridorSkips = 0;
   let loggedTerminalSkips = 0;
   const connectionStations = new Set(Object.keys(connectionsByStation || {}));
+  const callingStations = new Set();
 
   const rangeStart = timeRange?.startMinutes ?? null;
   const rangeEnd = timeRange?.endMinutes ?? null;
@@ -2301,6 +2302,16 @@ function buildConnectionServiceEntries(
     if (rangeEnd !== null && mins > rangeEnd) return false;
     return true;
   }
+
+  entries.forEach((entry) => {
+    if (!entry?.detail || !Array.isArray(entry.detail.locations)) return;
+    entry.detail.locations.forEach((loc) => {
+      if (!isCallingLocation(loc)) return;
+      const crs = normaliseCrs(loc?.crs || "");
+      if (!crs || !corridorSet.has(crs)) return;
+      callingStations.add(crs);
+    });
+  });
 
   function buildConnectionEntry({
     fromCrs,
@@ -2467,6 +2478,17 @@ function buildConnectionServiceEntries(
             }
             return;
           }
+          if (!callingStations.has(destCrs)) {
+            if (loggedCorridorSkips < 5) {
+              console.info(
+                "Connection skip: destination not in timetable",
+                terminalCrs,
+                destCrs,
+              );
+              loggedCorridorSkips += 1;
+            }
+            return;
+          }
           const durationMinutes = meta.durationMinutes;
           if (!durationMinutes) {
             if (loggedCorridorSkips < 5) {
@@ -2530,6 +2552,7 @@ function buildConnectionServiceEntries(
           ([destCrsRaw, meta]) => {
             const destCrs = normaliseCrs(destCrsRaw);
             if (!destCrs || !corridorSet.has(destCrs)) return;
+            if (!callingStations.has(destCrs)) return;
             if (
               !fromToSet.has(stationCrs) &&
               !fromToSet.has(destCrs)
