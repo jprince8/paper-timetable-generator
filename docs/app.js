@@ -2380,6 +2380,8 @@ function buildConnectionServiceEntries(
     connectionInsertPosition,
     realtimeActive,
     runDate,
+    baseServiceLabel,
+    baseServiceTimeLabel,
   }) {
     if (
       scheduledDepartMins === null ||
@@ -2443,13 +2445,36 @@ function buildConnectionServiceEntries(
         },
       ],
     };
-    console.info(
-      "Connection generated",
-      fromCrs,
-      "->",
-      toCrs,
-      `${minutesToTimeStr(scheduledDepartMins)} +${durationMinutes}m`,
-    );
+    console.info("Connection generated", {
+      from: fromCrs,
+      to: toCrs,
+      mode: modeLower,
+      durationMinutes,
+      scheduled: {
+        depart: minutesToTimeStr(scheduledDepartMins),
+        arrive: minutesToTimeStr(scheduledArriveMins),
+      },
+      realtime:
+        realtimeDepartMins === null && realtimeArriveMins === null
+          ? null
+          : {
+              depart:
+                realtimeDepartMins === null
+                  ? null
+                  : minutesToTimeStr(realtimeDepartMins),
+              arrive:
+                realtimeArriveMins === null
+                  ? null
+                  : minutesToTimeStr(realtimeArriveMins),
+            },
+      cancelled,
+      connectionBaseUid,
+      insertPosition: connectionInsertPosition,
+      baseService: baseServiceLabel,
+      baseServiceTime: baseServiceTimeLabel,
+      baseKey,
+      runDate,
+    });
     generated.push({
       svc,
       detail,
@@ -2511,6 +2536,24 @@ function buildConnectionServiceEntries(
       return;
     }
     const terminalCancelled = /CANCELLED/i.test(last?.displayAs || "");
+    const baseServiceLabel =
+      entry.svc?.serviceUid ||
+      entry.svc?.originalServiceUid ||
+      entry.svc?.trainIdentity ||
+      entry.svc?.runningIdentity ||
+      "";
+    const baseServiceTimeLabel = {
+      stationCrs: terminalCrs,
+      role: "arrival",
+      scheduled:
+        arrivalScheduled === null
+          ? null
+          : minutesToTimeStr(arrivalScheduled),
+      realtime:
+        arrivalRealtime === null
+          ? null
+          : minutesToTimeStr(arrivalRealtime),
+    };
 
     terminalEntries.forEach((terminalEntry) => {
       if (!matchConnectionEntry(terminalEntry, previousCrs)) {
@@ -2599,6 +2642,8 @@ function buildConnectionServiceEntries(
             connectionInsertPosition: "after",
             realtimeActive,
             runDate,
+            baseServiceLabel,
+            baseServiceTimeLabel,
           });
         },
       );
@@ -2626,6 +2671,24 @@ function buildConnectionServiceEntries(
         entry.svc?.originalServiceUid ||
         entry.svc?.trainIdentity ||
         "CONN";
+      const baseServiceLabel =
+        entry.svc?.serviceUid ||
+        entry.svc?.originalServiceUid ||
+        entry.svc?.trainIdentity ||
+        entry.svc?.runningIdentity ||
+        "";
+      const baseServiceTimeLabel = {
+        stationCrs,
+        role: "departure",
+        scheduled:
+          departureScheduled === null
+            ? null
+            : minutesToTimeStr(departureScheduled),
+        realtime:
+          departureRealtime === null
+            ? null
+            : minutesToTimeStr(departureRealtime),
+      };
       stationConnections.forEach((stationEntry) => {
         Object.entries(stationEntry.connections || {}).forEach(
           ([destCrsRaw, meta]) => {
@@ -2663,6 +2726,8 @@ function buildConnectionServiceEntries(
               connectionInsertPosition: "before",
               realtimeActive,
               runDate,
+              baseServiceLabel,
+              baseServiceTimeLabel,
             });
           },
         );
