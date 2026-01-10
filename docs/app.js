@@ -2639,14 +2639,11 @@ function buildConnectionServiceEntries(
             }
             const durationMinutes = meta.durationMinutes;
             if (!durationMinutes) return;
-            const scheduledArriveMins =
-              departureScheduled - bufferMinutes;
+            const scheduledArriveMins = departureScheduled;
             const scheduledDepartMins =
               scheduledArriveMins - durationMinutes;
             const realtimeArriveMins =
-              departureRealtime === null
-                ? null
-                : departureRealtime - bufferMinutes;
+              departureRealtime === null ? null : departureRealtime;
             const realtimeDepartMins =
               realtimeArriveMins === null
                 ? null
