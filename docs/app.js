@@ -2084,7 +2084,6 @@ form.addEventListener("submit", async (e) => {
     fromToSet,
     { startMinutes, endMinutes },
     0,
-    realtimePreferred,
   );
   console.info(
     "Connection summary: generated",
@@ -2342,7 +2341,6 @@ function buildConnectionServiceEntries(
   fromToSet,
   timeRange,
   bufferMinutes = 0,
-  useRealtime = false,
 ) {
   const generated = [];
   const seen = new Set();
@@ -2350,72 +2348,47 @@ function buildConnectionServiceEntries(
   let loggedTerminalSkips = 0;
   const connectionStations = new Set(Object.keys(connectionsByStation || {}));
 
-  const rangeStart = timeRange?.startMinutes ?? null;
-  const rangeEnd = timeRange?.endMinutes ?? null;
-
-  function inRange(mins) {
-    if (mins === null) return false;
-    if (rangeStart !== null && mins < rangeStart) return false;
-    if (rangeEnd !== null && mins > rangeEnd) return false;
-    return true;
-  }
-
-  function resolveConnectionMinutes(loc, preferArrival, realtimeActive) {
+  function resolveConnectionBaseTimes(loc, preferArrival) {
     if (!loc) return null;
     const bookedArr = loc.gbttBookedArrival || "";
     const bookedDep = loc.gbttBookedDeparture || "";
     const realtimeArr = loc.realtimeArrival || "";
     const realtimeDep = loc.realtimeDeparture || "";
-    const preferRealtime = useRealtime && realtimeActive;
-    const primary = preferArrival
-      ? preferRealtime
-        ? realtimeArr
-        : bookedArr
-      : preferRealtime
-        ? realtimeDep
-        : bookedDep;
-    const secondary = preferArrival
-      ? preferRealtime
-        ? bookedArr
-        : realtimeArr
-      : preferRealtime
-        ? bookedDep
-        : realtimeDep;
-    const tertiary = preferArrival
-      ? bookedDep || realtimeDep
-      : bookedArr || realtimeArr;
-    const raw = primary || secondary || tertiary;
-    return rttTimeToMinutes(raw);
+    const scheduledRaw = preferArrival
+      ? bookedArr || bookedDep
+      : bookedDep || bookedArr;
+    const realtimeRaw = preferArrival
+      ? realtimeArr || realtimeDep
+      : realtimeDep || realtimeArr;
+    const scheduled = rttTimeToMinutes(scheduledRaw);
+    const realtime = rttTimeToMinutes(realtimeRaw);
+    return { scheduled, realtime };
   }
 
   function buildConnectionEntry({
     fromCrs,
     toCrs,
-    departMins,
-    arriveMins,
+    scheduledDepartMins,
+    scheduledArriveMins,
+    realtimeDepartMins,
+    realtimeArriveMins,
     durationMinutes,
     mode,
     cancelled,
     baseKey,
     connectionBaseUid,
     connectionInsertPosition,
+    realtimeActive,
     runDate,
   }) {
-    if (!inRange(departMins) || !inRange(arriveMins)) {
-      if (loggedCorridorSkips < 5) {
-        console.info(
-          "Connection skip: connection time outside range",
-          fromCrs,
-          toCrs,
-          minutesToTimeStr(departMins),
-          minutesToTimeStr(arriveMins),
-        );
-        loggedCorridorSkips += 1;
-      }
+    if (
+      scheduledDepartMins === null ||
+      scheduledArriveMins === null
+    ) {
       return;
     }
-    const departTime = minutesToRttTime(departMins);
-    const arriveTime = minutesToRttTime(arriveMins);
+    const departTime = minutesToRttTime(scheduledDepartMins);
+    const arriveTime = minutesToRttTime(scheduledArriveMins);
     const modeLower = mode.toLowerCase();
     const isUnderground = modeLower.includes("underground");
     const atocCode = modeLower === "walk" ? "W" : isUnderground ? "U" : "U";
@@ -2443,6 +2416,7 @@ function buildConnectionServiceEntries(
       serviceType: modeLower === "walk" ? "walk" : "connection",
       trainClass: "S",
       isPassenger: true,
+      realtimeActivated: realtimeActive,
       connectionMode: connectionModeLabel,
       connectionFromLabel: stationLabelByCrs[fromCrs] || fromCrs,
       connectionToLabel: stationLabelByCrs[toCrs] || toCrs,
@@ -2450,12 +2424,20 @@ function buildConnectionServiceEntries(
         {
           crs: fromCrs,
           gbttBookedDeparture: departTime,
+          realtimeDeparture:
+            realtimeDepartMins === null
+              ? ""
+              : minutesToRttTime(realtimeDepartMins),
           displayAs,
           isPublicCall: true,
         },
         {
           crs: toCrs,
           gbttBookedArrival: arriveTime,
+          realtimeArrival:
+            realtimeArriveMins === null
+              ? ""
+              : minutesToRttTime(realtimeArriveMins),
           displayAs,
           isPublicCall: true,
         },
@@ -2466,7 +2448,7 @@ function buildConnectionServiceEntries(
       fromCrs,
       "->",
       toCrs,
-      `${minutesToTimeStr(departMins)} +${durationMinutes}m`,
+      `${minutesToTimeStr(scheduledDepartMins)} +${durationMinutes}m`,
     );
     generated.push({
       svc,
@@ -2516,12 +2498,12 @@ function buildConnectionServiceEntries(
     }
 
     const realtimeActive = entry.detail?.realtimeActivated === true;
-    const arrivalMins = resolveConnectionMinutes(
-      last,
-      true,
-      realtimeActive,
-    );
-    if (arrivalMins === null) {
+    const baseTimes = resolveConnectionBaseTimes(last, true);
+    const arrivalScheduled =
+      baseTimes?.scheduled ?? baseTimes?.realtime ?? null;
+    const arrivalRealtime =
+      baseTimes?.realtime ?? baseTimes?.scheduled ?? null;
+    if (arrivalScheduled === null) {
       console.info(
         "Connection skip: terminal arrival time missing",
         terminalCrs,
@@ -2579,8 +2561,18 @@ function buildConnectionServiceEntries(
             }
             return;
           }
-          const departMins = arrivalMins + bufferMinutes;
-          const arriveMins = departMins + durationMinutes;
+          const scheduledDepartMins =
+            arrivalScheduled + bufferMinutes;
+          const scheduledArriveMins =
+            scheduledDepartMins + durationMinutes;
+          const realtimeDepartMins =
+            arrivalRealtime === null
+              ? null
+              : arrivalRealtime + bufferMinutes;
+          const realtimeArriveMins =
+            realtimeDepartMins === null
+              ? null
+              : realtimeDepartMins + durationMinutes;
           const mode = meta.mode || "walk";
           const runDate =
             entry.svc?.runDate ||
@@ -2595,14 +2587,17 @@ function buildConnectionServiceEntries(
           buildConnectionEntry({
             fromCrs: terminalCrs,
             toCrs: destCrs,
-            departMins,
-            arriveMins,
+            scheduledDepartMins,
+            scheduledArriveMins,
+            realtimeDepartMins,
+            realtimeArriveMins,
             durationMinutes,
             mode,
             cancelled: terminalCancelled,
             baseKey: baseUid,
             connectionBaseUid: baseUid,
             connectionInsertPosition: "after",
+            realtimeActive,
             runDate,
           });
         },
@@ -2612,12 +2607,12 @@ function buildConnectionServiceEntries(
     locByCrs.forEach((loc, stationCrs) => {
       if (!corridorSet.has(stationCrs)) return;
       if (!connectionStations.has(stationCrs)) return;
-      const depMins = resolveConnectionMinutes(
-        loc,
-        false,
-        realtimeActive,
-      );
-      if (depMins === null) return;
+      const baseTimes = resolveConnectionBaseTimes(loc, false);
+      const departureScheduled =
+        baseTimes?.scheduled ?? baseTimes?.realtime ?? null;
+      const departureRealtime =
+        baseTimes?.realtime ?? baseTimes?.scheduled ?? null;
+      if (departureScheduled === null) return;
       const stationConnections = getConnectionEntriesForStation(stationCrs);
       if (!stationConnections.length) return;
       const cancelled = /CANCELLED/i.test(loc?.displayAs || "");
@@ -2644,19 +2639,32 @@ function buildConnectionServiceEntries(
             }
             const durationMinutes = meta.durationMinutes;
             if (!durationMinutes) return;
-            const arriveMins = depMins - bufferMinutes;
-            const departMins = arriveMins - durationMinutes;
+            const scheduledArriveMins =
+              departureScheduled - bufferMinutes;
+            const scheduledDepartMins =
+              scheduledArriveMins - durationMinutes;
+            const realtimeArriveMins =
+              departureRealtime === null
+                ? null
+                : departureRealtime - bufferMinutes;
+            const realtimeDepartMins =
+              realtimeArriveMins === null
+                ? null
+                : realtimeArriveMins - durationMinutes;
             buildConnectionEntry({
               fromCrs: destCrs,
               toCrs: stationCrs,
-              departMins,
-              arriveMins,
+              scheduledDepartMins,
+              scheduledArriveMins,
+              realtimeDepartMins,
+              realtimeArriveMins,
               durationMinutes,
               mode: meta.mode || "walk",
               cancelled,
               baseKey: `REV-${baseUid}`,
               connectionBaseUid: baseUid,
               connectionInsertPosition: "before",
+              realtimeActive,
               runDate,
             });
           },
