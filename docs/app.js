@@ -2083,6 +2083,9 @@ form.addEventListener("submit", async (e) => {
     stationLabelByCrs,
     fromToSet,
     { startMinutes, endMinutes },
+    stations,
+    from,
+    to,
     0,
   );
   console.info(
@@ -2344,6 +2347,9 @@ function buildConnectionServiceEntries(
   stationLabelByCrs,
   fromToSet,
   timeRange,
+  corridorStations,
+  routeFromCrs,
+  routeToCrs,
   bufferMinutes = 0,
 ) {
   const generated = [];
@@ -2351,6 +2357,11 @@ function buildConnectionServiceEntries(
   let loggedCorridorSkips = 0;
   let loggedTerminalSkips = 0;
   const connectionStations = new Set(Object.keys(connectionsByStation || {}));
+  const corridorOrderByCrs = {};
+  (corridorStations || []).forEach((station, index) => {
+    const crs = station?.crs || "";
+    if (crs) corridorOrderByCrs[crs] = index;
+  });
 
   function resolveConnectionBaseTimes(loc, preferArrival) {
     if (!loc) return null;
@@ -2487,6 +2498,21 @@ function buildConnectionServiceEntries(
       connectionBaseUid,
       connectionInsertPosition,
     });
+  }
+
+  function resolveServiceDirection(detail) {
+    const locs = detail?.locations || [];
+    const indices = [];
+    for (const loc of locs) {
+      const crs = loc?.crs || "";
+      if (crs && crs in corridorOrderByCrs) {
+        indices.push(corridorOrderByCrs[crs]);
+      }
+    }
+    if (indices.length < 2) return null;
+    return indices[0] <= indices[indices.length - 1]
+      ? "forward"
+      : "reverse";
   }
 
   entries.forEach((entry) => {
@@ -2658,6 +2684,7 @@ function buildConnectionServiceEntries(
       );
     });
 
+    const serviceDirection = resolveServiceDirection(entry.detail);
     locByCrs.forEach((loc, stationCrs) => {
       if (!corridorSet.has(stationCrs)) return;
       if (!connectionStations.has(stationCrs)) return;
@@ -2719,6 +2746,30 @@ function buildConnectionServiceEntries(
           ([destCrsRaw, meta]) => {
             const destCrs = normaliseCrs(destCrsRaw);
             if (!destCrs || !corridorSet.has(destCrs)) return;
+            if (destCrs === routeFromCrs && serviceDirection !== "forward") {
+              if (loggedCorridorSkips < 5) {
+                console.info(
+                  "Connection skip: inbound base direction mismatch",
+                  stationCrs,
+                  destCrs,
+                  serviceDirection,
+                );
+                loggedCorridorSkips += 1;
+              }
+              return;
+            }
+            if (destCrs === routeToCrs && serviceDirection !== "reverse") {
+              if (loggedCorridorSkips < 5) {
+                console.info(
+                  "Connection skip: inbound base direction mismatch",
+                  stationCrs,
+                  destCrs,
+                  serviceDirection,
+                );
+                loggedCorridorSkips += 1;
+              }
+              return;
+            }
             if (
               !fromToSet.has(stationCrs) &&
               !fromToSet.has(destCrs)
