@@ -2317,6 +2317,17 @@ function locationHasDeparture(loc) {
   return Boolean(loc?.gbttBookedDeparture || loc?.realtimeDeparture);
 }
 
+function findDepartureLocation(detail, stationCrs) {
+  const locs = detail?.locations || [];
+  for (const loc of locs) {
+    const crs = normaliseCrs(loc?.crs || "");
+    if (!crs || crs !== stationCrs) continue;
+    if (!isCallingLocation(loc)) continue;
+    if (locationHasDeparture(loc)) return loc;
+  }
+  return null;
+}
+
 function getLastCallingPair(detail) {
   const locs = detail.locations || [];
   let last = null;
@@ -2688,7 +2699,12 @@ function buildConnectionServiceEntries(
     locByCrs.forEach((loc, stationCrs) => {
       if (!corridorSet.has(stationCrs)) return;
       if (!connectionStations.has(stationCrs)) return;
-      if (!locationHasDeparture(loc)) {
+      const departureLoc =
+        locationHasDeparture(loc) &&
+        normaliseCrs(loc?.crs || "") === stationCrs
+          ? loc
+          : findDepartureLocation(entry.detail, stationCrs);
+      if (!departureLoc) {
         console.assert(
           false,
           "Inbound connection should use a departure time",
@@ -2704,7 +2720,7 @@ function buildConnectionServiceEntries(
         );
         return;
       }
-      const baseTimes = resolveConnectionBaseTimes(loc, false);
+      const baseTimes = resolveConnectionBaseTimes(departureLoc, false);
       const departureScheduled =
         baseTimes?.scheduled ?? baseTimes?.realtime ?? null;
       const departureRealtime =
@@ -2712,7 +2728,7 @@ function buildConnectionServiceEntries(
       if (departureScheduled === null) return;
       const stationConnections = getConnectionEntriesForStation(stationCrs);
       if (!stationConnections.length) return;
-      const cancelled = /CANCELLED/i.test(loc?.displayAs || "");
+      const cancelled = /CANCELLED/i.test(departureLoc?.displayAs || "");
       const runDate =
         entry.svc?.runDate ||
         entry.detail?.runDate ||
