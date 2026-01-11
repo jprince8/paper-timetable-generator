@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, send_file
+from typing import cast
 import io
 import json
 import os
@@ -33,6 +34,10 @@ RTT_PASS = os.environ.get("RTT_PASS")
 if not RTT_USER or not RTT_PASS:
     raise RuntimeError("RTT_USER and RTT_PASS must be set as environment variables")
 
+RTT_USER = cast(str, RTT_USER)
+RTT_PASS = cast(str, RTT_PASS)
+RTT_AUTH: tuple[str, str] = (RTT_USER, RTT_PASS)
+
 RTT_BASE = "https://api.rtt.io/api/v1"
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -66,6 +71,7 @@ with open(ATOC_CODES_PATH, "r", encoding="utf-8") as f:
 with open(CONNECTIONS_PATH, "r", encoding="utf-8") as f:
     CONNECTIONS = json.load(f)
 
+
 STATIONS_N = [
     {
         "stationName": st["stationName"],
@@ -89,7 +95,7 @@ def rtt_get(path, params=None):
     try:
         resp = requests.get(
             url,
-            auth=(RTT_USER, RTT_PASS),
+            auth=RTT_AUTH,
             params=params,
             timeout=15,
         )
