@@ -57,6 +57,7 @@ function renderTableKey(model, keyEl) {
 
   const HIGHLIGHT_OUT_OF_ORDER_COLOR = "#fce3b0";
   const HIGHLIGHT_DEP_AFTER_ARRIVAL_COLOR = "#e6d9ff";
+  const HIGHLIGHT_SERVICE_MISORDER_COLOR = "#f7c9c9";
 
   const facilityFlags = {
     firstClass: servicesMeta.some((meta) => meta.firstClassAvailable),
@@ -93,6 +94,7 @@ function renderTableKey(model, keyEl) {
     noReport: false,
     outOfOrder: false,
     depBeforeArrival: false,
+    serviceMisorder: false,
     platformAny: false,
     platformConfirmed: false,
     platformChanged: false,
@@ -120,6 +122,8 @@ function renderTableKey(model, keyEl) {
           formatFlags.outOfOrder = true;
         } else if (bg === HIGHLIGHT_DEP_AFTER_ARRIVAL_COLOR) {
           formatFlags.depBeforeArrival = true;
+        } else if (bg === HIGHLIGHT_SERVICE_MISORDER_COLOR) {
+          formatFlags.serviceMisorder = true;
         }
       }
     });
@@ -177,6 +181,13 @@ function renderTableKey(model, keyEl) {
       sampleHtml:
         '<span class="table-key-sample table-key-sample--dep-before" title="Departs before previous arrival example" aria-label="Departs before previous arrival example">12:34</span>',
       label: "Departs before previous arrival",
+    });
+  }
+  if (formatFlags.serviceMisorder) {
+    items.push({
+      sampleHtml:
+        '<span class="table-key-sample table-key-sample--service-misorder" title="Service internally misordered example" aria-label="Service internally misordered example">12:34</span>',
+      label: "Service internally misordered",
     });
   }
   if (formatFlags.platformAny) {

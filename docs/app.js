@@ -40,7 +40,8 @@ const STATION_MIN_QUERY = 2;
 const ALWAYS_SORT_CANCELLED_TIMES = true;
 
 const RTT_CACHE_PREFIX = "rttCache:";
-let rttCacheEnabled = RTT_CACHE_ENABLED;
+const rttCacheEnabled = RTT_CACHE_ENABLED;
+let rttCacheStorageEnabled = RTT_CACHE_ENABLED;
 const rttMemoryCache = new Map();
 
 function getRttCacheKey(url) {
@@ -77,6 +78,7 @@ function listRttCacheEntries() {
 }
 
 function readRttCache(url) {
+  if (!rttCacheEnabled) return null;
   const memoryCached = rttMemoryCache.get(url);
   if (memoryCached) {
     return {
@@ -85,7 +87,7 @@ function readRttCache(url) {
       statusText: memoryCached.statusText,
     };
   }
-  if (!rttCacheEnabled || !window.localStorage) return null;
+  if (!rttCacheStorageEnabled || !window.localStorage) return null;
   try {
     const raw = localStorage.getItem(getRttCacheKey(url));
     if (!raw) return null;
@@ -104,7 +106,8 @@ function readRttCache(url) {
 
 function writeRttCache(url, payload) {
   const normalised = normaliseRttCachePayload(payload);
-  if (!rttCacheEnabled || !window.localStorage) {
+  if (!rttCacheEnabled) return;
+  if (!window.localStorage || !rttCacheStorageEnabled) {
     rttMemoryCache.set(url, normalised);
     return;
   }
@@ -139,7 +142,7 @@ function writeRttCache(url, payload) {
           }
         }
       } catch (retryErr) {
-        rttCacheEnabled = false;
+        rttCacheStorageEnabled = false;
         rttMemoryCache.set(url, normalised);
         console.warn(
           "RTT cache disabled after quota errors while writing",
@@ -148,7 +151,7 @@ function writeRttCache(url, payload) {
         );
         return;
       }
-      rttCacheEnabled = false;
+      rttCacheStorageEnabled = false;
       rttMemoryCache.set(url, normalised);
       console.warn("RTT cache disabled after repeated quota errors", url);
       return;
@@ -191,8 +194,11 @@ const shareBtn = document.getElementById("shareBtn");
 const realtimeBtn = document.getElementById("realtimeBtn");
 const platformBtn = document.getElementById("platformBtn");
 const nowBtn = document.getElementById("nowBtn");
+const rotateModal = document.getElementById("rotateModal");
+const rotateModalOk = document.getElementById("rotateModalOk");
 const PLATFORM_TOGGLE_STORAGE_KEY = "corridor_showPlatforms";
 const REALTIME_TOGGLE_STORAGE_KEY = "corridor_showRealtime";
+const ROTATE_PROMPT_DISMISSED_KEY = "corridor_rotatePromptDismissed";
 
 // === Mutable state ===
 const viaFields = [];
@@ -206,7 +212,7 @@ let lastTimetableContext = null;
 let lastSortLog = "";
 let realtimeEnabled = false;
 let realtimeAvailable = false;
-let realtimePreferred = false;
+let realtimePreferred = true;
 let showPlatformsEnabled = false;
 let showPlatformsPreferred = false;
 let platformAvailable = false;
@@ -214,6 +220,7 @@ let buildAbortController = null;
 let buildInProgress = false;
 let buildCancelled = false;
 let suppressNextSubmit = false;
+let hasCompletedBuild = false;
 let atocNameByCode = {};
 let connectionsByStation = {};
 let lookupLoadPromise = null;
@@ -427,6 +434,58 @@ function setPlatformToggleAvailability(enabled) {
   }
 }
 
+function readSessionFlag(key) {
+  try {
+    return window.sessionStorage?.getItem(key) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function writeSessionFlag(key) {
+  try {
+    window.sessionStorage?.setItem(key, "true");
+  } catch {
+    // ignore session storage failures
+  }
+}
+
+function isPortraitPhoneSize() {
+  return window.innerWidth <= 600 && window.innerHeight > window.innerWidth;
+}
+
+function shouldHideRotatePrompt() {
+  return !isPortraitPhoneSize();
+}
+
+function showRotatePrompt() {
+  if (!rotateModal) return;
+  rotateModal.hidden = false;
+  console.debug("Rotate prompt shown.");
+}
+
+function hideRotatePrompt() {
+  if (!rotateModal) return;
+  rotateModal.hidden = true;
+  console.debug("Rotate prompt hidden.");
+}
+
+function maybeShowRotatePrompt() {
+  if (!rotateModal) return;
+  if (!hasCompletedBuild) return;
+  if (!isPortraitPhoneSize()) return;
+  if (readSessionFlag(ROTATE_PROMPT_DISMISSED_KEY)) return;
+  console.debug("Rotate prompt eligible after build.");
+  showRotatePrompt();
+}
+
+function handleRotatePromptViewportChange() {
+  if (!rotateModal) return;
+  if (shouldHideRotatePrompt()) {
+    hideRotatePrompt();
+  }
+}
+
 if (platformBtn) {
   platformBtn.addEventListener("click", () => {
     if (platformBtn.disabled) return;
@@ -435,6 +494,19 @@ if (platformBtn) {
       renderTimetablesFromContext(lastTimetableContext);
     }
   });
+}
+
+if (rotateModalOk) {
+  rotateModalOk.addEventListener("click", () => {
+    writeSessionFlag(ROTATE_PROMPT_DISMISSED_KEY);
+    hideRotatePrompt();
+  });
+}
+
+if (rotateModal) {
+  rotateModal.hidden = true;
+  window.addEventListener("orientationchange", handleRotatePromptViewportChange);
+  window.addEventListener("resize", handleRotatePromptViewportChange);
 }
 
 async function fetchStationMatches(query) {
@@ -1116,7 +1188,7 @@ function assertWithStatus(condition, userMessage, detail = {}, options = {}) {
   if (!options.keepOutputs) {
     clearTimetableOutputs();
   }
-  setStatus(fullMessage, { isError: true });
+  setStatus(userMessage, { isError: true });
   if (!options.allowContinue) {
     throw new Error(fullMessage);
   }
@@ -1430,11 +1502,15 @@ form.addEventListener("submit", async (e) => {
   setBuildInProgress(true);
   try {
     resetOutputs();
-    setStatus("Initialising timetable...", { progress: 0 });
-    if (shouldAbort()) {
-      return;
-    }
-    await loadLookupData(fetchWithSignal);
+    const initStatusLabel = "Initialising timetable...";
+    let initTotal = 0;
+    let initCompleted = 0;
+    const updateInitProgress = () => {
+      if (initTotal <= 0) return;
+      const percent = Math.round((initCompleted / initTotal) * 100);
+      setStatus(initStatusLabel, { progress: percent });
+    };
+    setStatus(initStatusLabel, { progress: 0 });
     if (shouldAbort()) {
       return;
     }
@@ -1502,6 +1578,8 @@ form.addEventListener("submit", async (e) => {
   let rttConnectionDetected = false;
 
   try {
+  initTotal = corridorLegs.length;
+  updateInitProgress();
   const searchPromises = corridorLegs.map(async (leg) => {
     const url =
       PROXY_SEARCH +
@@ -1647,6 +1725,8 @@ form.addEventListener("submit", async (e) => {
   }
 
   // Step 2: Get full details for corridor services to derive station union.
+  initTotal += corridorServices.length;
+  updateInitProgress();
   const corridorDetailPromises = corridorServices.map(async (svc) => {
     const uid = svc.serviceUid;
     const date = svc.runDate;
@@ -1684,7 +1764,12 @@ form.addEventListener("submit", async (e) => {
       statusText,
       seed: true,
     };
-  });
+  }).map((promise) =>
+    promise.finally(() => {
+      initCompleted += 1;
+      updateInitProgress();
+    }),
+  );
 
   let corridorDetails;
   try {
@@ -1710,10 +1795,12 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
-  const splitCorridorDetails = splitServiceEntries(
+  const splitCorridorDetailsResult = splitServiceEntries(
     corridorDetails,
     corridorStations,
   );
+  const splitCorridorDetails = splitCorridorDetailsResult.entries;
+  const splitStations = splitCorridorDetailsResult.splitStations;
   const okCorridorDetails = splitCorridorDetails.filter(
     (d) => d.detail && Array.isArray(d.detail.locations),
   );
@@ -1728,10 +1815,13 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
-  const stations = buildStationsUnion(
+  const stationOrderLogger = createStationOrderLogger();
+  const stationData = collectStationData(
     corridorStations,
     okCorridorDetails,
+    stationOrderLogger.log,
   );
+  let stations = stationData.stations;
   if (stations.length === 0) {
     setStatus(
       "No stations found between " +
@@ -1941,7 +2031,7 @@ form.addEventListener("submit", async (e) => {
   const splitCandidateEntries = [];
   for (const entry of candidateMap.values()) {
     splitCandidateEntries.push(
-      ...splitServiceEntries([entry], corridorStations),
+      ...splitServiceEntries([entry], corridorStations).entries,
     );
   }
   const dedupedCandidateEntries =
@@ -1987,6 +2077,148 @@ form.addEventListener("submit", async (e) => {
     );
     return;
   }
+
+  const stationSetForOrder = {};
+  stations.forEach((station) => {
+    if (station?.crs) stationSetForOrder[station.crs] = true;
+  });
+  const additionalSequences = buildSequencesFromServices(
+    allDetails,
+    stationSetForOrder,
+    stationOrderLogger.log,
+    "candidate sequence",
+  );
+  let orderedCrs = [];
+  try {
+    orderedCrs = buildStationOrderFromSequences(
+      stationData.sequences,
+      stationData.stationMap,
+      stationData.corridorIndex,
+      stationOrderLogger.log,
+    );
+  } catch (err) {
+    stationOrderLogger.download();
+    throw err;
+  }
+
+  const conflictingSequences = [];
+  additionalSequences.forEach((entry) => {
+    const indices = entry.sequence.map((crs) => orderedCrs.indexOf(crs));
+    if (isSequenceMonotonic(indices)) return;
+    const splitResult = splitSequenceAtStations(
+      entry.sequence,
+      splitStations,
+    );
+    if (splitResult.split) {
+      stationOrderLogger.log("split conflict sequence", {
+        sequence: entry.sequence,
+        splitSequences: splitResult.sequences,
+      });
+    }
+    splitResult.sequences.forEach((splitSequence) => {
+      const splitIndices = splitSequence.map((crs) =>
+        orderedCrs.indexOf(crs),
+      );
+      if (isSequenceMonotonic(splitIndices)) return;
+      const selection = pickBestSequenceDirection(
+        splitSequence,
+        splitIndices,
+      );
+      conflictingSequences.push({
+        sequence: selection.sequence,
+        svc: entry.svc,
+        forwardScore: selection.forwardScore,
+        reverseScore: selection.reverseScore,
+      });
+      stationOrderLogger.log("conflict sequence", {
+        sequence: splitSequence,
+        direction: selection.direction,
+        forwardScore: selection.forwardScore,
+        reverseScore: selection.reverseScore,
+        service: formatServiceDescriptor(entry.svc),
+      });
+    });
+  });
+
+  const excludedSequences = [];
+  if (conflictingSequences.length > 0) {
+    let remainingConflicts = [...conflictingSequences];
+    while (true) {
+      const combinedSequences = [
+        ...stationData.sequences,
+        ...remainingConflicts.map((item) => item.sequence),
+      ];
+      try {
+        orderedCrs = buildStationOrderFromSequences(
+          combinedSequences,
+          stationData.stationMap,
+          stationData.corridorIndex,
+          stationOrderLogger.log,
+        );
+        break;
+      } catch (err) {
+        if (remainingConflicts.length === 0) {
+          stationOrderLogger.download();
+          throw err;
+        }
+        const grouped = groupSequencesByStationSet(remainingConflicts).map(
+          (group) => {
+            const score = group.items.reduce((sum, item) => {
+              const len = Math.max(item.sequence.length - 1, 1);
+              const diff = Math.abs(
+                item.forwardScore - item.reverseScore,
+              );
+              return sum + diff / len;
+            }, 0);
+            return { ...group, score };
+          },
+        );
+        grouped.sort((a, b) => a.score - b.score);
+        const weakest = grouped[0];
+        const removeSet = new Set(weakest.items);
+        remainingConflicts = remainingConflicts.filter(
+          (item) => !removeSet.has(item),
+        );
+        excludedSequences.push(...weakest.items);
+        const excludedDetails = weakest.items.map((item) => ({
+          sequence: item.sequence,
+          service: formatServiceDescriptor(item.svc),
+        }));
+        stationOrderLogger.log("excluded conflict set", {
+          stations: weakest.stations,
+          score: weakest.score,
+          excluded: excludedDetails,
+        });
+        console.warn(
+          "Excluded conflicting sequences to maintain station order:",
+          excludedDetails,
+        );
+      }
+    }
+  }
+
+  stationOrderLogger.log("final order", { orderedCrs: [...orderedCrs] });
+  stationOrderLogger.download();
+  if (excludedSequences.length > 0) {
+    const grouped = groupSequencesByStationSet(excludedSequences);
+    grouped.sort((a, b) => b.items.length - a.items.length);
+    const labelStations = grouped[0]?.stations || [];
+    const labelText = labelStations
+      .map(
+        (crs) =>
+          stationData.stationMap[crs]?.name ||
+          stationData.stationMap[crs]?.crs ||
+          crs,
+      )
+      .join(", ");
+    setStatus(
+      `${excludedSequences.length} services between ${labelText} were excluded to maintain consistent station order`,
+      { isError: true },
+    );
+  }
+  stations = orderedCrs
+    .map((crs) => stationData.stationMap[crs])
+    .filter(Boolean);
 
   // Split into A->B vs B->A, based on order of corridor stations in the calling pattern.
   const connectionEntries = buildConnectionServiceEntries(
@@ -2084,6 +2316,9 @@ form.addEventListener("submit", async (e) => {
     renderTimetablesFromContext(lastTimetableContext);
     if (!statusEl?.classList.contains("is-error")) {
       hideStatus();
+      hasCompletedBuild = true;
+      console.debug("Timetable build finished successfully.");
+      maybeShowRotatePrompt();
     }
   } finally {
     buildAbortController = null;
@@ -2094,6 +2329,7 @@ form.addEventListener("submit", async (e) => {
 function splitServiceEntries(entries, corridorStations = []) {
   const corridorSet = new Set(corridorStations.filter(Boolean));
   const splitEntries = [];
+  const splitStations = new Set();
   entries.forEach((entry) => {
     if (!entry?.detail || !Array.isArray(entry.detail.locations)) {
       splitEntries.push(entry);
@@ -2112,6 +2348,10 @@ function splitServiceEntries(entries, corridorStations = []) {
       return;
     }
     const locations = entry.detail.locations;
+    const splitCrs = locations[splitIndex]?.crs || "";
+    if (splitCrs) {
+      splitStations.add(splitCrs);
+    }
     const firstLocations = locations.slice(0, splitIndex + 1);
     const secondLocations = locations.slice(splitIndex);
     const firstSvc = withServiceSuffix(entry.svc, "(1)");
@@ -2130,7 +2370,7 @@ function splitServiceEntries(entries, corridorStations = []) {
       detail: { ...entry.detail, locations: secondLocations },
     });
   });
-  return splitEntries;
+  return { entries: splitEntries, splitStations };
 }
 
 function findRepeatedStationSplitIndex(locations, corridorSet) {
@@ -2156,6 +2396,22 @@ function findRepeatedStationSplitIndex(locations, corridorSet) {
     seen.set(crs, i);
   }
   return null;
+}
+
+function splitSequenceAtStations(sequence, splitStations) {
+  if (!splitStations || splitStations.size === 0) {
+    return { sequences: [sequence], split: false };
+  }
+  for (let i = 0; i < sequence.length; i++) {
+    const crs = sequence[i];
+    if (!splitStations.has(crs)) continue;
+    if (i === 0 || i === sequence.length - 1) continue;
+    return {
+      sequences: [sequence.slice(0, i + 1), sequence.slice(i)],
+      split: true,
+    };
+  }
+  return { sequences: [sequence], split: false };
 }
 
 function withServiceSuffix(svc, suffix) {
@@ -2419,22 +2675,305 @@ function buildConnectionServiceEntries(
   return generated;
 }
 
+function createStationOrderLogger() {
+  const lines = [];
+  const log = (message, payload) => {
+    if (!DEBUG_STATIONS) return;
+    if (payload === undefined) {
+      lines.push(`[station-order] ${message}`);
+      return;
+    }
+    let rendered = "";
+    try {
+      rendered = JSON.stringify(payload);
+    } catch (err) {
+      rendered = String(payload);
+    }
+    lines.push(`[station-order] ${message} ${rendered}`);
+  };
+  const download = () => {
+    if (!DEBUG_STATIONS || lines.length === 0) return;
+    const contents = lines.join("\n");
+    downloadTextFile("station-order-log.txt", contents);
+  };
+  return { log, download, lines };
+}
+
+function buildStationOrderFromSequences(
+  sequences,
+  stationMap,
+  corridorIndex,
+  debugOrderLog,
+) {
+  const adjacency = new Map();
+  const adjacencyCounts = new Map();
+  const inDegree = new Map();
+  const positionSum = new Map();
+  const positionCount = new Map();
+  let edgeCount = 0;
+
+  const allStations = Object.keys(stationMap);
+  allStations.forEach((crs) => {
+    adjacency.set(crs, new Set());
+    adjacencyCounts.set(crs, new Map());
+    inDegree.set(crs, 0);
+    positionSum.set(crs, 0);
+    positionCount.set(crs, 0);
+  });
+
+  sequences.forEach((sequence) => {
+    sequence.forEach((crs, idx) => {
+      if (!positionSum.has(crs)) return;
+      positionSum.set(crs, positionSum.get(crs) + idx);
+      positionCount.set(crs, positionCount.get(crs) + 1);
+    });
+
+    for (let i = 0; i < sequence.length - 1; i++) {
+      const from = sequence[i];
+      const to = sequence[i + 1];
+      if (!adjacency.has(from) || !adjacency.has(to)) continue;
+      const neighbors = adjacency.get(from);
+      const counts = adjacencyCounts.get(from);
+      counts.set(to, (counts.get(to) || 0) + 1);
+      if (!neighbors.has(to)) {
+        neighbors.add(to);
+        inDegree.set(to, (inDegree.get(to) || 0) + 1);
+        edgeCount += 1;
+      }
+    }
+  });
+
+  const positionScore = {};
+  allStations.forEach((crs) => {
+    const count = positionCount.get(crs) || 0;
+    positionScore[crs] = count > 0 ? positionSum.get(crs) / count : Infinity;
+  });
+
+  debugOrderLog("order graph", {
+    nodes: allStations.length,
+    edges: edgeCount,
+    sequences: sequences.length,
+  });
+
+  const ready = allStations.filter((crs) => inDegree.get(crs) === 0);
+  const ordered = [];
+  const adjacencyRank = (candidate, orderedList) => {
+    for (let i = orderedList.length - 1; i >= 0; i--) {
+      const crs = orderedList[i];
+      const counts = adjacencyCounts.get(crs);
+      if (!counts) continue;
+      const weight = counts.get(candidate) || 0;
+      if (weight > 0) {
+        return { recentIndex: i, weight };
+      }
+    }
+    return null;
+  };
+
+  const compareStations = (a, b, orderedList) => {
+    if (orderedList.length > 0) {
+      const lastPicked = orderedList[orderedList.length - 1];
+      const lastCounts = adjacencyCounts.get(lastPicked);
+      const scoreA = lastCounts?.get(a) || 0;
+      const scoreB = lastCounts?.get(b) || 0;
+      if (scoreA !== scoreB) return scoreB - scoreA;
+
+      if (scoreA === 0 && scoreB === 0) {
+        const rankA = adjacencyRank(a, orderedList);
+        const rankB = adjacencyRank(b, orderedList);
+        if (rankA && rankB) {
+          if (rankA.recentIndex !== rankB.recentIndex) {
+            return rankB.recentIndex - rankA.recentIndex;
+          }
+          if (rankA.weight !== rankB.weight) {
+            return rankB.weight - rankA.weight;
+          }
+        } else if (rankA) {
+          return -1;
+        } else if (rankB) {
+          return 1;
+        }
+      }
+    }
+    const scoreDiff = positionScore[a] - positionScore[b];
+    if (scoreDiff !== 0) return scoreDiff;
+    const corridorA = corridorIndex[a];
+    const corridorB = corridorIndex[b];
+    if (corridorA !== undefined && corridorB !== undefined) {
+      if (corridorA !== corridorB) return corridorA - corridorB;
+    } else if (corridorA !== undefined) {
+      return -1;
+    } else if (corridorB !== undefined) {
+      return 1;
+    }
+    return a.localeCompare(b);
+  };
+
+  while (ready.length > 0) {
+    ready.sort((a, b) => compareStations(a, b, ordered));
+    debugOrderLog("toposort candidates", {
+      candidates: [...ready],
+      orderedCrs: [...ordered],
+      lastPicked: ordered.length > 0 ? ordered[ordered.length - 1] : null,
+    });
+    const next = ready.shift();
+    ordered.push(next);
+    debugOrderLog("toposort pick", { picked: next, orderedCrs: [...ordered] });
+
+    const neighbors = adjacency.get(next) || new Set();
+    neighbors.forEach((neighbor) => {
+      const nextDegree = (inDegree.get(neighbor) || 0) - 1;
+      inDegree.set(neighbor, nextDegree);
+      if (nextDegree === 0) {
+        ready.push(neighbor);
+      }
+    });
+  }
+
+  if (ordered.length !== allStations.length) {
+    const remaining = allStations.filter((crs) => !ordered.includes(crs));
+    assertWithStatus(
+      false,
+      "Could not build a consistent station order for this route",
+      {
+        reason: "cycle",
+        remaining,
+        orderedCrs: [...ordered],
+      },
+    );
+  }
+
+  sequences.forEach((sequence) => {
+    const indices = sequence.map((crs) => ordered.indexOf(crs));
+    for (let i = 1; i < indices.length; i++) {
+      assertWithStatus(
+        indices[i - 1] < indices[i],
+        "Service calling pattern conflicts with the station order",
+        {
+          sequence: [...sequence],
+          sequenceIndices: indices,
+          orderedCrs: [...ordered],
+        },
+      );
+    }
+  });
+
+  return ordered;
+}
+
+function buildSequencesFromServices(
+  servicesWithDetails,
+  stationSet,
+  debugOrderLog,
+  label,
+) {
+  const sequences = [];
+  servicesWithDetails.forEach(({ detail, svc }) => {
+    const locs = detail.locations || [];
+    if (!locs.length) return;
+    const sequence = [];
+
+    for (const loc of locs) {
+      const disp = (loc.displayAs || "").toUpperCase();
+      if (disp === "PASS" || disp === "CANCELLED_PASS") continue;
+      const crs = loc.crs || "";
+      if (!stationSet[crs]) continue;
+      if (sequence.length === 0 || sequence[sequence.length - 1] !== crs) {
+        sequence.push(crs);
+      }
+    }
+
+    if (sequence.length >= 2) {
+      sequences.push({ sequence, svc });
+      if (label) {
+        debugOrderLog(label, {
+          sequence: [...sequence],
+          service: formatServiceDescriptor(svc),
+        });
+      }
+    }
+  });
+  return sequences;
+}
+
+function isSequenceMonotonic(indices) {
+  let increasing = true;
+  let decreasing = true;
+  for (let i = 1; i < indices.length; i++) {
+    if (indices[i] < indices[i - 1]) {
+      increasing = false;
+    }
+    if (indices[i] > indices[i - 1]) {
+      decreasing = false;
+    }
+  }
+  return increasing || decreasing;
+}
+
+function pickBestSequenceDirection(sequence, indices) {
+  let forwardScore = 0;
+  let reverseScore = 0;
+  for (let i = 1; i < indices.length; i++) {
+    if (indices[i] >= indices[i - 1]) {
+      forwardScore += 1;
+    }
+    if (indices[i] <= indices[i - 1]) {
+      reverseScore += 1;
+    }
+  }
+  if (reverseScore > forwardScore) {
+    return {
+      sequence: [...sequence].reverse(),
+      direction: "reverse",
+      forwardScore,
+      reverseScore,
+    };
+  }
+  return {
+    sequence,
+    direction: "forward",
+    forwardScore,
+    reverseScore,
+  };
+}
+
+function formatServiceDescriptor(svc) {
+  if (!svc) return {};
+  return {
+    uid: svc.serviceUid || svc.originalServiceUid || "",
+    date: svc.runDate || "",
+    trainId: svc.trainIdentity || svc.runningIdentity || "",
+  };
+}
+
+function groupSequencesByStationSet(sequences) {
+  const groups = new Map();
+  sequences.forEach((entry) => {
+    const unique = Array.from(new Set(entry.sequence));
+    const key = unique.slice().sort().join("|");
+    if (!groups.has(key)) {
+      groups.set(key, { key, stations: unique, items: [] });
+    }
+    groups.get(key).items.push(entry);
+  });
+  return Array.from(groups.values());
+}
+
 // Build station union over a possibly multi-via corridor.
 // corridorStations is e.g. ["SHR", "VIA1", "VIA2", "WRX"].
-function buildStationsUnion(corridorStations, servicesWithDetails) {
+function collectStationData(
+  corridorStations,
+  servicesWithDetails,
+  debugOrderLog,
+) {
   const stationMap = {};
   const corridorIndex = {};
-  const orderedCrs = [];
+  const sequences = [];
 
-  if (!servicesWithDetails || servicesWithDetails.length === 0) {
-    return corridorStations
-      .filter((crs) => crs)
-      .map((crs) => ({
-        crs,
-        tiploc: "",
-        name: crs,
-      }));
-  }
+  debugOrderLog("start build", {
+    corridorStations: [...corridorStations],
+    services: servicesWithDetails.length,
+  });
 
   // Map each corridor CRS to its index in the chain (A=0, VIA1=1, ..., Z=n)
   corridorStations.forEach((crs, idx) => {
@@ -2450,67 +2989,6 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         tiploc: tiploc || "",
         name: name || crs,
       };
-    }
-  }
-
-  corridorStations.forEach((crs) => {
-    if (!crs) return;
-    addStation(crs, "", crs);
-    if (!orderedCrs.includes(crs)) {
-      orderedCrs.push(crs);
-    }
-  });
-
-  function mergeIntoOrder(sequence) {
-    sequence.forEach((crs, idx) => {
-      if (!crs) return;
-      if (orderedCrs.includes(crs)) return;
-
-      let prevKnown = null;
-      for (let i = idx - 1; i >= 0; i--) {
-        if (orderedCrs.includes(sequence[i])) {
-          prevKnown = sequence[i];
-          break;
-        }
-      }
-
-      let nextKnown = null;
-      for (let i = idx + 1; i < sequence.length; i++) {
-        if (orderedCrs.includes(sequence[i])) {
-          nextKnown = sequence[i];
-          break;
-        }
-      }
-
-      if (prevKnown && nextKnown) {
-        const prevIndex = orderedCrs.indexOf(prevKnown);
-        const nextIndex = orderedCrs.indexOf(nextKnown);
-        assertWithStatus(
-          prevIndex < nextIndex,
-          "Could not build a consistent station order for this route",
-          `inserting ${crs} between ${prevKnown} and ${nextKnown}`,
-        );
-        orderedCrs.splice(nextIndex, 0, crs);
-      } else if (prevKnown) {
-        const prevIndex = orderedCrs.indexOf(prevKnown);
-        orderedCrs.splice(prevIndex + 1, 0, crs);
-      } else if (nextKnown) {
-        const nextIndex = orderedCrs.indexOf(nextKnown);
-        orderedCrs.splice(nextIndex, 0, crs);
-      } else {
-        orderedCrs.push(crs);
-      }
-    });
-
-    const orderedSet = new Set(orderedCrs);
-    const filteredSequence = sequence.filter((crs) => orderedSet.has(crs));
-    const indices = filteredSequence.map((crs) => orderedCrs.indexOf(crs));
-    for (let i = 1; i < indices.length; i++) {
-      assertWithStatus(
-        indices[i - 1] < indices[i],
-        "Service calling pattern conflicts with the station order",
-        `sequence: ${filteredSequence.join(" → ")}`,
-      );
     }
   }
 
@@ -2559,12 +3037,17 @@ function buildStationsUnion(corridorStations, servicesWithDetails) {
         if (c1 > c2) {
           segmentSequence.reverse();
         }
-        mergeIntoOrder(segmentSequence);
+        debugOrderLog("segment sequence", {
+          corridorPair: [corridorStations[c1], corridorStations[c2]],
+          sequence: [...segmentSequence],
+        });
+        sequences.push(segmentSequence);
       }
     }
   });
 
-  return orderedCrs.map((crs) => stationMap[crs]).filter(Boolean);
+  const stations = Object.values(stationMap);
+  return { stations, stationMap, corridorIndex, sequences };
 }
 
 function splitByDirection(servicesWithDetails, stations) {
