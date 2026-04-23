@@ -230,20 +230,74 @@ def _extract_hhmm(value):
 def _map_display_as(temporal):
     if not isinstance(temporal, dict):
         temporal = {}
-    display = temporal.get("displayAs")
-    scheduled_call_type = temporal.get("scheduledCallType")
-    realtime_call_type = temporal.get("realtimeCallType")
+
+    scheduled_call_type = _first_present_text(temporal.get("scheduledCallType")).upper()
+    realtime_call_type = _first_present_text(temporal.get("realtimeCallType")).upper()
     call_type = realtime_call_type or scheduled_call_type
 
-    if display is None:
+    raw_display = _first_present_text(temporal.get("displayAs"))
+    if raw_display:
+        display = raw_display.upper()
+        if display == "STARTS":
+            return "STARTS"
+        if display == "TERMINATES":
+            return "ENDS"
+        if display == "CANCELLED":
+            if call_type in {"ADVERTISED_OPEN", "ADVERTISED_SET_DOWN", "ADVERTISED_PICK_UP"}:
+                return "CANCELLED_CALL"
+            return "CANCELLED_PASS"
+        if display == "DIVERTED":
+            return "PASS"
+        return display
+
+    if call_type in {"ADVERTISED_OPEN", "ADVERTISED_SET_DOWN", "ADVERTISED_PICK_UP"}:
+        return "CALL"
+    if call_type == "OPERATIONAL_ONLY":
         return "PASS"
 
-    display = str(display).upper()
-    if display == "TERMINATES":
+    departure = temporal.get("departure") if isinstance(temporal.get("departure"), dict) else {}
+    arrival = temporal.get("arrival") if isinstance(temporal.get("arrival"), dict) else {}
+    passtime = temporal.get("pass") if isinstance(temporal.get("pass"), dict) else {}
+
+    has_departure = bool(
+        _extract_hhmm(
+            departure.get("scheduleAdvertised")
+            or departure.get("scheduleInternal")
+            or departure.get("realtimeActual")
+            or departure.get("realtimeForecast")
+            or departure.get("realtimeEstimate")
+        )
+    )
+    has_arrival = bool(
+        _extract_hhmm(
+            arrival.get("scheduleAdvertised")
+            or arrival.get("scheduleInternal")
+            or arrival.get("realtimeActual")
+            or arrival.get("realtimeForecast")
+            or arrival.get("realtimeEstimate")
+        )
+    )
+    has_pass = bool(
+        _extract_hhmm(
+            passtime.get("scheduleAdvertised")
+            or passtime.get("scheduleInternal")
+            or passtime.get("realtimeActual")
+            or passtime.get("realtimeForecast")
+            or passtime.get("realtimeEstimate")
+        )
+    )
+
+    if has_arrival and has_departure:
+        return "CALL"
+    if has_departure and not has_arrival:
+        return "STARTS"
+    if has_arrival and not has_departure:
         return "ENDS"
-    if display == "CANCELLED":
-        return "CANCELLED_CALL" if call_type else "CANCELLED_PASS"
-    return display
+    if has_pass and not (has_arrival or has_departure):
+        return "PASS"
+
+    # Per API spec, null displayAs should be treated as PASS.
+    return "PASS"
 
 
 def _infer_is_public_call(display_as, *candidate_values):
@@ -374,14 +428,6 @@ def _normalize_location(location):
     description = _first_present_text(location.get("description"), location_obj.get("description"))
     tiploc = _first_present_text(location.get("tiploc"), _long_code_from_location(location_obj))
 
-    display_as = _first_present_text(location.get("displayAs"))
-    if not display_as:
-        display_as = _map_display_as(temporal)
-
-    is_public_call = _bool_or_none(location.get("isPublicCall"), temporal.get("isPublicCall"))
-    if is_public_call is None:
-        is_public_call = _infer_is_public_call(display_as)
-
     gbtt_departure = _extract_hhmm(
         location.get("gbttBookedDeparture")
         or departure.get("scheduleAdvertised")
@@ -415,6 +461,30 @@ def _normalize_location(location):
         or passtime.get("realtimeForecast")
         or passtime.get("realtimeEstimate")
     )
+
+    display_as = _first_present_text(location.get("displayAs")).upper()
+    if not display_as:
+        display_as = _map_display_as(temporal)
+
+        # Legacy payloads may omit temporalData/displayAs while still providing
+        # top-level booked times. Infer call shape from those values so
+        # historical legacy services are not treated as non-calls.
+        if display_as == "PASS" and not temporal:
+            has_departure = bool(gbtt_departure or realtime_departure)
+            has_arrival = bool(gbtt_arrival or realtime_arrival)
+            has_pass = bool(gbtt_pass or realtime_pass)
+            if has_arrival and has_departure:
+                display_as = "CALL"
+            elif has_departure and not has_arrival:
+                display_as = "STARTS"
+            elif has_arrival and not has_departure:
+                display_as = "ENDS"
+            elif has_pass and not (has_arrival or has_departure):
+                display_as = "PASS"
+
+    is_public_call = _bool_or_none(location.get("isPublicCall"), temporal.get("isPublicCall"))
+    if is_public_call is None:
+        is_public_call = _infer_is_public_call(display_as)
 
     planned_platform = _first_present_text(platform_meta.get("planned"))
     forecast_platform = _first_present_text(platform_meta.get("forecast"))
