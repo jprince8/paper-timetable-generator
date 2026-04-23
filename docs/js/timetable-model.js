@@ -630,14 +630,11 @@ function buildTimetableModel(
     const tooltip =
       line2 && line1 ? `${line1}\n${line2}` : line1 || line2 || visible;
 
-    const tc = (detail.trainClass || "").trim();
     const passenger =
       detail.isPassenger === true || svc.isPassenger !== false;
     const firstClassAvailable =
-      passenger && (tc === "" ? true : tc !== "S");
-
-    const sl = (detail.sleepers || "").trim();
-    const isSleeper = sl !== "";
+      passenger && detail.firstClassAvailable === true;
+    const isSleeper = passenger && detail.sleeperAvailable === true;
 
     const serviceType = (detail.serviceType || svc.serviceType || "").trim();
     const isBus = serviceType.toLowerCase() === "bus";
