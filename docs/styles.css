@@ -94,6 +94,14 @@ header.hero p + p {
   margin-top: 0.75rem;
 }
 
+header.hero .hero-credit {
+  font-size: 0.9rem;
+}
+
+header.hero .hero-credit a {
+  color: var(--accent);
+}
+
 main {
   margin-top: 2rem;
   display: grid;

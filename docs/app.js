@@ -1420,21 +1420,107 @@ form.addEventListener("submit", async (e) => {
     err?.name === "AbortError" || signal.aborted || buildCancelled;
   const fetchWithSignal = (url, options = {}) =>
     fetch(url, { ...options, signal });
+  const parseRetryAfterSeconds = (resp, text) => {
+    const headerValue = resp?.headers?.get?.("Retry-After");
+    if (headerValue !== null && headerValue !== undefined && `${headerValue}`.trim() !== "") {
+      const parsedHeader = Number.parseInt(`${headerValue}`.trim(), 10);
+      if (Number.isFinite(parsedHeader) && parsedHeader >= 0) {
+        return parsedHeader;
+      }
+    }
+    if (typeof text === "string" && text.trim()) {
+      try {
+        const parsedBody = JSON.parse(text);
+        const bodyValue = parsedBody?.retry_after;
+        const parsedBodyRetry = Number.parseInt(`${bodyValue ?? ""}`.trim(), 10);
+        if (Number.isFinite(parsedBodyRetry) && parsedBodyRetry >= 0) {
+          return parsedBodyRetry;
+        }
+      } catch {
+        // ignore non-JSON bodies
+      }
+    }
+    return 5;
+  };
+  const waitForRetry = async (seconds, resumeMessage, resumeProgress) =>
+    new Promise((resolve, reject) => {
+      if (shouldAbort()) {
+        reject(new DOMException("Build cancelled", "AbortError"));
+        return;
+      }
+      const totalSeconds = Math.max(0, Math.round(seconds));
+      const fallbackProgressValue = Number.isFinite(resumeProgress)
+        ? resumeProgress
+        : 0;
+      const getCurrentProgress = () => {
+        const current = statusBarEl
+          ? Number.parseFloat((statusBarEl.style.width || "").replace("%", ""))
+          : NaN;
+        return Number.isFinite(current) ? current : fallbackProgressValue;
+      };
+      let remainingSeconds = totalSeconds;
+      setStatus(`Waiting for RTT (${remainingSeconds}s)...`, {
+        progress: getCurrentProgress(),
+      });
+      const interval = setInterval(() => {
+        remainingSeconds = Math.max(0, remainingSeconds - 1);
+        setStatus(`Waiting for RTT (${remainingSeconds}s)...`, {
+          progress: getCurrentProgress(),
+        });
+      }, 1000);
+      const delayMs = totalSeconds * 1000;
+      const onAbort = () => {
+        clearInterval(interval);
+        clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort);
+        reject(new DOMException("Build cancelled", "AbortError"));
+      };
+      const timer = setTimeout(() => {
+        clearInterval(interval);
+        signal.removeEventListener("abort", onAbort);
+        if (buildCancelled) {
+          reject(new DOMException("Build cancelled", "AbortError"));
+          return;
+        }
+        if (resumeMessage) {
+          setStatus(resumeMessage, { progress: resumeProgress });
+        } else {
+          hideStatus();
+        }
+        resolve();
+      }, delayMs);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
   const fetchRttText = async (url, options = {}) => {
     const cached = readRttCache(url);
     if (cached && cached.status >= 200 && cached.status < 300) {
       return cached;
     }
-    const resp = await fetchWithSignal(url, options);
-    const text = await resp.text();
-    if (resp.status >= 200 && resp.status < 300) {
-      writeRttCache(url, {
-        text,
-        status: resp.status,
-        statusText: resp.statusText,
-      });
+    while (true) {
+      const resp = await fetchWithSignal(url, options);
+      const text = await resp.text();
+      if (resp.status === 429) {
+        const retryAfterSeconds = parseRetryAfterSeconds(resp, text);
+        const resumeMessage = statusTextEl ? statusTextEl.textContent : "";
+        const resumeProgress = statusBarEl
+          ? Number.parseFloat((statusBarEl.style.width || "").replace("%", ""))
+          : 0;
+        await waitForRetry(
+          retryAfterSeconds,
+          resumeMessage,
+          Number.isFinite(resumeProgress) ? resumeProgress : 0,
+        );
+        continue;
+      }
+      if (resp.status >= 200 && resp.status < 300) {
+        writeRttCache(url, {
+          text,
+          status: resp.status,
+          statusText: resp.statusText,
+        });
+      }
+      return { text, status: resp.status, statusText: resp.statusText };
     }
-    return { text, status: resp.status, statusText: resp.statusText };
   };
   const shouldAbort = () => signal.aborted || buildCancelled;
 
@@ -1515,6 +1601,20 @@ form.addEventListener("submit", async (e) => {
   const rttConnectionMessage =
     "Unable to reach RTT. Please check your connection and try again.";
   let rttConnectionDetected = false;
+  const markRttFailure = (data, status) => {
+    if (data && data.error === "timeout") {
+      rttTimeoutDetected = true;
+      return true;
+    }
+    if (
+      (data && (data.error === "connection" || data.error === "upstream")) ||
+      (typeof status === "number" && status >= 500)
+    ) {
+      rttConnectionDetected = true;
+      return true;
+    }
+    return false;
+  };
 
   try {
   initTotal = corridorLegs.length;
@@ -1528,7 +1628,7 @@ form.addEventListener("submit", async (e) => {
         encodeURIComponent(leg.to) +
         "&date=" +
         encodeURIComponent(currentDate);
-      const { text } = await fetchRttText(url, {
+      const { text, status } = await fetchRttText(url, {
         headers: { Accept: "application/json" },
       });
       let data;
@@ -1547,12 +1647,7 @@ form.addEventListener("submit", async (e) => {
         invalidInputsDetected = true;
         return;
       }
-      if (data && data.error === "timeout") {
-        rttTimeoutDetected = true;
-        return;
-      }
-      if (data && data.error === "connection") {
-        rttConnectionDetected = true;
+      if (markRttFailure(data, status)) {
         return;
       }
       const fromNameCandidate =
@@ -1690,11 +1785,8 @@ form.addEventListener("submit", async (e) => {
       );
       data = null;
     }
-    if (data && data.error === "timeout") {
-      rttTimeoutDetected = true;
-    }
-    if (data && data.error === "connection") {
-      rttConnectionDetected = true;
+    if (markRttFailure(data, status)) {
+      data = null;
     }
     return {
       svc,
@@ -1780,7 +1872,7 @@ form.addEventListener("submit", async (e) => {
   setProgressStatus("Finding services...", 0, stations.length);
 
   // Build a candidate map of all services seen at any corridor station.
-  const candidateMap = new Map(); // key -> { svc, detail, seed }
+  const candidateMap = new Map(); // key -> { svc, detail, seed, matchedStations:Set<string> }
 
   function serviceKey(svc) {
     return (svc.serviceUid || "") + "|" + (svc.runDate || "");
@@ -1793,6 +1885,7 @@ form.addEventListener("submit", async (e) => {
       svc: entry.svc,
       detail: entry.detail,
       seed: true,
+      matchedStations: new Set(),
     });
   });
 
@@ -1807,7 +1900,7 @@ form.addEventListener("submit", async (e) => {
         encodeURIComponent(st.crs) +
         "&date=" +
         encodeURIComponent(currentDate);
-      const { text } = await fetchRttText(url, {
+      const { text, status } = await fetchRttText(url, {
         headers: { Accept: "application/json" },
       });
       let data;
@@ -1822,12 +1915,7 @@ form.addEventListener("submit", async (e) => {
         );
         return;
       }
-      if (data && data.error === "timeout") {
-        rttTimeoutDetected = true;
-        return;
-      }
-      if (data && data.error === "connection") {
-        rttConnectionDetected = true;
+      if (markRttFailure(data, status)) {
         return;
       }
       const services = Array.isArray(data.services) ? data.services : [];
@@ -1837,9 +1925,17 @@ form.addEventListener("submit", async (e) => {
         if (!serviceAtStationInRange(svc)) return;
         const key = serviceKey(svc);
         if (!key) return;
-        if (!candidateMap.has(key)) {
-          candidateMap.set(key, { svc: svc, detail: null, seed: false });
+        let existing = candidateMap.get(key);
+        if (!existing) {
+          existing = {
+            svc: svc,
+            detail: null,
+            seed: false,
+            matchedStations: new Set(),
+          };
+          candidateMap.set(key, existing);
         }
+        existing.matchedStations.add(st.crs);
       });
     } finally {
       stationsCompleted += 1;
@@ -1873,10 +1969,22 @@ form.addEventListener("submit", async (e) => {
   }
 
   // Fetch details for candidates that don't already have them.
-  const totalCandidateServices = candidateMap.size;
+  // To reduce bulk /service calls without changing output logic:
+  // - always keep seed services (used to build corridor station union/order)
+  // - for station-discovered services, only fetch detail if seen in-range at >=2 corridor stations
+  //   (single-hit candidates cannot satisfy the final >=2-station inclusion rule).
+  const detailCandidateMap = new Map();
+  for (const [key, entry] of candidateMap.entries()) {
+    const matchCount = entry.matchedStations?.size || 0;
+    if (entry.seed || entry.detail || matchCount >= 2) {
+      detailCandidateMap.set(key, entry);
+    }
+  }
+
+  const totalCandidateServices = detailCandidateMap.size;
   let completedDetailServices = 0;
   const detailFetchPromises = [];
-  for (const [key, entry] of candidateMap.entries()) {
+  for (const [key, entry] of detailCandidateMap.entries()) {
     if (entry.detail) {
       completedDetailServices += 1;
       continue; // already have
@@ -1893,7 +2001,7 @@ form.addEventListener("submit", async (e) => {
     const p = fetchRttText(url, {
       headers: { Accept: "application/json" },
     })
-      .then(({ text }) => {
+      .then(({ text, status }) => {
         let data = null;
         try {
           data = JSON.parse(text);
@@ -1905,12 +2013,7 @@ form.addEventListener("submit", async (e) => {
             text,
           );
         }
-        if (data && data.error === "timeout") {
-          rttTimeoutDetected = true;
-          return;
-        }
-        if (data && data.error === "connection") {
-          rttConnectionDetected = true;
+        if (markRttFailure(data, status)) {
           return;
         }
         entry.detail = data;
