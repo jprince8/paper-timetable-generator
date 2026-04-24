@@ -503,6 +503,87 @@ function sortTimetableColumns({
     return chosen;
   }
 
+  function stationTimeRoleForSingleService(
+    serviceIdx,
+    stationIdx,
+    arrOnlyStationIdx = null,
+    modeOverride = null,
+    ignoreFromStationIdx = null,
+    depOnlyStationIdx = null,
+    ignoreStationIdx = null,
+  ) {
+    const t = stationTimes[stationIdx][serviceIdx];
+    if (!t) return "";
+    if (ignoreStationIdx === stationIdx) return "";
+    if (ignoreFromStationIdx !== null && stationIdx >= ignoreFromStationIdx) {
+      return "";
+    }
+    if (arrOnlyStationIdx === stationIdx || modeOverride === "arrOnly") {
+      return getDisplayedTimeInfo(serviceIdx, stationIdx, true).mins === null
+        ? ""
+        : "arr";
+    }
+    if (depOnlyStationIdx === stationIdx || modeOverride === "depOnly") {
+      return getDisplayedTimeInfo(serviceIdx, stationIdx, false).mins === null
+        ? ""
+        : "dep";
+    }
+    if (modeOverride === "ignore") return "";
+    const hasDeparture = t.loc?.gbttBookedDeparture || t.loc?.realtimeDeparture;
+    const isArrival = !hasDeparture;
+    return getDisplayedTimeInfo(serviceIdx, stationIdx, isArrival).mins === null
+      ? ""
+      : isArrival
+        ? "arr"
+        : "dep";
+  }
+
+  function stationTimeRole(
+    serviceIdx,
+    stationIdx,
+    arrOnlyStationIdx = null,
+    modeOverride = null,
+    ignoreFromStationIdx = null,
+    depOnlyStationIdx = null,
+    ignoreStationIdx = null,
+  ) {
+    let chosen = null;
+    groupedMembersForSort(serviceIdx).forEach((memberIdx) => {
+      const mins = stationTimeMinsForSingleService(
+        memberIdx,
+        stationIdx,
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
+      if (mins === null) return;
+      const role = stationTimeRoleForSingleService(
+        memberIdx,
+        stationIdx,
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
+      const roleRank = role === "dep" ? 1 : 0;
+      if (
+        chosen === null ||
+        mins < chosen.mins ||
+        (mins === chosen.mins && roleRank < chosen.roleRank)
+      ) {
+        chosen = { mins, role, roleRank };
+      }
+    });
+    return chosen ? chosen.role : "";
+  }
+
+  function stationTimeRoleComesBefore(leftRole, rightRole) {
+    return leftRole === "arr" && rightRole === "dep";
+  }
+
   function firstTimeInfo(serviceIdx) {
     let firstMins = null;
     let firstRow = null;
@@ -628,6 +709,15 @@ function sortTimetableColumns({
         depOnlyStationIdx,
         ignoreStationIdx,
       );
+      const timeRole = stationTimeRole(
+        serviceIdx,
+        stationIdx,
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
 
       let lastLE = -1;
       let firstGE = orderedSvcIndices.length;
@@ -645,9 +735,28 @@ function sortTimetableColumns({
           ignoreStationIdx,
         );
         if (otherTime === null) continue;
+        const otherRole = stationTimeRole(
+          otherSvc,
+          stationIdx,
+          arrOnlyStationIdx,
+          modeOverride,
+          ignoreFromStationIdx,
+          depOnlyStationIdx,
+          ignoreStationIdx,
+        );
 
-        if (otherTime < time) lastLE = pos;
-        if (otherTime > time) {
+        if (
+          otherTime < time ||
+          (otherTime === time &&
+            stationTimeRoleComesBefore(otherRole, timeRole))
+        ) {
+          lastLE = pos;
+        }
+        if (
+          otherTime > time ||
+          (otherTime === time &&
+            stationTimeRoleComesBefore(timeRole, otherRole))
+        ) {
           greaterPositions.push(pos);
           if (firstGE === orderedSvcIndices.length) {
             firstGE = pos;
