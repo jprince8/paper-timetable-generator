@@ -295,6 +295,32 @@ function loadFrontendRuntime({ startMinutes, endMinutes, connectionsData, repoRo
     startMinutes,
     endMinutes,
     __connectionsData: connectionsData,
+    serviceCallsAllStationsInRange(detail, crsSet) {
+      if (!detail || !Array.isArray(detail.locations)) return false;
+      const parseMins = (value) => {
+        const raw = String(value || '').replace(':', '').trim();
+        if (!/^\d{3,4}$/.test(raw)) return null;
+        const padded = raw.padStart(4, '0');
+        const hh = Number(padded.slice(0, 2));
+        const mm = Number(padded.slice(2, 4));
+        if (!Number.isFinite(hh) || !Number.isFinite(mm) || mm > 59) return null;
+        return hh * 60 + mm;
+      };
+      return detail.locations.every((loc) => {
+        const crs = loc?.crs || '';
+        if (!crsSet.has(crs)) return true;
+        const disp = String(loc?.displayAs || '').toUpperCase();
+        if (disp === 'PASS' || disp === 'CANCELLED_PASS') return true;
+        const rawTime =
+          loc.gbttBookedDeparture ||
+          loc.gbttBookedArrival ||
+          loc.realtimeDeparture ||
+          loc.realtimeArrival ||
+          '';
+        const mins = parseMins(rawTime);
+        return mins !== null && mins >= startMinutes && mins <= endMinutes;
+      });
+    },
   };
 
   const vmContext = vm.createContext(context);
@@ -583,4 +609,427 @@ export function assertConnectionMisorderHighlightAfterExpansion() {
 
   const highlightedCell = rows[1]?.cells?.[1];
   return highlightedCell?.format?.bgColor === '#f7c9c9';
+}
+
+export function assertEqualTimeDepartureSortsAfterArrival() {
+  const repoRoot = path.resolve(process.cwd());
+  const runtime = loadFrontendRuntime({
+    startMinutes: 0,
+    endMinutes: 24 * 60 - 1,
+    connectionsData: {},
+    repoRoot,
+  });
+
+  const rows = [
+    {
+      kind: 'station',
+      labelStation: 'X',
+      labelArrDep: 'arr',
+      cells: [{ text: '' }, { text: '10:00' }],
+    },
+    {
+      kind: 'station',
+      labelStation: '',
+      labelArrDep: 'dep',
+      cells: [{ text: '10:00' }, { text: '' }],
+    },
+  ];
+  const rowSpecs = [
+    { kind: 'station', stationIndex: 0, mode: 'arr' },
+    { kind: 'station', stationIndex: 0, mode: 'dep' },
+  ];
+  const stationTimes = [
+    [
+      {
+        depStr: '10:00',
+        depMins: 600,
+        arrStr: '',
+        arrMins: null,
+        loc: { gbttBookedDeparture: '1000' },
+      },
+      {
+        arrStr: '10:00',
+        arrMins: 600,
+        depStr: '',
+        depMins: null,
+        loc: { gbttBookedArrival: '1000' },
+      },
+    ],
+  ];
+
+  const sortResult = runtime.sortTimetableColumns({
+    rows,
+    rowSpecs,
+    stationTimes,
+    stationModes: ['two'],
+    displayStations: [{ name: 'X', crs: 'XXX' }],
+    servicesWithDetails: [
+      { svc: { serviceUid: 'DEP', runDate: '2026-04-27' }, detail: {} },
+      { svc: { serviceUid: 'ARR', runDate: '2026-04-27' }, detail: {} },
+    ],
+    serviceAllCancelled: [false, false],
+    serviceAllNoReport: [false, false],
+    serviceRealtimeFlags: [false, false],
+    realtimeToggleEnabled: false,
+    servicesMeta: [{ visible: 'DEP' }, { visible: 'ARR' }],
+    highlightColors: {
+      outOfOrder: '#fce3b0',
+      depAfterArrival: '#e6d9ff',
+      serviceMisorder: '#f7c9c9',
+    },
+  });
+
+  return Array.from(sortResult.orderedSvcIndices);
+}
+
+export function assertConnectionEndpointsForceSplitStationRows() {
+  const repoRoot = path.resolve(process.cwd());
+  const runtime = loadFrontendRuntime({
+    startMinutes: 0,
+    endMinutes: 24 * 60 - 1,
+    connectionsData: {},
+    repoRoot,
+  });
+
+  const stations = [
+    { crs: 'AAA', name: 'Alpha' },
+    { crs: 'BBB', name: 'Bravo' },
+    { crs: 'CCC', name: 'Charlie' },
+    { crs: 'DDD', name: 'Delta' },
+  ];
+  const stationSet = Object.fromEntries(stations.map((station) => [station.crs, station]));
+  const servicesWithDetails = [
+    {
+      svc: { serviceUid: 'BASE', runDate: '2026-04-27' },
+      detail: {
+        runDate: '2026-04-27',
+        locations: [
+          { crs: 'AAA', gbttBookedDeparture: '0950', displayAs: 'CALL', isPublicCall: true },
+          {
+            crs: 'BBB',
+            gbttBookedArrival: '1000',
+            gbttBookedDeparture: '1001',
+            displayAs: 'CALL',
+            isPublicCall: true,
+          },
+          {
+            crs: 'CCC',
+            gbttBookedArrival: '1010',
+            gbttBookedDeparture: '1011',
+            displayAs: 'CALL',
+            isPublicCall: true,
+          },
+          { crs: 'DDD', gbttBookedArrival: '1020', displayAs: 'CALL', isPublicCall: true },
+        ],
+      },
+    },
+    {
+      svc: { serviceUid: 'CONN-BASE-BBB-CCC-1001', runDate: '2026-04-27' },
+      detail: {
+        runDate: '2026-04-27',
+        serviceType: 'connection',
+        locations: [
+          { crs: 'BBB', gbttBookedDeparture: '1001', displayAs: 'CALL', isPublicCall: true },
+          { crs: 'CCC', gbttBookedArrival: '1009', displayAs: 'CALL', isPublicCall: true },
+        ],
+      },
+      isConnection: true,
+    },
+  ];
+
+  const model = runtime.buildTimetableModel(stations, stationSet, servicesWithDetails);
+  const stationRows = model.rows
+    .filter((row) => row.kind === 'station')
+    .map((row) => ({
+      station: row.labelStation || '',
+      arrDep: row.labelArrDep || '',
+      mode: row.mode || '',
+    }));
+  function labelsForStation(stationName) {
+    const labels = [];
+    let active = '';
+    stationRows.forEach((row) => {
+      if (row.station) active = row.station;
+      if (active === stationName) labels.push(row.arrDep);
+    });
+    return labels;
+  }
+
+  return {
+    bravoLabels: labelsForStation('Bravo'),
+    charlieLabels: labelsForStation('Charlie'),
+    stationRows,
+  };
+}
+
+export function assertInboundConnectionsHonourPreviousStations() {
+  const repoRoot = path.resolve(process.cwd());
+  const runtime = loadFrontendRuntime({
+    startMinutes: 0,
+    endMinutes: 24 * 60 - 1,
+    connectionsData: {
+      PAD: [
+        {
+          previousStations: ['AML'],
+          connections: {
+            EUS: {
+              durationMinutes: 25,
+              mode: 'Underground',
+            },
+          },
+        },
+      ],
+      EUS: [
+        {
+          previousStations: null,
+          connections: {
+            PAD: {
+              durationMinutes: 25,
+              mode: 'Underground',
+            },
+          },
+        },
+      ],
+    },
+    repoRoot,
+  });
+
+  const corridorSet = new Set(['PAD', 'EUS']);
+  const buildPadEntry = (previousCrs, nextCrs) => ({
+    svc: { serviceUid: `SRC-${previousCrs}-${nextCrs}`, runDate: '2026-04-27' },
+    detail: {
+      runDate: '2026-04-27',
+      locations: [
+        {
+          crs: previousCrs,
+          gbttBookedDeparture: '0950',
+          displayAs: 'CALL',
+        },
+        {
+          crs: 'PAD',
+          gbttBookedArrival: '1000',
+          gbttBookedDeparture: '1000',
+          displayAs: 'CALL',
+        },
+        {
+          crs: nextCrs,
+          gbttBookedArrival: '1010',
+          displayAs: 'CALL',
+        },
+      ],
+    },
+  });
+  const buildPadEntryWithPrevious = (previousCrsList, nextCrs) => ({
+    svc: { serviceUid: `SRC-${previousCrsList.join('-')}-${nextCrs}`, runDate: '2026-04-27' },
+    detail: {
+      runDate: '2026-04-27',
+      locations: [
+        ...previousCrsList.map((crs, idx) => ({
+          crs,
+          gbttBookedDeparture: String(930 + idx).padStart(4, '0'),
+          displayAs: 'CALL',
+        })),
+        {
+          crs: 'PAD',
+          gbttBookedArrival: '1000',
+          gbttBookedDeparture: '1000',
+          displayAs: 'CALL',
+        },
+        {
+          crs: nextCrs,
+          gbttBookedArrival: '1010',
+          displayAs: 'CALL',
+        },
+      ],
+    },
+  });
+  const buildPadEntryWithNext = (previousCrs, nextCrsList) => ({
+    svc: { serviceUid: `SRC-${previousCrs}-${nextCrsList.join('-')}`, runDate: '2026-04-27' },
+    detail: {
+      runDate: '2026-04-27',
+      locations: [
+        {
+          crs: previousCrs,
+          gbttBookedDeparture: '0950',
+          displayAs: 'CALL',
+        },
+        {
+          crs: 'PAD',
+          gbttBookedArrival: '1000',
+          gbttBookedDeparture: '1000',
+          displayAs: 'CALL',
+        },
+        ...nextCrsList.map((crs, idx) => ({
+          crs,
+          gbttBookedArrival: String(1010 + idx).padStart(4, '0'),
+          displayAs: 'CALL',
+        })),
+      ],
+    },
+  });
+  const buildEusEntry = (previousCrsList, nextCrsList) => ({
+    svc: { serviceUid: `SRC-EUS-${previousCrsList.join('-')}-${nextCrsList.join('-')}`, runDate: '2026-04-27' },
+    detail: {
+      runDate: '2026-04-27',
+      locations: [
+        ...previousCrsList.map((crs, idx) => ({
+          crs,
+          gbttBookedDeparture: String(930 + idx).padStart(4, '0'),
+          displayAs: 'CALL',
+        })),
+        {
+          crs: 'EUS',
+          gbttBookedArrival: '1000',
+          gbttBookedDeparture: '1000',
+          displayAs: 'CALL',
+        },
+        ...nextCrsList.map((crs, idx) => ({
+          crs,
+          gbttBookedArrival: String(1010 + idx).padStart(4, '0'),
+          displayAs: 'CALL',
+        })),
+      ],
+    },
+  });
+
+  const mismatched = runtime.buildConnectionServiceEntries(
+    [buildPadEntry('ABW', 'BHM')],
+    corridorSet,
+  );
+  const inboundMatched = runtime.buildConnectionServiceEntries(
+    [buildPadEntry('ABW', 'AML')],
+    corridorSet,
+  );
+  const outboundMatched = runtime.buildConnectionServiceEntries(
+    [buildPadEntry('AML', 'BDS')],
+    corridorSet,
+  );
+  const duplicateTransfer = runtime.buildConnectionServiceEntries(
+    [
+      {
+        svc: { serviceUid: 'EUS-SRC', runDate: '2026-04-27' },
+        detail: {
+          runDate: '2026-04-27',
+          locations: [
+            {
+              crs: 'EUS',
+              gbttBookedDeparture: '0939',
+              displayAs: 'CALL',
+            },
+            {
+              crs: 'WFJ',
+              gbttBookedArrival: '1000',
+              displayAs: 'CALL',
+            },
+          ],
+        },
+      },
+      {
+        svc: { serviceUid: 'PAD-SRC', runDate: '2026-04-27' },
+        detail: {
+          runDate: '2026-04-27',
+          locations: [
+            {
+              crs: 'AML',
+              gbttBookedDeparture: '0900',
+              displayAs: 'CALL',
+            },
+            {
+              crs: 'PAD',
+              gbttBookedArrival: '0914',
+              gbttBookedDeparture: '0914',
+              displayAs: 'CALL',
+            },
+            {
+              crs: 'BDS',
+              gbttBookedArrival: '0920',
+              displayAs: 'CALL',
+            },
+          ],
+        },
+      },
+    ],
+    corridorSet,
+  );
+  const nonAdjacentOutboundMatched = runtime.buildConnectionServiceEntries(
+    [buildPadEntryWithPrevious(['AML', 'BDS'], 'TCR')],
+    corridorSet,
+  );
+  const nonAdjacentInboundMatched = runtime.buildConnectionServiceEntries(
+    [buildPadEntryWithNext('ABW', ['BDS', 'AML'])],
+    corridorSet,
+  );
+  const unconstrainedAtFirstStop = runtime.buildConnectionServiceEntries(
+    [buildEusEntry([], ['WFJ'])],
+    corridorSet,
+  );
+  const unconstrainedAtLastStop = runtime.buildConnectionServiceEntries(
+    [buildEusEntry(['WFJ'], [])],
+    corridorSet,
+  );
+  const unconstrainedWithBothSides = runtime.buildConnectionServiceEntries(
+    [buildEusEntry(['WFJ'], ['MKC'])],
+    corridorSet,
+  );
+  const intermediate = runtime.buildConnectionServiceEntries(
+    [
+      {
+        svc: { serviceUid: 'G23409', runDate: '2026-04-27' },
+        detail: {
+          runDate: '2026-04-27',
+          locations: [
+            {
+              crs: 'ABW',
+              gbttBookedDeparture: '0924',
+              displayAs: 'STARTS',
+            },
+            {
+              crs: 'WWC',
+              gbttBookedArrival: '0927',
+              gbttBookedDeparture: '0927',
+              displayAs: 'CALL',
+            },
+            {
+              crs: 'PAD',
+              gbttBookedArrival: '0954',
+              gbttBookedDeparture: '0954',
+              displayAs: 'CALL',
+            },
+            {
+              crs: 'AML',
+              gbttBookedArrival: '1000',
+              gbttBookedDeparture: '1000',
+              displayAs: 'CALL',
+            },
+            {
+              crs: 'WEA',
+              gbttBookedArrival: '1006',
+              gbttBookedDeparture: '1006',
+              displayAs: 'CALL',
+            },
+          ],
+        },
+      },
+    ],
+    new Set(['EUS', 'PAD', 'WEA']),
+  );
+
+  return {
+    mismatchedCount: mismatched.length,
+    inboundMatchedCount: inboundMatched.length,
+    inboundMatchedLocations: inboundMatched[0]?.detail?.locations || [],
+    outboundMatchedCount: outboundMatched.length,
+    outboundMatchedLocations: outboundMatched[0]?.detail?.locations || [],
+    duplicateTransferCount: duplicateTransfer.length,
+    duplicateTransferPlacement: duplicateTransfer[0]?.connectionPlacement || '',
+    duplicateTransferSourceKey: duplicateTransfer[0]?.connectionSourceServiceKey || '',
+    nonAdjacentOutboundMatchedCount: nonAdjacentOutboundMatched.length,
+    nonAdjacentInboundMatchedCount: nonAdjacentInboundMatched.length,
+    unconstrainedAtFirstStopCount: unconstrainedAtFirstStop.length,
+    unconstrainedAtLastStopCount: unconstrainedAtLastStop.length,
+    unconstrainedWithBothSidesCount: unconstrainedWithBothSides.length,
+    intermediateCount: intermediate.length,
+    intermediateLocations: intermediate[0]?.detail?.locations || [],
+    intermediateSourceKey: intermediate[0]?.connectionSourceServiceKey || '',
+  };
 }

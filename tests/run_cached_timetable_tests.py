@@ -36,6 +36,16 @@ DEFAULT_FIXTURE_TARGETS = [
         "fixture_name": "cbg-lbz-via-kgx-eus-2026-04-27.cached-results.json",
         "env_var": "RTT_FIXTURE_PATH_LBZ",
     },
+    {
+        "name": "rug_kgx_eus",
+        "query_url": (
+            "http://127.0.0.1:8080/"
+            "?from=RUG&to=KGX&date=2026-04-27&start=09%3A00&end=12%3A00"
+            "&rtt_cache=1&vias=EUS&debug_connections=1"
+        ),
+        "fixture_name": "rug-kgx-via-eus-2026-04-27.cached-results.json",
+        "env_var": "RTT_FIXTURE_PATH_RUG_KGX_EUS",
+    },
 ]
 
 def _generate_fixture(query_url: str, cache_dir: Path) -> dict:
@@ -179,8 +189,10 @@ def main() -> int:
     cmd = [
         "node",
         "--test",
+        "tests/timetable_connections_previous_stations.test.mjs",
         "tests/timetable_cached_query.test.mjs",
         "tests/timetable_cached_query_lbz.test.mjs",
+        "tests/timetable_cached_query_rug_kgx_eus.test.mjs",
     ]
     env = dict(os.environ)
     if "RTT_FIXTURE_PATH_BFR" in generated_paths:
@@ -188,6 +200,10 @@ def main() -> int:
         env["RTT_FIXTURE_PATH"] = str(generated_paths["RTT_FIXTURE_PATH_BFR"])
     if "RTT_FIXTURE_PATH_LBZ" in generated_paths:
         env["RTT_FIXTURE_PATH_LBZ"] = str(generated_paths["RTT_FIXTURE_PATH_LBZ"])
+    if "RTT_FIXTURE_PATH_RUG_KGX_EUS" in generated_paths:
+        env["RTT_FIXTURE_PATH_RUG_KGX_EUS"] = str(
+            generated_paths["RTT_FIXTURE_PATH_RUG_KGX_EUS"]
+        )
     if "RTT_FIXTURE_PATH" in generated_paths:
         env["RTT_FIXTURE_PATH"] = str(generated_paths["RTT_FIXTURE_PATH"])
     print("Running:", " ".join(cmd))

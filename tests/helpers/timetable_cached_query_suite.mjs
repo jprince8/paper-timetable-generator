@@ -9,6 +9,19 @@ import {
 } from './timetable_cached_query_runner.mjs';
 import { assertColumnFillContinuity } from './timetable_column_shape_assertions.mjs';
 
+const OUT_OF_ORDER_HIGHLIGHT = '#fce3b0';
+
+function cellText(cell) {
+  if (typeof cell === 'string') return cell;
+  if (cell && typeof cell === 'object') return String(cell.text || '');
+  return '';
+}
+
+function cellBgColor(cell) {
+  if (!cell || typeof cell !== 'object') return '';
+  return String(cell.format?.bgColor || '').trim().toLowerCase();
+}
+
 function assertNoDuplicateColumns(directionName, directionData) {
   const cols = directionData.orderedSvcIndicesRaw;
   const unique = new Set(cols);
@@ -86,6 +99,24 @@ function assertConnectionAdjacency(directionName, directionData) {
         `${directionName}: non-group service ${key} found inside source/connection block for ${sourceKey} at position ${i}`,
       );
     }
+  });
+}
+
+function assertTopRowHasNoOutOfOrderHighlight(directionName, directionData) {
+  const rows = directionData?.model?.rows || [];
+  const orderedIndices = directionData?.orderedSvcIndicesRaw || [];
+  const servicesMeta = directionData?.model?.servicesMeta || [];
+  const topRowIdx = rows.findIndex((row) => row?.kind === 'station');
+  assert.ok(topRowIdx >= 0, `${directionName}: expected a top station row`);
+
+  const topRow = rows[topRowIdx];
+  orderedIndices.forEach((svcIdx, orderedIdx) => {
+    const cell = topRow?.cells?.[svcIdx];
+    assert.notEqual(
+      cellBgColor(cell),
+      OUT_OF_ORDER_HIGHLIGHT,
+      `${directionName}: top row ${topRow.labelStation || `row ${topRowIdx}`} has orange out-of-order highlight at displayed column ${orderedIdx} (${servicesMeta[svcIdx]?.visible || `service ${svcIdx}`}, value ${cellText(cell) || 'blank'})`,
+    );
   });
 }
 
@@ -197,6 +228,37 @@ function assertWalkOnlyAppearsAsPdfOperator(directionName, directionData) {
   });
 }
 
+function assertConnectionTooltipsUseMode(directionName, directionData) {
+  const model = directionData?.model || {};
+  const metas = model.servicesMeta || [];
+  const orderedIndices = directionData?.orderedSvcIndicesRaw || [];
+  const orderedEntries = directionData?.orderedEntries || [];
+
+  orderedEntries.forEach((entry, orderedIdx) => {
+    if (!isConnectionEntry(entry)) return;
+    const mode = String(
+      entry?.detail?.connectionMode ||
+        entry?.svc?.atocName ||
+        entry?.detail?.atocName ||
+        '',
+    );
+    const tooltip = String(metas[orderedIndices[orderedIdx]]?.tooltip || '');
+
+    assert.ok(
+      !/Connection connection:/i.test(tooltip),
+      `${directionName}: connection tooltip should not duplicate "connection": ${tooltip}`,
+    );
+
+    if (mode.toLowerCase() === 'underground') {
+      assert.match(
+        tooltip,
+        /^Underground connection:/,
+        `${directionName}: Underground tooltip should include the configured mode`,
+      );
+    }
+  });
+}
+
 export function registerCachedQuerySuite({
   suiteLabel,
   cachePath,
@@ -232,6 +294,12 @@ export function registerCachedQuerySuite({
     const result = await getResult();
     assertNoDuplicateColumns('AB', result.ab);
     assertNoDuplicateColumns('BA', result.ba);
+  });
+
+  test(`${suiteLabel} keeps the top row chronological`, async () => {
+    const result = await getResult();
+    assertTopRowHasNoOutOfOrderHighlight('AB', result.ab);
+    assertTopRowHasNoOutOfOrderHighlight('BA', result.ba);
   });
 
   test(`${suiteLabel} keeps each source/connection group contiguous`, async () => {
@@ -275,6 +343,12 @@ export function registerCachedQuerySuite({
     const result = await getResult();
     assertWalkOnlyAppearsAsPdfOperator('AB', result.ab);
     assertWalkOnlyAppearsAsPdfOperator('BA', result.ba);
+  });
+
+  test(`${suiteLabel} uses connection mode in tooltips without duplicate labels`, async () => {
+    const result = await getResult();
+    assertConnectionTooltipsUseMode('AB', result.ab);
+    assertConnectionTooltipsUseMode('BA', result.ba);
   });
 
   test(`${suiteLabel} enforces post-expansion service-misorder coloring for connections`, () => {

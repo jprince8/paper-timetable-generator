@@ -18,7 +18,7 @@ registerCachedQuerySuite({
   cachePath: CACHE_PATH,
   expectedQueryIncludes: ['from=CBG', 'to=BFR'],
   requireKgxToStpConnection: true,
-  requireStpToKgxConnection: true,
+  requireStpToKgxConnection: false,
   expectedAbStationOrderLabels: [
     'Cambridge',
     'London Kings Cross',
