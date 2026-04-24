@@ -41,6 +41,7 @@ const PROXY_ATOC = `${BACKEND_BASE}/api/atoc-codes`;
 const STATION_DEBOUNCE_MS = 180;
 const STATION_MIN_QUERY = 2;
 const ALWAYS_SORT_CANCELLED_TIMES = true;
+const INIT_SERVICE_DETAILS_ONLY_IN_RANGE = true;
 
 const RTT_CACHE_PREFIX = "rttCache:";
 const rttCacheEnabled = RTT_CACHE_ENABLED;
@@ -1786,6 +1787,9 @@ form.addEventListener("submit", async (e) => {
   }
 
   const corridorServices = Array.from(corridorServicesMap.values());
+  const corridorServicesToDetail = INIT_SERVICE_DETAILS_ONLY_IN_RANGE
+    ? corridorServices.filter(serviceAtStationInRange)
+    : corridorServices;
 
   if (corridorServices.length === 0 && !connectionsAllowAllLegs) {
     const fromLabel = stationNameByCrs[from] || from;
@@ -1801,10 +1805,10 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
-  // Step 2: Get full details for corridor services to derive station union.
-  initTotal += corridorServices.length;
+  // Step 2: Get full details for corridor services within the selected time range.
+  initTotal += corridorServicesToDetail.length;
   updateInitProgress();
-  const corridorDetailPromises = corridorServices.map(async (svc) => {
+  const corridorDetailPromises = corridorServicesToDetail.map(async (svc) => {
     const uid = svc.serviceUid;
     const date = svc.runDate;
     const url =
