@@ -2331,7 +2331,11 @@ form.addEventListener("submit", async (e) => {
       .filter(Boolean),
   );
 
-  const baseSplit = splitByDirection(filteredAllDetails, stations);
+  const baseSplit = splitByDirection(
+    filteredAllDetails,
+    stations,
+    corridorStations,
+  );
   const baseFilterAB = filterServicesForTimetableModel(
     stations,
     baseSplit.ab,
@@ -2357,42 +2361,44 @@ form.addEventListener("submit", async (e) => {
     ...actualStationSet,
     ...specifiedStationSet,
   ]);
-  const retainedBaseServiceKeys = new Set(
-    baseRetainedAB
-      .concat(baseRetainedBA)
-      .map((entry) => serviceKey(entry.svc))
-      .filter(Boolean),
-  );
-  const connectionSourceDetails = filteredAllDetails.filter((entry) =>
-    retainedBaseServiceKeys.has(serviceKey(entry.svc)),
-  );
-  if (DEBUG_CONNECTIONS) {
-    console.info(
-      "Connection source filter: model-retained services",
-      connectionSourceDetails.length,
-      "of",
-      filteredAllDetails.length,
-    );
-  }
 
   // Split into A->B vs B->A, based on order of corridor stations in the calling pattern.
-  const connectionEntries = buildConnectionServiceEntries(
-    connectionSourceDetails,
+  const outboundConnectionEntries = buildConnectionServiceEntries(
+    baseRetainedAB,
     connectionStationSet,
+    0,
+    "both",
+    corridorStations,
   );
+  const inboundConnectionEntries = buildConnectionServiceEntries(
+    baseRetainedBA,
+    connectionStationSet,
+    0,
+    "both",
+    corridorStations.slice().reverse(),
+  );
+  const connectionEntries = outboundConnectionEntries.concat(inboundConnectionEntries);
   if (DEBUG_CONNECTIONS) {
     console.info(
       "Connection summary: generated",
       connectionEntries.length,
-      "from",
-      connectionSourceDetails.length,
+      "(",
+      outboundConnectionEntries.length,
+      "from AB table +",
+      inboundConnectionEntries.length,
+      "from BA table) from",
+      baseRetainedAB.length + baseRetainedBA.length,
       "base services",
       "table-row stations",
       Array.from(connectionStationSet).join(","),
     );
   }
   const allDetailsWithConnections = filteredAllDetails.concat(connectionEntries);
-  const split = splitByDirection(allDetailsWithConnections, stations);
+  const split = splitByDirection(
+    allDetailsWithConnections,
+    stations,
+    corridorStations,
+  );
   const servicesAB = split.ab;
   const servicesBA = split.ba;
   const inTableConnections = connectionEntries.filter((entry) => {
@@ -3038,16 +3044,39 @@ function collectStationData(
   return { stations, stationMap, corridorIndex, sequences };
 }
 
-function splitByDirection(servicesWithDetails, stations) {
+function splitByDirection(
+  servicesWithDetails,
+  stations,
+  connectionDirectionStations = stations,
+) {
   const ab = [];
   const ba = [];
   const directionByServiceKey = new Map();
 
-  // Map CRS to corridor order index (0..N-1) based on stations array
+  // Base service directioning uses display-station order.
   const crsToOrderIdx = {};
   stations.forEach((s, i) => {
     if (s.crs) crsToOrderIdx[s.crs] = i;
   });
+
+  // Connection direction checks prefer corridor order to avoid endpoint flips
+  // (e.g. optional-via cases where display order can invert KGX/STP).
+  const connectionCrsToOrderIdx = {};
+  let nextConnectionIdx = 0;
+  function addConnectionDirectionCrs(stationLike) {
+    const crs =
+      typeof stationLike === "string"
+        ? normaliseCrs(stationLike)
+        : normaliseCrs(stationLike?.crs || "");
+    if (!crs) return;
+    if (Object.prototype.hasOwnProperty.call(connectionCrsToOrderIdx, crs)) return;
+    connectionCrsToOrderIdx[crs] = nextConnectionIdx;
+    nextConnectionIdx += 1;
+  }
+  connectionDirectionStations.forEach((stationLike) =>
+    addConnectionDirectionCrs(stationLike),
+  );
+  stations.forEach((stationLike) => addConnectionDirectionCrs(stationLike));
 
   function deriveDirection(entry) {
     const locs = entry.detail.locations || [];
@@ -3070,6 +3099,16 @@ function splitByDirection(servicesWithDetails, stations) {
     const first = corridorOrderIndices[0];
     const last = corridorOrderIndices[corridorOrderIndices.length - 1];
     return first <= last ? "AB" : "BA";
+  }
+
+  function connectionMatchesDirection(entry, direction) {
+    const locs = entry?.detail?.locations || [];
+    const fromCrs = locs[0]?.crs || "";
+    const toCrs = locs[1]?.crs || "";
+    const fromIdx = connectionCrsToOrderIdx[fromCrs];
+    const toIdx = connectionCrsToOrderIdx[toCrs];
+    if (!Number.isInteger(fromIdx) || !Number.isInteger(toIdx)) return true;
+    return direction === "AB" ? fromIdx <= toIdx : fromIdx >= toIdx;
   }
 
   servicesWithDetails.forEach((entry) => {
@@ -3106,6 +3145,7 @@ function splitByDirection(servicesWithDetails, stations) {
       ? directionByServiceKey.get(sourceKey)
       : null;
     const direction = sourceDirection || deriveDirection(entry);
+    if (!connectionMatchesDirection(entry, direction)) return;
     if (direction === "AB") {
       ab.push(entry);
     } else {

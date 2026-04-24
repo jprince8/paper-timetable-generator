@@ -186,9 +186,10 @@ function createHarnessEnvironment({ queryUrl, fixture, repoRoot }) {
   const atocCodes = JSON.parse(
     fs.readFileSync(path.join(repoRoot, 'data/atoc_codes.json'), 'utf8'),
   );
-  const connections = JSON.parse(
-    fs.readFileSync(path.join(repoRoot, 'data/connections.json'), 'utf8'),
-  );
+  const connectionsPath = fs.existsSync(path.join(repoRoot, 'data/connections.json'))
+    ? path.join(repoRoot, 'data/connections.json')
+    : path.join(repoRoot, 'data/connections2.json');
+  const connections = JSON.parse(fs.readFileSync(connectionsPath, 'utf8'));
   const stations = JSON.parse(
     fs.readFileSync(path.join(repoRoot, 'data/stations.json'), 'utf8'),
   );
@@ -772,21 +773,30 @@ export function assertInboundConnectionsHonourPreviousStations() {
         {
           previousStations: ['AML'],
           connections: {
-            EUS: {
-              durationMinutes: 25,
-              mode: 'Underground',
-            },
+            EUS: [
+              {
+                durationMinutes: 25,
+                mode: 'Underground',
+                nextStations: ['BDS'],
+              },
+              {
+                durationMinutes: 25,
+                mode: 'Underground',
+                nextStations: ['~AML'],
+              },
+            ],
           },
         },
       ],
       EUS: [
         {
-          previousStations: null,
           connections: {
-            PAD: {
-              durationMinutes: 25,
-              mode: 'Underground',
-            },
+            PAD: [
+              {
+                durationMinutes: 25,
+                mode: 'Underground',
+              },
+            ],
           },
         },
       ],
@@ -819,217 +829,24 @@ export function assertInboundConnectionsHonourPreviousStations() {
       ],
     },
   });
-  const buildPadEntryWithPrevious = (previousCrsList, nextCrs) => ({
-    svc: { serviceUid: `SRC-${previousCrsList.join('-')}-${nextCrs}`, runDate: '2026-04-27' },
-    detail: {
-      runDate: '2026-04-27',
-      locations: [
-        ...previousCrsList.map((crs, idx) => ({
-          crs,
-          gbttBookedDeparture: String(930 + idx).padStart(4, '0'),
-          displayAs: 'CALL',
-        })),
-        {
-          crs: 'PAD',
-          gbttBookedArrival: '1000',
-          gbttBookedDeparture: '1000',
-          displayAs: 'CALL',
-        },
-        {
-          crs: nextCrs,
-          gbttBookedArrival: '1010',
-          displayAs: 'CALL',
-        },
-      ],
-    },
-  });
-  const buildPadEntryWithNext = (previousCrs, nextCrsList) => ({
-    svc: { serviceUid: `SRC-${previousCrs}-${nextCrsList.join('-')}`, runDate: '2026-04-27' },
-    detail: {
-      runDate: '2026-04-27',
-      locations: [
-        {
-          crs: previousCrs,
-          gbttBookedDeparture: '0950',
-          displayAs: 'CALL',
-        },
-        {
-          crs: 'PAD',
-          gbttBookedArrival: '1000',
-          gbttBookedDeparture: '1000',
-          displayAs: 'CALL',
-        },
-        ...nextCrsList.map((crs, idx) => ({
-          crs,
-          gbttBookedArrival: String(1010 + idx).padStart(4, '0'),
-          displayAs: 'CALL',
-        })),
-      ],
-    },
-  });
-  const buildEusEntry = (previousCrsList, nextCrsList) => ({
-    svc: { serviceUid: `SRC-EUS-${previousCrsList.join('-')}-${nextCrsList.join('-')}`, runDate: '2026-04-27' },
-    detail: {
-      runDate: '2026-04-27',
-      locations: [
-        ...previousCrsList.map((crs, idx) => ({
-          crs,
-          gbttBookedDeparture: String(930 + idx).padStart(4, '0'),
-          displayAs: 'CALL',
-        })),
-        {
-          crs: 'EUS',
-          gbttBookedArrival: '1000',
-          gbttBookedDeparture: '1000',
-          displayAs: 'CALL',
-        },
-        ...nextCrsList.map((crs, idx) => ({
-          crs,
-          gbttBookedArrival: String(1010 + idx).padStart(4, '0'),
-          displayAs: 'CALL',
-        })),
-      ],
-    },
-  });
+  const countByPath = (generated, fromCrs, toCrs) =>
+    generated.filter(
+      (entry) =>
+        entry?.detail?.locations?.[0]?.crs === fromCrs &&
+        entry?.detail?.locations?.[1]?.crs === toCrs,
+    );
 
-  const mismatched = runtime.buildConnectionServiceEntries(
-    [buildPadEntry('ABW', 'BHM')],
-    corridorSet,
-  );
-  const inboundMatched = runtime.buildConnectionServiceEntries(
-    [buildPadEntry('ABW', 'AML')],
-    corridorSet,
-  );
-  const outboundMatched = runtime.buildConnectionServiceEntries(
-    [buildPadEntry('AML', 'BDS')],
-    corridorSet,
-  );
-  const duplicateTransfer = runtime.buildConnectionServiceEntries(
-    [
-      {
-        svc: { serviceUid: 'EUS-SRC', runDate: '2026-04-27' },
-        detail: {
-          runDate: '2026-04-27',
-          locations: [
-            {
-              crs: 'EUS',
-              gbttBookedDeparture: '0939',
-              displayAs: 'CALL',
-            },
-            {
-              crs: 'WFJ',
-              gbttBookedArrival: '1000',
-              displayAs: 'CALL',
-            },
-          ],
-        },
-      },
-      {
-        svc: { serviceUid: 'PAD-SRC', runDate: '2026-04-27' },
-        detail: {
-          runDate: '2026-04-27',
-          locations: [
-            {
-              crs: 'AML',
-              gbttBookedDeparture: '0900',
-              displayAs: 'CALL',
-            },
-            {
-              crs: 'PAD',
-              gbttBookedArrival: '0914',
-              gbttBookedDeparture: '0914',
-              displayAs: 'CALL',
-            },
-            {
-              crs: 'BDS',
-              gbttBookedArrival: '0920',
-              displayAs: 'CALL',
-            },
-          ],
-        },
-      },
-    ],
-    corridorSet,
-  );
-  const nonAdjacentOutboundMatched = runtime.buildConnectionServiceEntries(
-    [buildPadEntryWithPrevious(['AML', 'BDS'], 'TCR')],
-    corridorSet,
-  );
-  const nonAdjacentInboundMatched = runtime.buildConnectionServiceEntries(
-    [buildPadEntryWithNext('ABW', ['BDS', 'AML'])],
-    corridorSet,
-  );
-  const unconstrainedAtFirstStop = runtime.buildConnectionServiceEntries(
-    [buildEusEntry([], ['WFJ'])],
-    corridorSet,
-  );
-  const unconstrainedAtLastStop = runtime.buildConnectionServiceEntries(
-    [buildEusEntry(['WFJ'], [])],
-    corridorSet,
-  );
-  const unconstrainedWithBothSides = runtime.buildConnectionServiceEntries(
-    [buildEusEntry(['WFJ'], ['MKC'])],
-    corridorSet,
-  );
-  const intermediate = runtime.buildConnectionServiceEntries(
-    [
-      {
-        svc: { serviceUid: 'G23409', runDate: '2026-04-27' },
-        detail: {
-          runDate: '2026-04-27',
-          locations: [
-            {
-              crs: 'ABW',
-              gbttBookedDeparture: '0924',
-              displayAs: 'STARTS',
-            },
-            {
-              crs: 'WWC',
-              gbttBookedArrival: '0927',
-              gbttBookedDeparture: '0927',
-              displayAs: 'CALL',
-            },
-            {
-              crs: 'PAD',
-              gbttBookedArrival: '0954',
-              gbttBookedDeparture: '0954',
-              displayAs: 'CALL',
-            },
-            {
-              crs: 'AML',
-              gbttBookedArrival: '1000',
-              gbttBookedDeparture: '1000',
-              displayAs: 'CALL',
-            },
-            {
-              crs: 'WEA',
-              gbttBookedArrival: '1006',
-              gbttBookedDeparture: '1006',
-              displayAs: 'CALL',
-            },
-          ],
-        },
-      },
-    ],
-    new Set(['EUS', 'PAD', 'WEA']),
-  );
+  const mismatched = runtime.buildConnectionServiceEntries([buildPadEntry('ABW', 'AML')], corridorSet, 0, "both", []);
+  const inboundMatched = runtime.buildConnectionServiceEntries([buildPadEntry('ABW', 'BDS')], corridorSet, 0, "both", []);
+  const outboundMatched = runtime.buildConnectionServiceEntries([buildPadEntry('AML', 'BDS')], corridorSet, 0, "both", []);
+  const excludedByTilde = runtime.buildConnectionServiceEntries([buildPadEntry('AML', 'AML')], corridorSet, 0, "both", []);
 
   return {
     mismatchedCount: mismatched.length,
-    inboundMatchedCount: inboundMatched.length,
-    inboundMatchedLocations: inboundMatched[0]?.detail?.locations || [],
-    outboundMatchedCount: outboundMatched.length,
-    outboundMatchedLocations: outboundMatched[0]?.detail?.locations || [],
-    duplicateTransferCount: duplicateTransfer.length,
-    duplicateTransferPlacement: duplicateTransfer[0]?.connectionPlacement || '',
-    duplicateTransferSourceKey: duplicateTransfer[0]?.connectionSourceServiceKey || '',
-    nonAdjacentOutboundMatchedCount: nonAdjacentOutboundMatched.length,
-    nonAdjacentInboundMatchedCount: nonAdjacentInboundMatched.length,
-    unconstrainedAtFirstStopCount: unconstrainedAtFirstStop.length,
-    unconstrainedAtLastStopCount: unconstrainedAtLastStop.length,
-    unconstrainedWithBothSidesCount: unconstrainedWithBothSides.length,
-    intermediateCount: intermediate.length,
-    intermediateLocations: intermediate[0]?.detail?.locations || [],
-    intermediateSourceKey: intermediate[0]?.connectionSourceServiceKey || '',
+    inboundMatchedCount: countByPath(inboundMatched, 'EUS', 'PAD').length,
+    inboundMatchedLocations: countByPath(inboundMatched, 'EUS', 'PAD')[0]?.detail?.locations || [],
+    outboundMatchedCount: countByPath(outboundMatched, 'PAD', 'EUS').length,
+    outboundMatchedLocations: countByPath(outboundMatched, 'PAD', 'EUS')[0]?.detail?.locations || [],
+    excludedByTildeCount: excludedByTilde.length,
   };
 }

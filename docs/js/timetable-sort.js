@@ -177,6 +177,39 @@ function applyRowOrder(rows, rowSpecs, stationRowOrder) {
   rowSpecs.splice(0, rowSpecs.length, ...reorderedSpecs);
 }
 
+function enforceAdjacentArrDepRows(rows, rowSpecs) {
+  if (!Array.isArray(rows) || !Array.isArray(rowSpecs)) return;
+  if (rows.length !== rowSpecs.length) return;
+
+  const stationPositions = new Map();
+  rowSpecs.forEach((spec, idx) => {
+    if (!spec || spec.kind !== "station") return;
+    const stationIndex = spec.stationIndex;
+    if (stationIndex === null || stationIndex === undefined) return;
+    if (!stationPositions.has(stationIndex)) {
+      stationPositions.set(stationIndex, { arr: -1, dep: -1 });
+    }
+    const entry = stationPositions.get(stationIndex);
+    if (spec.mode === "arr") entry.arr = idx;
+    if (spec.mode === "dep") entry.dep = idx;
+  });
+
+  const stationIndices = Array.from(stationPositions.keys()).sort(
+    (a, b) => a - b,
+  );
+  stationIndices.forEach((stationIndex) => {
+    const entry = stationPositions.get(stationIndex);
+    if (!entry || entry.arr < 0 || entry.dep < 0) return;
+    if (entry.dep === entry.arr + 1) return;
+
+    const depRow = rows.splice(entry.dep, 1)[0];
+    const depSpec = rowSpecs.splice(entry.dep, 1)[0];
+    const insertAt = entry.dep < entry.arr ? entry.arr : entry.arr + 1;
+    rows.splice(insertAt, 0, depRow);
+    rowSpecs.splice(insertAt, 0, depSpec);
+  });
+}
+
 function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   const violation = findMonotonicViolation(
     rows,
@@ -1514,6 +1547,7 @@ function sortTimetableColumns({
   );
   if (rowOrder) {
     applyRowOrder(rows, rowSpecs, rowOrder);
+    enforceAdjacentArrDepRows(rows, rowSpecs);
     const violation = findMonotonicViolation(
       rows,
       rowOrderColumns,
@@ -1524,6 +1558,7 @@ function sortTimetableColumns({
       rowSpecs.splice(0, rowSpecs.length, ...originalSpecs);
     }
   }
+  enforceAdjacentArrDepRows(rows, rowSpecs);
   checkMonotonicTimes(rows, rowOrderColumns, servicesWithDetails);
 
   let partialSort = null;
@@ -1578,17 +1613,26 @@ function sortTimetableColumns({
 
   function dedupeAdjacentConnectionColumns(columnOrder) {
     const deduped = [];
-    let prevConnectionKey = "";
+    const seenConnectionKeys = new Set();
+
     columnOrder.forEach((svcIndex) => {
       const key = connectionColumnKey(svcIndex);
-      if (key && key === prevConnectionKey) {
+      if (!key) {
+        // Reset when we hit a real service or non-connection column.
+        seenConnectionKeys.clear();
+        deduped.push(svcIndex);
+        return;
+      }
+
+      if (seenConnectionKeys.has(key)) {
         sortLogLines.push(
-          `Removed adjacent duplicate connection column: ${serviceLabel(svcIndex)} (${key})`,
+          `Removed duplicate connection column in range: ${serviceLabel(svcIndex)} (${key})`,
         );
         return;
       }
+
+      seenConnectionKeys.add(key);
       deduped.push(svcIndex);
-      prevConnectionKey = key || "";
     });
     return deduped;
   }
@@ -1633,7 +1677,9 @@ function sortTimetableColumns({
       );
       if (value && typeof value === "object") {
         value.format = value.format || {};
-        value.format.bgColor = HIGHLIGHT_OUT_OF_ORDER_COLOR;
+        if (value.format.bgColor !== HIGHLIGHT_SERVICE_MISORDER_COLOR) {
+          value.format.bgColor = HIGHLIGHT_OUT_OF_ORDER_COLOR;
+        }
       } else {
         rows[r].cells[svcIndex] = {
           text: timeText,
@@ -1695,7 +1741,9 @@ function sortTimetableColumns({
         );
         if (depVal && typeof depVal === "object") {
           depVal.format = depVal.format || {};
-          depVal.format.bgColor = HIGHLIGHT_DEP_AFTER_ARRIVAL_COLOR;
+          if (depVal.format.bgColor !== HIGHLIGHT_SERVICE_MISORDER_COLOR) {
+            depVal.format.bgColor = HIGHLIGHT_DEP_AFTER_ARRIVAL_COLOR;
+          }
         } else {
           rows[entry.dep].cells[svcIndex] = {
             text: depText,

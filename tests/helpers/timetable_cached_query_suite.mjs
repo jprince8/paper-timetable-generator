@@ -209,6 +209,29 @@ function assertStationOrderByLabel(directionName, directionData, orderedLabels) 
   });
 }
 
+function assertSplitArrDepRowsAreAdjacent(directionName, directionData) {
+  const rows = directionData?.model?.rows || [];
+  rows.forEach((row, idx) => {
+    if (!row || row.kind !== 'station') return;
+    const rowMode = String(row.mode || '').toLowerCase();
+    const rowLabel = String(row.labelArrDep || '').toLowerCase();
+    const isArrRow = rowMode === 'arr' || rowLabel === 'arr';
+    if (!isArrRow) return;
+
+    const next = rows[idx + 1];
+    assert.ok(
+      next && next.kind === 'station',
+      `${directionName}: expected station dep row immediately below arr row ${idx} (${row.labelStation || 'unnamed station'})`,
+    );
+    const nextMode = String(next.mode || '').toLowerCase();
+    const nextLabel = String(next.labelArrDep || '').toLowerCase();
+    assert.ok(
+      nextMode === 'dep' || nextLabel === 'dep',
+      `${directionName}: expected dep row immediately below arr row ${idx} (${row.labelStation || 'unnamed station'})`,
+    );
+  });
+}
+
 function assertWalkOnlyAppearsAsPdfOperator(directionName, directionData) {
   const tableData = directionData?.pdfTableData || {};
   const headers = tableData.headers || [];
@@ -332,6 +355,12 @@ export function registerCachedQuerySuite({
       assertStationOrderByLabel('AB', result.ab, expectedAbStationOrderLabels);
     });
   }
+
+  test(`${suiteLabel} keeps split station arr/dep rows adjacent`, async () => {
+    const result = await getResult();
+    assertSplitArrDepRowsAreAdjacent('AB', result.ab);
+    assertSplitArrDepRowsAreAdjacent('BA', result.ba);
+  });
 
   test(`${suiteLabel} columns have continuous time-or-line blocks with gaps only outside active range`, async () => {
     const result = await getResult();

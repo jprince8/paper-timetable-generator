@@ -199,7 +199,10 @@ async function seedFixture({ repoRoot, queryUrl, cacheDir }) {
   };
 
   const atocCodes = JSON.parse(fs.readFileSync(path.join(repoRoot, 'data/atoc_codes.json'), 'utf8'));
-  const connections = JSON.parse(fs.readFileSync(path.join(repoRoot, 'data/connections.json'), 'utf8'));
+  const connectionsPath = fs.existsSync(path.join(repoRoot, 'data/connections.json'))
+    ? path.join(repoRoot, 'data/connections.json')
+    : path.join(repoRoot, 'data/connections2.json');
+  const connections = JSON.parse(fs.readFileSync(connectionsPath, 'utf8'));
   const stations = JSON.parse(fs.readFileSync(path.join(repoRoot, 'data/stations.json'), 'utf8'));
 
   const requiredRequestKeys = new Set();
