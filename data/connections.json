@@ -4,7 +4,7 @@
       "previousStations": null,
       "connections": {
         "STP": {
-          "durationMinutes": 5,
+          "durationMinutes": 7,
           "mode": "walk"
         },
         "EUS": {
@@ -50,7 +50,7 @@
           "mode": "Underground"
         },
         "KGX": {
-          "durationMinutes": 5,
+          "durationMinutes": 7,
           "mode": "walk"
         }
       }
