@@ -4,3 +4,4 @@ requests
 reportlab
 svglib==1.5.1
 gunicorn>=21.2
+openpyxl

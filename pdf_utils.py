@@ -256,6 +256,13 @@ def _split_columns(widths, available_width):
 
 
 def build_timetable_pdf(tables, meta=None):
+    meta = meta or {}
+    doc_title = _cell_text(meta.get("title", "")).strip()
+    doc_subtitle = _cell_text(meta.get("subtitle", "")).strip()
+    pdf_document_title = _cell_text(
+        meta.get("documentTitle") or doc_title or "Paper Timetable"
+    ).strip()
+
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -301,10 +308,15 @@ def build_timetable_pdf(tables, meta=None):
     )
 
     elements = []
-    meta = meta or {}
 
     def draw_footer(canvas, doc):
         canvas.saveState()
+        if pdf_document_title:
+            canvas.setTitle(pdf_document_title)
+        canvas.setAuthor("Paper Timetable Generator")
+        canvas.setSubject(pdf_document_title or "Rail timetable")
+        if hasattr(canvas, "setCreator"):
+            canvas.setCreator("Paper Timetable Generator")
         footer_text = "Created by Paper Timetable Generator using RTT data"
         page_text = f"Page {doc.page}"
         y = doc.bottomMargin - 18
@@ -313,8 +325,6 @@ def build_timetable_pdf(tables, meta=None):
         canvas.drawRightString(doc.pagesize[0] - doc.rightMargin, y, page_text)
         canvas.restoreState()
 
-    doc_title = _cell_text(meta.get("title", "")).strip()
-    doc_subtitle = _cell_text(meta.get("subtitle", "")).strip()
     if doc_title:
         elements.append(Paragraph(doc_title, doc_title_style))
     if doc_title and doc_subtitle:

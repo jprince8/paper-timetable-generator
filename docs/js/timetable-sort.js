@@ -177,6 +177,39 @@ function applyRowOrder(rows, rowSpecs, stationRowOrder) {
   rowSpecs.splice(0, rowSpecs.length, ...reorderedSpecs);
 }
 
+function enforceAdjacentArrDepRows(rows, rowSpecs) {
+  if (!Array.isArray(rows) || !Array.isArray(rowSpecs)) return;
+  if (rows.length !== rowSpecs.length) return;
+
+  const stationPositions = new Map();
+  rowSpecs.forEach((spec, idx) => {
+    if (!spec || spec.kind !== "station") return;
+    const stationIndex = spec.stationIndex;
+    if (stationIndex === null || stationIndex === undefined) return;
+    if (!stationPositions.has(stationIndex)) {
+      stationPositions.set(stationIndex, { arr: -1, dep: -1 });
+    }
+    const entry = stationPositions.get(stationIndex);
+    if (spec.mode === "arr") entry.arr = idx;
+    if (spec.mode === "dep") entry.dep = idx;
+  });
+
+  const stationIndices = Array.from(stationPositions.keys()).sort(
+    (a, b) => a - b,
+  );
+  stationIndices.forEach((stationIndex) => {
+    const entry = stationPositions.get(stationIndex);
+    if (!entry || entry.arr < 0 || entry.dep < 0) return;
+    if (entry.dep === entry.arr + 1) return;
+
+    const depRow = rows.splice(entry.dep, 1)[0];
+    const depSpec = rowSpecs.splice(entry.dep, 1)[0];
+    const insertAt = entry.dep < entry.arr ? entry.arr : entry.arr + 1;
+    rows.splice(insertAt, 0, depRow);
+    rowSpecs.splice(insertAt, 0, depSpec);
+  });
+}
+
 function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   const violation = findMonotonicViolation(
     rows,
@@ -191,12 +224,18 @@ function checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails) {
   if (violation.headcode) {
     detailParts.push(`headcode: ${violation.headcode}`);
   }
-  assertWithStatus(
-    false,
-    "Some services cannot show calling points in order (red highlighted)",
-    detailParts.join(", "),
-    { keepOutputs: true, allowContinue: true },
-  );
+  const summary = "Some services cannot show calling points in order (red highlighted)";
+  const details = detailParts.join(", ");
+  if (typeof assertWithStatus === "function") {
+    assertWithStatus(
+      false,
+      summary,
+      details,
+      { keepOutputs: true, allowContinue: true },
+    );
+    return;
+  }
+  console.warn(`${summary}: ${details}`);
 }
 
 function sortTimetableColumns({
@@ -219,6 +258,7 @@ function sortTimetableColumns({
   const stationLabels = displayStations.map(
     (station) => station.name || station.crs || "?",
   );
+  let groupMembersByLeader = new Map();
   sortLogLines.push("Column sort log");
   sortLogLines.push(`Stations: ${stationLabels.join(" → ")}`);
   sortLogLines.push(`Services: ${numServices}`);
@@ -262,6 +302,132 @@ function sortTimetableColumns({
       svc.serviceUid ||
       `svc#${serviceIdx + 1}`
     );
+  }
+
+  function serviceIdentity(serviceIdx) {
+    const entry = servicesWithDetails[serviceIdx] || {};
+    const svc = entry.svc || {};
+    const detail = entry.detail || {};
+    const serviceKey =
+      entry.serviceKey ||
+      detail.serviceKey ||
+      (svc.serviceUid || svc.runDate ? `${svc.serviceUid || ""}|${svc.runDate || ""}` : "");
+    if (serviceKey) return serviceKey;
+    const uid = svc.serviceUid || "";
+    const runDate = svc.runDate || detail.runDate || "";
+    if (!uid && !runDate) return "";
+    return `${uid}|${runDate}`;
+  }
+
+  function connectionSourceIdentity(serviceIdx) {
+    const entry = servicesWithDetails[serviceIdx] || {};
+    const svc = entry.svc || {};
+    const detail = entry.detail || {};
+    const uid = svc.serviceUid || svc.originalServiceUid || "";
+    const isSyntheticConnection =
+      entry.isConnection === true || String(uid).startsWith("CONN-");
+    if (!isSyntheticConnection) return "";
+    const sourceServiceKey =
+      entry.connectionSourceServiceKey ||
+      detail.connectionSourceServiceKey ||
+      "";
+    if (sourceServiceKey) return sourceServiceKey;
+    const sourceUid =
+      entry.connectionSourceServiceUid ||
+      detail.connectionSourceServiceUid ||
+      "";
+    const sourceRunDate =
+      entry.connectionSourceRunDate ||
+      detail.connectionSourceRunDate ||
+      "";
+    if (!sourceUid && !sourceRunDate) return "";
+    return `${sourceUid}|${sourceRunDate}`;
+  }
+
+  function buildConnectionSortGroups(serviceIndices) {
+    const connectionsBeforeBySource = new Map();
+    const connectionsAfterBySource = new Map();
+    const keyedConnectionIndices = new Set();
+
+    serviceIndices.forEach((svcIdx) => {
+      const sourceIdentity = connectionSourceIdentity(svcIdx);
+      if (!sourceIdentity) return;
+      keyedConnectionIndices.add(svcIdx);
+      const entry = servicesWithDetails[svcIdx] || {};
+      const placement =
+        (entry.connectionPlacement || entry.detail?.connectionPlacement || "after")
+          .toLowerCase() === "before"
+          ? "before"
+          : "after";
+      const targetMap =
+        placement === "before" ? connectionsBeforeBySource : connectionsAfterBySource;
+      if (!targetMap.has(sourceIdentity)) {
+        targetMap.set(sourceIdentity, []);
+      }
+      targetMap.get(sourceIdentity).push(svcIdx);
+    });
+
+    const groupLeaders = [];
+    const groupMembersByLeader = new Map();
+    const assignedConnections = new Set();
+
+    serviceIndices.forEach((svcIdx) => {
+      if (keyedConnectionIndices.has(svcIdx)) return;
+      const members = [];
+      const sourceIdentity = serviceIdentity(svcIdx);
+      const linkedConnectionsBefore = sourceIdentity
+        ? connectionsBeforeBySource.get(sourceIdentity)
+        : null;
+      const linkedConnectionsAfter = sourceIdentity
+        ? connectionsAfterBySource.get(sourceIdentity)
+        : null;
+      if (linkedConnectionsBefore && linkedConnectionsBefore.length > 0) {
+        linkedConnectionsBefore.forEach((connIdx) => {
+          if (assignedConnections.has(connIdx)) return;
+          members.push(connIdx);
+          assignedConnections.add(connIdx);
+        });
+      }
+      members.push(svcIdx);
+      if (linkedConnectionsAfter && linkedConnectionsAfter.length > 0) {
+        linkedConnectionsAfter.forEach((connIdx) => {
+          if (assignedConnections.has(connIdx)) return;
+          members.push(connIdx);
+          assignedConnections.add(connIdx);
+        });
+      }
+      groupLeaders.push(svcIdx);
+      groupMembersByLeader.set(svcIdx, members);
+    });
+
+    serviceIndices.forEach((svcIdx) => {
+      if (!keyedConnectionIndices.has(svcIdx)) return;
+      if (assignedConnections.has(svcIdx)) return;
+      groupLeaders.push(svcIdx);
+      groupMembersByLeader.set(svcIdx, [svcIdx]);
+      assignedConnections.add(svcIdx);
+    });
+
+    return { groupLeaders, groupMembersByLeader };
+  }
+
+  function expandGroupedOrder(groupLeaderOrder, groupMembersByLeader) {
+    const expanded = [];
+    groupLeaderOrder.forEach((leaderIdx) => {
+      const members = groupMembersByLeader.get(leaderIdx);
+      if (!Array.isArray(members) || members.length === 0) {
+        expanded.push(leaderIdx);
+        return;
+      }
+      expanded.push(...members);
+    });
+    return expanded;
+  }
+
+  function groupedMembersForSort(serviceIdx) {
+    const members = groupMembersByLeader.get(serviceIdx);
+    if (Array.isArray(members) && members.length > 0) return members;
+    return [serviceIdx];
   }
 
   function preferredTimeMinsAtStation(serviceIdx, stationIdx) {
@@ -311,7 +477,7 @@ function sortTimetableColumns({
     };
   }
 
-  function stationTimeMins(
+  function stationTimeMinsForSingleService(
     serviceIdx,
     stationIdx,
     arrOnlyStationIdx = null,
@@ -342,6 +508,115 @@ function sortTimetableColumns({
     return getDisplayedTimeInfo(serviceIdx, stationIdx, isArrival).mins;
   }
 
+  function stationTimeMins(
+    serviceIdx,
+    stationIdx,
+    arrOnlyStationIdx = null,
+    modeOverride = null,
+    ignoreFromStationIdx = null,
+    depOnlyStationIdx = null,
+    ignoreStationIdx = null,
+  ) {
+    let chosen = null;
+    groupedMembersForSort(serviceIdx).forEach((memberIdx) => {
+      const mins = stationTimeMinsForSingleService(
+        memberIdx,
+        stationIdx,
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
+      if (mins === null) return;
+      if (chosen === null || mins < chosen) {
+        chosen = mins;
+      }
+    });
+    return chosen;
+  }
+
+  function stationTimeRoleForSingleService(
+    serviceIdx,
+    stationIdx,
+    arrOnlyStationIdx = null,
+    modeOverride = null,
+    ignoreFromStationIdx = null,
+    depOnlyStationIdx = null,
+    ignoreStationIdx = null,
+  ) {
+    const t = stationTimes[stationIdx][serviceIdx];
+    if (!t) return "";
+    if (ignoreStationIdx === stationIdx) return "";
+    if (ignoreFromStationIdx !== null && stationIdx >= ignoreFromStationIdx) {
+      return "";
+    }
+    if (arrOnlyStationIdx === stationIdx || modeOverride === "arrOnly") {
+      return getDisplayedTimeInfo(serviceIdx, stationIdx, true).mins === null
+        ? ""
+        : "arr";
+    }
+    if (depOnlyStationIdx === stationIdx || modeOverride === "depOnly") {
+      return getDisplayedTimeInfo(serviceIdx, stationIdx, false).mins === null
+        ? ""
+        : "dep";
+    }
+    if (modeOverride === "ignore") return "";
+    const hasDeparture = t.loc?.gbttBookedDeparture || t.loc?.realtimeDeparture;
+    const isArrival = !hasDeparture;
+    return getDisplayedTimeInfo(serviceIdx, stationIdx, isArrival).mins === null
+      ? ""
+      : isArrival
+        ? "arr"
+        : "dep";
+  }
+
+  function stationTimeRole(
+    serviceIdx,
+    stationIdx,
+    arrOnlyStationIdx = null,
+    modeOverride = null,
+    ignoreFromStationIdx = null,
+    depOnlyStationIdx = null,
+    ignoreStationIdx = null,
+  ) {
+    let chosen = null;
+    groupedMembersForSort(serviceIdx).forEach((memberIdx) => {
+      const mins = stationTimeMinsForSingleService(
+        memberIdx,
+        stationIdx,
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
+      if (mins === null) return;
+      const role = stationTimeRoleForSingleService(
+        memberIdx,
+        stationIdx,
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
+      const roleRank = role === "dep" ? 1 : 0;
+      if (
+        chosen === null ||
+        mins < chosen.mins ||
+        (mins === chosen.mins && roleRank < chosen.roleRank)
+      ) {
+        chosen = { mins, role, roleRank };
+      }
+    });
+    return chosen ? chosen.role : "";
+  }
+
+  function stationTimeRoleComesBefore(leftRole, rightRole) {
+    return leftRole === "arr" && rightRole === "dep";
+  }
+
   function firstTimeInfo(serviceIdx) {
     let firstMins = null;
     let firstRow = null;
@@ -359,7 +634,7 @@ function sortTimetableColumns({
     return { firstMins, firstRow };
   }
 
-  function stationTimeLabel(
+  function stationTimeLabelForSingleService(
     serviceIdx,
     stationIdx,
     arrOnlyStationIdx = null,
@@ -388,6 +663,43 @@ function sortTimetableColumns({
     const hasDeparture = t.loc?.gbttBookedDeparture || t.loc?.realtimeDeparture;
     const isArrival = !hasDeparture;
     return getDisplayedTimeInfo(serviceIdx, stationIdx, isArrival).text;
+  }
+
+  function stationTimeLabel(
+    serviceIdx,
+    stationIdx,
+    arrOnlyStationIdx = null,
+    modeOverride = null,
+    ignoreFromStationIdx = null,
+    depOnlyStationIdx = null,
+    ignoreStationIdx = null,
+  ) {
+    let chosen = null;
+    groupedMembersForSort(serviceIdx).forEach((memberIdx) => {
+      const mins = stationTimeMinsForSingleService(
+        memberIdx,
+        stationIdx,
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
+      if (mins === null) return;
+      const text = stationTimeLabelForSingleService(
+        memberIdx,
+        stationIdx,
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
+      if (chosen === null || mins < chosen.mins) {
+        chosen = { mins, text };
+      }
+    });
+    return chosen ? chosen.text : "";
   }
 
   function findInsertBounds(serviceIdx, orderedSvcIndices, options = {}) {
@@ -430,6 +742,15 @@ function sortTimetableColumns({
         depOnlyStationIdx,
         ignoreStationIdx,
       );
+      const timeRole = stationTimeRole(
+        serviceIdx,
+        stationIdx,
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
 
       let lastLE = -1;
       let firstGE = orderedSvcIndices.length;
@@ -447,9 +768,28 @@ function sortTimetableColumns({
           ignoreStationIdx,
         );
         if (otherTime === null) continue;
+        const otherRole = stationTimeRole(
+          otherSvc,
+          stationIdx,
+          arrOnlyStationIdx,
+          modeOverride,
+          ignoreFromStationIdx,
+          depOnlyStationIdx,
+          ignoreStationIdx,
+        );
 
-        if (otherTime < time) lastLE = pos;
-        if (otherTime > time) {
+        if (
+          otherTime < time ||
+          (otherTime === time &&
+            stationTimeRoleComesBefore(otherRole, timeRole))
+        ) {
+          lastLE = pos;
+        }
+        if (
+          otherTime > time ||
+          (otherTime === time &&
+            stationTimeRoleComesBefore(timeRole, otherRole))
+        ) {
           greaterPositions.push(pos);
           if (firstGE === orderedSvcIndices.length) {
             firstGE = pos;
@@ -888,10 +1228,21 @@ function sortTimetableColumns({
   const sortSequence = [];
   let unsortedServices = null;
   let unsortedLabels = null;
-  const remainingServices = Array.from(
+  const allServiceIndices = Array.from(
     { length: numServices },
     (_, idx) => idx,
   );
+  const { groupLeaders, groupMembersByLeader: computedGroupMembersByLeader } = buildConnectionSortGroups(
+    allServiceIndices,
+  );
+  groupMembersByLeader = computedGroupMembersByLeader;
+  const remainingServices = groupLeaders.slice();
+  const groupedConnectionCount = numServices - groupLeaders.length;
+  if (groupedConnectionCount > 0) {
+    sortLogLines.push(
+      `Connection grouping: formed ${groupLeaders.length} virtual columns from ${numServices} services (${groupedConnectionCount} attached connection columns).`,
+    );
+  }
   remainingServices.sort((a, b) => {
     const infoA = firstTimeInfo(a);
     const infoB = firstTimeInfo(b);
@@ -1019,29 +1370,8 @@ function sortTimetableColumns({
   const HIGHLIGHT_SERVICE_MISORDER_COLOR =
     highlightColors?.serviceMisorder || "#f7c9c9";
 
-  const originalRows = rows.slice();
-  const originalSpecs = rowSpecs.slice();
-  const rowOrder = buildMonotonicRowOrder(
-    rows,
-    rowSpecs,
-    orderedSvcIndices,
-  );
-  if (rowOrder) {
-    applyRowOrder(rows, rowSpecs, rowOrder);
-    const violation = findMonotonicViolation(
-      rows,
-      orderedSvcIndices,
-      servicesWithDetails,
-    );
-    if (violation) {
-      rows.splice(0, rows.length, ...originalRows);
-      rowSpecs.splice(0, rowSpecs.length, ...originalSpecs);
-    }
-  }
-  checkMonotonicTimes(rows, orderedSvcIndices, servicesWithDetails);
-
-  function applyServiceMisorderHighlight() {
-    orderedSvcIndices.forEach((svcIndex) => {
+  function applyServiceMisorderHighlight(columnOrder) {
+    columnOrder.forEach((svcIndex) => {
       let dayOffset = 0;
 
       let prevAbs = null;  // for detecting day rollover
@@ -1088,8 +1418,6 @@ function sortTimetableColumns({
       }
     });
   }
-
-  applyServiceMisorderHighlight();
 
   function tryResortForHighlighting() {
     let movedAny = false;
@@ -1198,7 +1526,40 @@ function sortTimetableColumns({
     return movedAny;
   }
 
-  const resortedForHighlight = tryResortForHighlighting();
+  tryResortForHighlighting();
+  displayOrderedSvcIndices = expandGroupedOrder(
+    orderedSvcIndices,
+    groupMembersByLeader,
+  );
+  if (displayOrderedSvcIndices.length !== orderedSvcIndices.length) {
+    sortLogLines.push(
+      "Expanded virtual service+connection column groups into display columns after sorting.",
+    );
+  }
+
+  const rowOrderColumns = displayOrderedSvcIndices.slice();
+  const originalRows = rows.slice();
+  const originalSpecs = rowSpecs.slice();
+  const rowOrder = buildMonotonicRowOrder(
+    rows,
+    rowSpecs,
+    rowOrderColumns,
+  );
+  if (rowOrder) {
+    applyRowOrder(rows, rowSpecs, rowOrder);
+    enforceAdjacentArrDepRows(rows, rowSpecs);
+    const violation = findMonotonicViolation(
+      rows,
+      rowOrderColumns,
+      servicesWithDetails,
+    );
+    if (violation) {
+      rows.splice(0, rows.length, ...originalRows);
+      rowSpecs.splice(0, rowSpecs.length, ...originalSpecs);
+    }
+  }
+  enforceAdjacentArrDepRows(rows, rowSpecs);
+  checkMonotonicTimes(rows, rowOrderColumns, servicesWithDetails);
 
   let partialSort = null;
   let spacerIndex = null;
@@ -1216,30 +1577,77 @@ function sortTimetableColumns({
       row.cells[spacerIndex] = "";
     });
     displayOrderedSvcIndices = [
-      ...orderedSvcIndices,
+      ...expandGroupedOrder(orderedSvcIndices, groupMembersByLeader),
       spacerIndex,
-      ...unsortedServices,
+      ...expandGroupedOrder(unsortedServices, groupMembersByLeader),
     ];
     partialSort = {
       unsortedLabels: unsortedLabels || [],
     };
   }
 
-  if (resortedForHighlight) {
-    displayOrderedSvcIndices = orderedSvcIndices.slice();
-    if (spacerIndex !== null && unsortedServices && unsortedServices.length > 0) {
-      displayOrderedSvcIndices = [
-        ...orderedSvcIndices,
-        spacerIndex,
-        ...unsortedServices,
-      ];
-    }
+  function connectionColumnKey(serviceIdx) {
+    const entry = servicesWithDetails[serviceIdx];
+    if (!entry) return "";
+    const svc = entry.svc || {};
+    const detail = entry.detail || {};
+    const uid = svc.serviceUid || svc.originalServiceUid || "";
+    const isConnection =
+      entry.isConnection === true || String(uid).startsWith("CONN-");
+    if (!isConnection) return "";
+
+    const locations = Array.isArray(detail.locations) ? detail.locations : [];
+    const fromCrs = String(locations[0]?.crs || "").trim().toUpperCase();
+    const toCrs = String(locations[locations.length - 1]?.crs || "")
+      .trim()
+      .toUpperCase();
+    if (!fromCrs || !toCrs) return "";
+
+    const mode = String(
+      detail.connectionMode || detail.serviceType || svc.serviceType || "",
+    )
+      .trim()
+      .toLowerCase();
+    return `${mode}|${fromCrs}|${toCrs}`;
   }
+
+  function dedupeAdjacentConnectionColumns(columnOrder) {
+    const deduped = [];
+    const seenConnectionKeys = new Set();
+
+    columnOrder.forEach((svcIndex) => {
+      const key = connectionColumnKey(svcIndex);
+      if (!key) {
+        // Reset when we hit a real service or non-connection column.
+        seenConnectionKeys.clear();
+        deduped.push(svcIndex);
+        return;
+      }
+
+      if (seenConnectionKeys.has(key)) {
+        sortLogLines.push(
+          `Removed duplicate connection column in range: ${serviceLabel(svcIndex)} (${key})`,
+        );
+        return;
+      }
+
+      seenConnectionKeys.add(key);
+      deduped.push(svcIndex);
+    });
+    return deduped;
+  }
+
+  displayOrderedSvcIndices = dedupeAdjacentConnectionColumns(
+    displayOrderedSvcIndices,
+  );
 
   const highlightCutoff =
     spacerIndex !== null
       ? displayOrderedSvcIndices.indexOf(spacerIndex)
       : displayOrderedSvcIndices.length;
+  const highlightColumns = displayOrderedSvcIndices.slice(0, highlightCutoff);
+
+  applyServiceMisorderHighlight(highlightColumns);
 
   for (let r = 0; r < rows.length; r++) {
     let minTime = null;
@@ -1269,7 +1677,9 @@ function sortTimetableColumns({
       );
       if (value && typeof value === "object") {
         value.format = value.format || {};
-        value.format.bgColor = HIGHLIGHT_OUT_OF_ORDER_COLOR;
+        if (value.format.bgColor !== HIGHLIGHT_SERVICE_MISORDER_COLOR) {
+          value.format.bgColor = HIGHLIGHT_OUT_OF_ORDER_COLOR;
+        }
       } else {
         rows[r].cells[svcIndex] = {
           text: timeText,
@@ -1331,7 +1741,9 @@ function sortTimetableColumns({
         );
         if (depVal && typeof depVal === "object") {
           depVal.format = depVal.format || {};
-          depVal.format.bgColor = HIGHLIGHT_DEP_AFTER_ARRIVAL_COLOR;
+          if (depVal.format.bgColor !== HIGHLIGHT_SERVICE_MISORDER_COLOR) {
+            depVal.format.bgColor = HIGHLIGHT_DEP_AFTER_ARRIVAL_COLOR;
+          }
         } else {
           rows[entry.dep].cells[svcIndex] = {
             text: depText,

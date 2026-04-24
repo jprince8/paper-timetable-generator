@@ -1,6 +1,7 @@
 // === Configuration ===
 // URL query flags:
 // - debug_stations=1/true enables station selection/dwell logging
+// - debug_connections=1/true enables synthetic connection logging
 // - sort_log=1/true enables sort log downloads
 // - rtt_cache=1/true enables local RTT caching
 function hasEnabledQueryFlag(flag) {
@@ -11,11 +12,14 @@ function hasEnabledQueryFlag(flag) {
 }
 
 const DEBUG_STATIONS = hasEnabledQueryFlag("debug_stations");
+const DEBUG_CONNECTIONS = hasEnabledQueryFlag("debug_connections");
 const ENABLE_SORT_LOG_DOWNLOAD = hasEnabledQueryFlag("sort_log");
 const RTT_CACHE_ENABLED = hasEnabledQueryFlag("rtt_cache");
+window.DEBUG_CONNECTIONS = DEBUG_CONNECTIONS;
 
 const ENABLED_OPTIONS = [
   DEBUG_STATIONS ? "debug_stations" : null,
+  DEBUG_CONNECTIONS ? "debug_connections" : null,
   ENABLE_SORT_LOG_DOWNLOAD ? "sort_log" : null,
   RTT_CACHE_ENABLED ? "rtt_cache" : null,
 ].filter(Boolean);
@@ -32,10 +36,12 @@ const PROXY_SEARCH = `${BACKEND_BASE}/rtt/search`;
 const PROXY_SERVICE = `${BACKEND_BASE}/rtt/service`;
 const PROXY_PDF = `${BACKEND_BASE}/timetable/pdf`; // if you call this from JS
 const PROXY_STATION = `${BACKEND_BASE}/api/stations`; // if you call this from JS
+const PROXY_ATOC = `${BACKEND_BASE}/api/atoc-codes`;
 
 const STATION_DEBOUNCE_MS = 180;
 const STATION_MIN_QUERY = 2;
 const ALWAYS_SORT_CANCELLED_TIMES = true;
+const INIT_SERVICE_DETAILS_ONLY_IN_RANGE = true;
 
 const RTT_CACHE_PREFIX = "rttCache:";
 const rttCacheEnabled = RTT_CACHE_ENABLED;
@@ -219,6 +225,72 @@ let buildInProgress = false;
 let buildCancelled = false;
 let suppressNextSubmit = false;
 let hasCompletedBuild = false;
+let atocNameByCode = {};
+let lookupLoadPromise = null;
+let lookupLoadState = "idle";
+let lookupLoadError = null;
+const LOOKUP_LOAD_ERROR_MESSAGE =
+  "Connection lookup data unavailable; cannot validate via connections.";
+
+function resolveInputStationLabel(crs, inputValue, fallback) {
+  const trimmed = (inputValue || "").trim();
+  if (trimmed) return trimmed;
+  return fallback || crs || "";
+}
+
+function loadLookupData(fetcher = fetch) {
+  if (lookupLoadPromise) return lookupLoadPromise;
+  lookupLoadState = "loading";
+  lookupLoadError = null;
+  const fetchJsonOrThrow = async (url) => {
+    const resp = await fetcher(url);
+    if (!resp.ok) {
+      throw new Error(`Lookup request failed (${resp.status}) for ${url}`);
+    }
+    return resp.json();
+  };
+  lookupLoadPromise = Promise.all([
+    fetchJsonOrThrow(PROXY_ATOC),
+    fetchJsonOrThrow(PROXY_CONNECTIONS),
+  ])
+    .then(([atocData, connectionsData]) => {
+      atocNameByCode = atocData || {};
+      connectionsByStation = normaliseConnectionData(connectionsData);
+      lookupLoadState = "loaded";
+      return { atocData, connectionsData };
+    })
+    .catch((err) => {
+      console.warn("Failed to load lookup data:", err);
+      atocNameByCode = {};
+      connectionsByStation = {};
+      lookupLoadState = "failed";
+      lookupLoadError = err;
+      throw err;
+    });
+  return lookupLoadPromise;
+}
+
+async function ensureLookupDataReadyForBuild() {
+  if (lookupLoadState === "loaded") return true;
+  try {
+    await loadLookupData();
+  } catch (err) {
+    // Lookup load errors are handled via hard-stop status below.
+  }
+  if (lookupLoadState !== "loaded") {
+    if (lookupLoadError) {
+      console.warn("Lookup data unavailable for build:", lookupLoadError);
+    }
+    setStatus(LOOKUP_LOAD_ERROR_MESSAGE, { isError: true });
+    return false;
+  }
+  return true;
+}
+
+function minutesToRttTime(mins) {
+  const time = minutesToTimeStr(mins);
+  return time.replace(":", "");
+}
 
 function setBuildInProgress(active) {
   buildInProgress = active;
@@ -865,7 +937,8 @@ if (new URLSearchParams(window.location.search).size > 0) {
     realtimePreferred = realtimeRaw === "true";
   }
 }
-hydratePrefilledStations().then(() => {
+const lookupInitialisationPromise = loadLookupData().catch(() => undefined);
+Promise.all([hydratePrefilledStations(), lookupInitialisationPromise]).then(() => {
   if (shouldAutoSubmit) {
     setTimeout(() => {
       form.requestSubmit();
@@ -901,6 +974,20 @@ function serviceCallsAllStationsInRange(detail, crsSet) {
 
     const disp = (loc.displayAs || "").toUpperCase();
     if (disp === "PASS" || disp === "CANCELLED_PASS") return true;
+
+    return serviceInTimeRange(loc);
+  });
+}
+
+function serviceAnyStationInRange(detail, crsSet) {
+  if (!detail || !Array.isArray(detail.locations)) return false;
+
+  return detail.locations.some((loc) => {
+    const crs = loc.crs || "";
+    if (!crsSet.has(crs)) return false;
+
+    const disp = (loc.displayAs || "").toUpperCase();
+    if (disp === "PASS" || disp === "CANCELLED_PASS") return false;
 
     return serviceInTimeRange(loc);
   });
@@ -1105,7 +1192,7 @@ downloadPdfBtn.addEventListener("click", async () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "timetable.pdf";
+    link.download = lastPdfPayload.meta?.filename || "timetable.pdf";
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -1201,6 +1288,8 @@ function renderTimetablesFromContext(context) {
     reverseStopsLabel,
     corridorLabel,
     dateLabel,
+    pdfDocumentTitle,
+    pdfFilename,
     generatedTimestamp,
   } = context;
   const hasServices = servicesAB.length > 0 || servicesBA.length > 0;
@@ -1213,10 +1302,12 @@ function renderTimetablesFromContext(context) {
     const modelAB = buildTimetableModel(stations, stationSet, servicesAB, {
       realtimeEnabled,
       showPlatforms: showPlatformsEnabled,
+      atocNameByCode,
     });
     const pdfModelAB = buildTimetableModel(stations, stationSet, servicesAB, {
       realtimeEnabled: false,
       showPlatforms: showPlatformsEnabled,
+      atocNameByCode,
     });
     headingAB.textContent =
       forwardStopsLabel + " (" + modelAB.serviceCount + " services)";
@@ -1260,10 +1351,12 @@ function renderTimetablesFromContext(context) {
     const modelBA = buildTimetableModel(stationsRev, stationSet, servicesBA, {
       realtimeEnabled,
       showPlatforms: showPlatformsEnabled,
+      atocNameByCode,
     });
     const pdfModelBA = buildTimetableModel(stationsRev, stationSet, servicesBA, {
       realtimeEnabled: false,
       showPlatforms: showPlatformsEnabled,
+      atocNameByCode,
     });
     headingBA.textContent =
       reverseStopsLabel + " (" + modelBA.serviceCount + " services)";
@@ -1318,6 +1411,8 @@ function renderTimetablesFromContext(context) {
       meta: {
         title,
         subtitle,
+        documentTitle: pdfDocumentTitle || title,
+        filename: pdfFilename,
       },
       tables: pdfTables,
     };
@@ -1357,6 +1452,9 @@ form.addEventListener("submit", async (e) => {
   // Run HTML5 validation for "required" fields, min/max, etc.
   stationFields.forEach((field) => updateStationValidity(field));
   if (!form.reportValidity()) {
+    return;
+  }
+  if (!(await ensureLookupDataReadyForBuild())) {
     return;
   }
 
@@ -1532,6 +1630,7 @@ form.addEventListener("submit", async (e) => {
 
   // Full corridor chain including vias
   const corridorStations = [from, ...viaValues, to];
+  const corridorSet = new Set(corridorStations.filter(Boolean));
 
   const corridorPaths = buildCorridorPaths(from, to, viaEntries);
   const corridorLegs = buildCorridorLegs(corridorPaths);
@@ -1664,13 +1763,17 @@ form.addEventListener("submit", async (e) => {
         const toCrs = path[i + 1];
         const count =
           legServiceCounts.get(`${fromCrs}|${toCrs}`) || 0;
-        if (count === 0) {
+        if (count === 0 && !hasConnectionBetweenStations(fromCrs, toCrs)) {
           missing.push({ from: fromCrs, to: toCrs });
         }
       }
       return { path, missing };
     })
     .filter((entry) => entry.missing.length > 0);
+  const connectionsAllowAllLegs = corridorLegs.every((leg) => {
+    const count = legServiceCounts.get(`${leg.from}|${leg.to}`) || 0;
+    return count > 0 || hasConnectionBetweenStations(leg.from, leg.to);
+  });
   if (invalidPaths.length === corridorPaths.length) {
     invalidPaths.sort((a, b) => a.missing.length - b.missing.length);
     const gap = invalidPaths[0].missing[0];
@@ -1684,8 +1787,11 @@ form.addEventListener("submit", async (e) => {
   }
 
   const corridorServices = Array.from(corridorServicesMap.values());
+  const corridorServicesToDetail = INIT_SERVICE_DETAILS_ONLY_IN_RANGE
+    ? corridorServices.filter(serviceAtStationInRange)
+    : corridorServices;
 
-  if (corridorServices.length === 0) {
+  if (corridorServices.length === 0 && !connectionsAllowAllLegs) {
     const fromLabel = stationNameByCrs[from] || from;
     const toLabel = stationNameByCrs[to] || to;
     setStatus(
@@ -1699,10 +1805,10 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
-  // Step 2: Get full details for corridor services to derive station union.
-  initTotal += corridorServices.length;
+  // Step 2: Get full details for corridor services within the selected time range.
+  initTotal += corridorServicesToDetail.length;
   updateInitProgress();
-  const corridorDetailPromises = corridorServices.map(async (svc) => {
+  const corridorDetailPromises = corridorServicesToDetail.map(async (svc) => {
     const uid = svc.serviceUid;
     const date = svc.runDate;
     const url =
@@ -1776,7 +1882,7 @@ form.addEventListener("submit", async (e) => {
   const okCorridorDetails = splitCorridorDetails.filter(
     (d) => d.detail && Array.isArray(d.detail.locations),
   );
-  if (okCorridorDetails.length === 0) {
+  if (okCorridorDetails.length === 0 && !connectionsAllowAllLegs) {
     setStatus("No usable service detail responses.");
     return;
   }
@@ -2028,6 +2134,9 @@ form.addEventListener("submit", async (e) => {
   for (const entry of dedupedCandidateEntries) {
     const detail = entry.detail;
     if (!detail || !Array.isArray(detail.locations)) continue;
+    if (!serviceAnyStationInRange(detail, corridorSet)) {
+      continue;
+    }
 
     const locs = detail.locations;
     const seenStations = new Set();
@@ -2196,18 +2305,147 @@ form.addEventListener("submit", async (e) => {
       { isError: true },
     );
   }
+
+  const excludedServiceKeys = new Set(
+    excludedSequences
+      .map((item) => serviceKey(item.svc))
+      .filter(Boolean),
+  );
+  const filteredAllDetails =
+    excludedServiceKeys.size > 0
+      ? allDetails.filter(
+          (entry) => !excludedServiceKeys.has(serviceKey(entry.svc)),
+        )
+      : allDetails;
+  if (DEBUG_CONNECTIONS && excludedServiceKeys.size > 0) {
+    console.info(
+      "Connection source filter: removed excluded base services",
+      excludedServiceKeys.size,
+      "remaining",
+      filteredAllDetails.length,
+    );
+  }
+
   stations = orderedCrs
     .map((crs) => stationData.stationMap[crs])
     .filter(Boolean);
+  const discoveredStationSet = new Set(
+    stations
+      .map((station) => normaliseCrs(station?.crs || ""))
+      .filter(Boolean),
+  );
+
+  const baseSplit = splitByDirection(
+    filteredAllDetails,
+    stations,
+    corridorStations,
+  );
+  const baseFilterAB = filterServicesForTimetableModel(
+    stations,
+    baseSplit.ab,
+  );
+  const baseRetainedAB = baseFilterAB.services;
+  const baseFilterBA = filterServicesForTimetableModel(
+    stations.slice().reverse(),
+    baseSplit.ba,
+  );
+  const baseRetainedBA = baseFilterBA.services;
+  const tableRowStationSet = new Set(
+    baseFilterAB.displayStations
+      .concat(baseFilterBA.displayStations)
+      .map((station) => normaliseCrs(station?.crs || ""))
+      .filter(Boolean),
+  );
+  const specifiedStationSet = new Set(
+    corridorStations.map((crs) => normaliseCrs(crs || "")).filter(Boolean),
+  );
+  const actualStationSet =
+    tableRowStationSet.size > 0 ? tableRowStationSet : discoveredStationSet;
+  const connectionStationSet = new Set([
+    ...actualStationSet,
+    ...specifiedStationSet,
+  ]);
 
   // Split into A->B vs B->A, based on order of corridor stations in the calling pattern.
-  const split = splitByDirection(allDetails, stations);
+  const outboundConnectionEntries = buildConnectionServiceEntries(
+    baseRetainedAB,
+    connectionStationSet,
+    0,
+    "both",
+    corridorStations,
+  );
+  const inboundConnectionEntries = buildConnectionServiceEntries(
+    baseRetainedBA,
+    connectionStationSet,
+    0,
+    "both",
+    corridorStations.slice().reverse(),
+  );
+  const connectionEntries = outboundConnectionEntries.concat(inboundConnectionEntries);
+  if (DEBUG_CONNECTIONS) {
+    console.info(
+      "Connection summary: generated",
+      connectionEntries.length,
+      "(",
+      outboundConnectionEntries.length,
+      "from AB table +",
+      inboundConnectionEntries.length,
+      "from BA table) from",
+      baseRetainedAB.length + baseRetainedBA.length,
+      "base services",
+      "table-row stations",
+      Array.from(connectionStationSet).join(","),
+    );
+  }
+  const allDetailsWithConnections = filteredAllDetails.concat(connectionEntries);
+  const split = splitByDirection(
+    allDetailsWithConnections,
+    stations,
+    corridorStations,
+  );
   const servicesAB = split.ab;
   const servicesBA = split.ba;
+  const inTableConnections = connectionEntries.filter((entry) => {
+    const { detail } = entry;
+    if (!detail || !Array.isArray(detail.locations)) return false;
+    const seen = new Set();
+    detail.locations.forEach((loc) => {
+      const crs = normaliseCrs(loc?.crs || "");
+      if (crs && connectionStationSet.has(crs)) seen.add(crs);
+    });
+    return seen.size >= 2;
+  });
+  if (DEBUG_CONNECTIONS) {
+    console.info(
+      "Connection summary: in-table connections",
+      inTableConnections.length,
+      "AB",
+      servicesAB.filter((entry) => entry.isConnection).length,
+      "BA",
+      servicesBA.filter((entry) => entry.isConnection).length,
+    );
+  }
 
-  const fromName = findStationNameByCrs(stations, from);
-  const toName = findStationNameByCrs(stations, to);
-  const viaNames = viaValues.map((crs) => findStationNameByCrs(stations, crs));
+  const fromName = resolveInputStationLabel(
+    from,
+    fromStationInput.value,
+    findStationNameByCrs(stations, from),
+  );
+  const toName = resolveInputStationLabel(
+    to,
+    toStationInput.value,
+    findStationNameByCrs(stations, to),
+  );
+  const viaNames = viaValues.map((crs) => {
+    const viaField = viaFields.find(
+      (field) => normaliseCrs(field.crsInput.value) === crs,
+    );
+    return resolveInputStationLabel(
+      crs,
+      viaField?.textInput?.value,
+      findStationNameByCrs(stations, crs),
+    );
+  });
   const viaNamesForward = viaNames.filter(Boolean);
   const forwardStopsLabel = [fromName, ...viaNamesForward, toName]
     .filter(Boolean)
@@ -2221,6 +2459,18 @@ form.addEventListener("submit", async (e) => {
     .join(" → ");
   const corridorLabel = [fromName, ...viaNamesForward, toName].join(" ↔ ");
   const dateLabel = formatDateDisplay(currentDate);
+  const pdfRouteTitle = [fromName, ...viaNamesForward, toName]
+    .filter(Boolean)
+    .join(" - ");
+  const pdfDocumentDate = dateLabel.replace(/\//g, ".");
+  const pdfDocumentTitle =
+    pdfRouteTitle +
+    (pdfDocumentDate ? ` ${pdfDocumentDate}` : "");
+  const pdfFilenameDate = dateLabel.replace(/\//g, "-");
+  const pdfFilename =
+    `Timetable for ${pdfRouteTitle}` +
+    (pdfFilenameDate ? ` ${pdfFilenameDate}` : "") +
+    ".pdf";
 
   const hasRealtimeServices =
     servicesAB.some((entry) => entry.detail?.realtimeActivated === true) ||
@@ -2242,6 +2492,8 @@ form.addEventListener("submit", async (e) => {
     reverseStopsLabel,
     corridorLabel,
     dateLabel,
+    pdfDocumentTitle,
+    pdfFilename,
     generatedTimestamp: formatGeneratedTimestamp(),
   };
     renderTimetablesFromContext(lastTimetableContext);
@@ -2701,7 +2953,8 @@ function collectStationData(
 
   // Map each corridor CRS to its index in the chain (A=0, VIA1=1, ..., Z=n)
   corridorStations.forEach((crs, idx) => {
-    if (crs) corridorIndex[crs] = idx;
+    const normalised = normaliseCrs(crs || "");
+    if (normalised) corridorIndex[normalised] = idx;
   });
 
   function addStation(crs, tiploc, name) {
@@ -2713,8 +2966,29 @@ function collectStationData(
         tiploc: tiploc || "",
         name: name || crs,
       };
+      return;
+    }
+    if (!stationMap[key].tiploc && tiploc) {
+      stationMap[key].tiploc = tiploc;
+    }
+    const currentName = stationMap[key].name || "";
+    if (!name) return;
+    if (
+      !currentName ||
+      currentName === crs ||
+      currentName === key
+    ) {
+      stationMap[key].name = name;
     }
   }
+
+  // Keep explicitly requested corridor stations in the station universe even
+  // when no base service details include them as calling points.
+  corridorStations.forEach((crs) => {
+    const normalised = normaliseCrs(crs || "");
+    if (!normalised) return;
+    addStation(normalised, "", normalised);
+  });
 
   servicesWithDetails.forEach(({ detail }) => {
     const locs = detail.locations || [];
@@ -2774,17 +3048,41 @@ function collectStationData(
   return { stations, stationMap, corridorIndex, sequences };
 }
 
-function splitByDirection(servicesWithDetails, stations) {
+function splitByDirection(
+  servicesWithDetails,
+  stations,
+  connectionDirectionStations = stations,
+) {
   const ab = [];
   const ba = [];
+  const directionByServiceKey = new Map();
 
-  // Map CRS to corridor order index (0..N-1) based on stations array
+  // Base service directioning uses display-station order.
   const crsToOrderIdx = {};
   stations.forEach((s, i) => {
     if (s.crs) crsToOrderIdx[s.crs] = i;
   });
 
-  servicesWithDetails.forEach((entry) => {
+  // Connection direction checks prefer corridor order to avoid endpoint flips
+  // (e.g. optional-via cases where display order can invert KGX/STP).
+  const connectionCrsToOrderIdx = {};
+  let nextConnectionIdx = 0;
+  function addConnectionDirectionCrs(stationLike) {
+    const crs =
+      typeof stationLike === "string"
+        ? normaliseCrs(stationLike)
+        : normaliseCrs(stationLike?.crs || "");
+    if (!crs) return;
+    if (Object.prototype.hasOwnProperty.call(connectionCrsToOrderIdx, crs)) return;
+    connectionCrsToOrderIdx[crs] = nextConnectionIdx;
+    nextConnectionIdx += 1;
+  }
+  connectionDirectionStations.forEach((stationLike) =>
+    addConnectionDirectionCrs(stationLike),
+  );
+  stations.forEach((stationLike) => addConnectionDirectionCrs(stationLike));
+
+  function deriveDirection(entry) {
     const locs = entry.detail.locations || [];
     const corridorOrderIndices = [];
 
@@ -2799,14 +3097,60 @@ function splitByDirection(servicesWithDetails, stations) {
     if (corridorOrderIndices.length < 2) {
       // Shouldn't normally happen because we already required >=2 corridor calls,
       // but if it does, just treat it as A→B by default so it appears somewhere.
-      ab.push(entry);
-      return;
+      return "AB";
     }
 
     const first = corridorOrderIndices[0];
     const last = corridorOrderIndices[corridorOrderIndices.length - 1];
+    return first <= last ? "AB" : "BA";
+  }
 
-    if (first <= last) {
+  function connectionMatchesDirection(entry, direction) {
+    const locs = entry?.detail?.locations || [];
+    const fromCrs = locs[0]?.crs || "";
+    const toCrs = locs[1]?.crs || "";
+    const fromIdx = connectionCrsToOrderIdx[fromCrs];
+    const toIdx = connectionCrsToOrderIdx[toCrs];
+    if (!Number.isInteger(fromIdx) || !Number.isInteger(toIdx)) return true;
+    return direction === "AB" ? fromIdx <= toIdx : fromIdx >= toIdx;
+  }
+
+  servicesWithDetails.forEach((entry) => {
+    const svc = entry?.svc || {};
+    const isConnection =
+      entry?.isConnection === true ||
+      String(svc.serviceUid || "").startsWith("CONN-");
+    if (isConnection) return;
+
+    const direction = deriveDirection(entry);
+    const sourceKey =
+      (svc.serviceUid || "") + "|" + (svc.runDate || "");
+    if (sourceKey !== "|") {
+      directionByServiceKey.set(sourceKey, direction);
+    }
+    if (direction === "AB") {
+      ab.push(entry);
+    } else {
+      ba.push(entry);
+    }
+  });
+
+  servicesWithDetails.forEach((entry) => {
+    const svc = entry?.svc || {};
+    const isConnection =
+      entry?.isConnection === true ||
+      String(svc.serviceUid || "").startsWith("CONN-");
+    if (!isConnection) return;
+
+    const sourceKey =
+      entry?.connectionSourceServiceKey ||
+      `${entry?.connectionSourceServiceUid || ""}|${entry?.connectionSourceRunDate || ""}`;
+    const sourceDirection = sourceKey
+      ? directionByServiceKey.get(sourceKey)
+      : null;
+    const direction = sourceDirection || deriveDirection(entry);
+    if (!connectionMatchesDirection(entry, direction)) return;
+    if (direction === "AB") {
       ab.push(entry);
     } else {
       ba.push(entry);

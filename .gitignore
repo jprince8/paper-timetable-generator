@@ -2,6 +2,10 @@
 __pycache__/
 *.pyc
 node_modules/
+package.json
+package-lock.json
+.vscode/
 docs/rtt-cache-enabled.flag
 .vscode/settings.json
 start.sh
+tests/fixtures
