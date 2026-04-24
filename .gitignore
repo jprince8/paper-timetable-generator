@@ -8,3 +8,4 @@ package-lock.json
 docs/rtt-cache-enabled.flag
 .vscode/settings.json
 start.sh
+tests/fixtures
