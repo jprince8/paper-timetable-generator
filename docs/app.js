@@ -1191,7 +1191,7 @@ downloadPdfBtn.addEventListener("click", async () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "timetable.pdf";
+    link.download = lastPdfPayload.meta?.filename || "timetable.pdf";
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -1287,6 +1287,8 @@ function renderTimetablesFromContext(context) {
     reverseStopsLabel,
     corridorLabel,
     dateLabel,
+    pdfDocumentTitle,
+    pdfFilename,
     generatedTimestamp,
   } = context;
   const hasServices = servicesAB.length > 0 || servicesBA.length > 0;
@@ -1408,6 +1410,8 @@ function renderTimetablesFromContext(context) {
       meta: {
         title,
         subtitle,
+        documentTitle: pdfDocumentTitle || title,
+        filename: pdfFilename,
       },
       tables: pdfTables,
     };
@@ -2438,6 +2442,18 @@ form.addEventListener("submit", async (e) => {
     .join(" → ");
   const corridorLabel = [fromName, ...viaNamesForward, toName].join(" ↔ ");
   const dateLabel = formatDateDisplay(currentDate);
+  const pdfRouteTitle = [fromName, ...viaNamesForward, toName]
+    .filter(Boolean)
+    .join(" - ");
+  const pdfDocumentDate = dateLabel.replace(/\//g, ".");
+  const pdfDocumentTitle =
+    pdfRouteTitle +
+    (pdfDocumentDate ? ` ${pdfDocumentDate}` : "");
+  const pdfFilenameDate = dateLabel.replace(/\//g, "-");
+  const pdfFilename =
+    `Timetable for ${pdfRouteTitle}` +
+    (pdfFilenameDate ? ` ${pdfFilenameDate}` : "") +
+    ".pdf";
 
   const hasRealtimeServices =
     servicesAB.some((entry) => entry.detail?.realtimeActivated === true) ||
@@ -2459,6 +2475,8 @@ form.addEventListener("submit", async (e) => {
     reverseStopsLabel,
     corridorLabel,
     dateLabel,
+    pdfDocumentTitle,
+    pdfFilename,
     generatedTimestamp: formatGeneratedTimestamp(),
   };
     renderTimetablesFromContext(lastTimetableContext);

@@ -178,6 +178,25 @@ function assertStationOrderByLabel(directionName, directionData, orderedLabels) 
   });
 }
 
+function assertWalkOnlyAppearsAsPdfOperator(directionName, directionData) {
+  const tableData = directionData?.pdfTableData || {};
+  const headers = tableData.headers || [];
+  const facilitiesRow = tableData.rows?.[0] || [];
+  const walkOperatorColumns = headers
+    .map((header, idx) => (String(header).toUpperCase() === 'WALK' ? idx : -1))
+    .filter((idx) => idx > 0);
+
+  if (walkOperatorColumns.length === 0) return;
+
+  walkOperatorColumns.forEach((idx) => {
+    assert.notEqual(
+      String(facilitiesRow[idx] || '').toUpperCase(),
+      'WALK',
+      `${directionName}: WALK should not appear in PDF facilities row`,
+    );
+  });
+}
+
 export function registerCachedQuerySuite({
   suiteLabel,
   cachePath,
@@ -250,6 +269,12 @@ export function registerCachedQuerySuite({
     const result = await getResult();
     assertColumnFillContinuity('AB', result.ab);
     assertColumnFillContinuity('BA', result.ba);
+  });
+
+  test(`${suiteLabel} keeps walking labels out of PDF facilities row`, async () => {
+    const result = await getResult();
+    assertWalkOnlyAppearsAsPdfOperator('AB', result.ab);
+    assertWalkOnlyAppearsAsPdfOperator('BA', result.ba);
   });
 
   test(`${suiteLabel} enforces post-expansion service-misorder coloring for connections`, () => {

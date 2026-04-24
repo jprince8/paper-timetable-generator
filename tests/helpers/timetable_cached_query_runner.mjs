@@ -350,6 +350,7 @@ function buildDirection(runtime, stationsDir, stationSetObj, servicesDir, model)
 
   return {
     model,
+    pdfTableData: runtime.buildPdfTableData(model),
     preFiltered,
     displayStations: filterResult.displayStations,
     orderedSvcIndicesRaw,

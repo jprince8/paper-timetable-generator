@@ -1274,6 +1274,20 @@ def api_connections():
     return jsonify(CONNECTIONS)
 
 
+def _pdf_download_name(meta):
+    raw_name = ""
+    if isinstance(meta, dict):
+        raw_name = str(meta.get("filename") or "").strip()
+    if not raw_name:
+        return "timetable.pdf"
+
+    name = re.sub(r"[\x00-\x1f/\\]+", "-", raw_name)
+    name = re.sub(r"\s+", " ", name).strip(" .")
+    if not name.lower().endswith(".pdf"):
+        name = f"{name}.pdf"
+    return name[:180] or "timetable.pdf"
+
+
 @app.route("/timetable/pdf", methods=["POST"])
 def timetable_pdf():
     payload = request.get_json(silent=True) or {}
@@ -1288,7 +1302,7 @@ def timetable_pdf():
         io.BytesIO(pdf_bytes),
         mimetype="application/pdf",
         as_attachment=True,
-        download_name="timetable.pdf",
+        download_name=_pdf_download_name(meta),
     )
 
 if __name__ == "__main__":
