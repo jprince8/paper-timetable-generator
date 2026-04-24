@@ -77,38 +77,32 @@ function isCallingLocation(loc) {
   return disp !== "PASS" && disp !== "CANCELLED_PASS";
 }
 
-function getLastCallingPair(detail) {
+function getCallingContexts(detail) {
   const locs = detail.locations || [];
-  let last = null;
-  let previous = null;
-  for (let i = locs.length - 1; i >= 0; i -= 1) {
-    const loc = locs[i];
-    if (!isCallingLocation(loc)) continue;
-    if (!last) {
-      last = loc;
-    } else {
-      previous = loc;
-      break;
-    }
-  }
-  return { last, previous };
+  const calling = [];
+  locs.forEach((loc) => {
+    if (isCallingLocation(loc)) calling.push(loc);
+  });
+  return calling.map((current, idx) => ({
+    previous: calling.slice(0, idx),
+    current,
+    next: calling.slice(idx + 1),
+  }));
 }
 
-function getFirstCallingPair(detail) {
-  const locs = detail.locations || [];
-  let first = null;
-  let next = null;
-  for (let i = 0; i < locs.length; i += 1) {
-    const loc = locs[i];
-    if (!isCallingLocation(loc)) continue;
-    if (!first) {
-      first = loc;
-    } else {
-      next = loc;
-      break;
-    }
-  }
-  return { first, next };
+function normaliseCallingCrsList(locations) {
+  if (!Array.isArray(locations)) return [];
+  return locations
+    .map((loc) => normaliseCrs(loc?.crs || ""))
+    .filter(Boolean);
+}
+
+function matchConnectionEntryForSide(entry, sideCrsList) {
+  const crsList = Array.isArray(sideCrsList) ? sideCrsList : [];
+  if (crsList.length === 0) return false;
+  const prevStations = entry.previousStations;
+  if (!prevStations) return true;
+  return crsList.some((crs) => prevStations.includes(crs));
 }
 
 function matchConnectionEntry(entry, previousCrs) {
@@ -159,31 +153,9 @@ function buildConnectionServiceEntries(
 
   const generated = [];
   const seen = new Set();
+  const generatedByContentKey = new Map();
   let loggedCorridorSkips = 0;
   let loggedTerminalSkips = 0;
-  const inboundCandidatesByDest = new Map();
-
-  Object.entries(connectionsByStation).forEach(([fromCrsRaw, terminalEntries]) => {
-    const fromCrs = normaliseCrs(fromCrsRaw);
-    if (!fromCrs || !Array.isArray(terminalEntries)) return;
-    terminalEntries.forEach((terminalEntry) => {
-      if (!terminalEntry || typeof terminalEntry !== "object") return;
-      const connections = terminalEntry.connections || {};
-      Object.entries(connections).forEach(([destCrsRaw, meta]) => {
-        const destCrs = normaliseCrs(destCrsRaw);
-        if (!destCrs || !meta || typeof meta !== "object") return;
-        if (!inboundCandidatesByDest.has(destCrs)) {
-          inboundCandidatesByDest.set(destCrs, []);
-        }
-        inboundCandidatesByDest.get(destCrs).push({
-          fromCrs,
-          destCrs,
-          meta,
-          terminalEntry,
-        });
-      });
-    });
-  });
 
   function pushGeneratedConnection({
     sourceEntry,
@@ -223,7 +195,13 @@ function buildConnectionServiceEntries(
       placement,
     ].join("|");
     if (seen.has(uniqueKey)) return;
-    seen.add(uniqueKey);
+    const contentKey = [
+      runDate,
+      fromCrs,
+      toCrs,
+      departTime,
+      arriveTime,
+    ].join("|");
 
     const svc = {
       serviceUid: `CONN-${baseUid}-${fromCrs}-${toCrs}-${departTime}`,
@@ -236,6 +214,7 @@ function buildConnectionServiceEntries(
     const detail = {
       runDate,
       serviceType: modeLower === "walk" ? "walk" : "connection",
+      connectionMode: modeLower === "walk" ? "Walking" : mode || "Connection",
       locations: [
         {
           crs: fromCrs,
@@ -268,7 +247,7 @@ function buildConnectionServiceEntries(
         sourceRawTime: sourceTimeInfo.sourceRaw || null,
       },
     );
-    generated.push({
+    const generatedEntry = {
       svc,
       detail,
       seed: false,
@@ -277,149 +256,164 @@ function buildConnectionServiceEntries(
       connectionSourceServiceUid: sourceIdentity.sourceUid,
       connectionSourceRunDate: sourceIdentity.sourceRunDate,
       connectionSourceServiceKey: sourceIdentity.sourceServiceKey,
-    });
+    };
+
+    if (generatedByContentKey.has(contentKey)) {
+      const existingIdx = generatedByContentKey.get(contentKey);
+      const existing = generated[existingIdx] || {};
+      const existingPlacement =
+        (existing.connectionPlacement || existing.detail?.connectionPlacement || "after")
+          .toLowerCase() === "before"
+          ? "before"
+          : "after";
+      if (existingPlacement === "before" && placement === "after") {
+        generated[existingIdx] = generatedEntry;
+        seen.add(uniqueKey);
+      }
+      return;
+    }
+
+    seen.add(uniqueKey);
+    generatedByContentKey.set(contentKey, generated.length);
+    generated.push(generatedEntry);
   }
 
   entries.forEach((entry) => {
     if (!entry?.detail || !Array.isArray(entry.detail.locations)) return;
-    const { last, previous } = getLastCallingPair(entry.detail);
-    const terminalCrs = normaliseCrs(last?.crs || "");
-    if (!terminalCrs) {
-      logConnectionInfo("Connection skip: missing terminal CRS", entry);
-    } else if (corridorSet.has(terminalCrs)) {
-      const previousCrs = normaliseCrs(previous?.crs || "");
+    getCallingContexts(entry.detail).forEach(({ previous, current, next }) => {
+      const currentCrs = normaliseCrs(current?.crs || "");
+      if (!currentCrs || !corridorSet.has(currentCrs)) return;
       const hasConnectionConfig = Object.prototype.hasOwnProperty.call(
         connectionsByStation,
-        terminalCrs,
+        currentCrs,
       );
-      const terminalEntries = getConnectionEntriesForStation(terminalCrs);
+      const terminalEntries = getConnectionEntriesForStation(currentCrs);
       if (!terminalEntries.length) {
         if (hasConnectionConfig && loggedTerminalSkips < 5) {
           logConnectionInfo(
-            "Connection skip: no connections for terminal",
-            terminalCrs,
+            "Connection skip: no connections for station",
+            currentCrs,
           );
           loggedTerminalSkips += 1;
         }
-      } else {
-        const arrivalInfo = locationTimeInfo(last);
-        const arrivalMins = arrivalInfo.minutes;
-        if (arrivalMins === null) {
-          logConnectionInfo(
-            "Connection skip: terminal arrival time missing",
-            terminalCrs,
+        return;
+      }
+
+      const previousCrsList = normaliseCallingCrsList(previous);
+      const previousCrs = previousCrsList[previousCrsList.length - 1] || "";
+      const currentTimeInfo = locationTimeInfo(current);
+      const currentMins = currentTimeInfo.minutes;
+
+      if (currentMins === null) {
+        logConnectionInfo(
+          "Connection skip: station time missing",
+          currentCrs,
+        );
+        return;
+      }
+
+      terminalEntries.forEach((terminalEntry) => {
+        if (matchConnectionEntryForSide(terminalEntry, previousCrsList)) {
+          Object.entries(terminalEntry.connections || {}).forEach(
+            ([destCrsRaw, meta]) => {
+              const destCrs = normaliseCrs(destCrsRaw);
+              if (!destCrs) {
+                if (loggedCorridorSkips < 5) {
+                  logConnectionInfo(
+                    "Connection skip: missing destination CRS",
+                    currentCrs,
+                  );
+                  loggedCorridorSkips += 1;
+                }
+                return;
+              }
+              if (!corridorSet.has(destCrs)) {
+                if (loggedCorridorSkips < 5) {
+                  logConnectionInfo(
+                    "Connection skip: destination not in corridor",
+                    currentCrs,
+                    destCrs,
+                  );
+                  loggedCorridorSkips += 1;
+                }
+                return;
+              }
+              const durationMinutes = meta.durationMinutes;
+              if (!durationMinutes) {
+                if (loggedCorridorSkips < 5) {
+                  logConnectionInfo(
+                    "Connection skip: missing duration",
+                    currentCrs,
+                    destCrs,
+                  );
+                  loggedCorridorSkips += 1;
+                }
+                return;
+              }
+              const departMins = currentMins + bufferMinutes;
+              const arriveMins = departMins + durationMinutes;
+              pushGeneratedConnection({
+                sourceEntry: entry,
+                fromCrs: currentCrs,
+                toCrs: destCrs,
+                departMins,
+                arriveMins,
+                mode: meta.mode || "walk",
+                sourceTimeInfo: currentTimeInfo,
+                previousCrs,
+                matchedPreviousStations: terminalEntry.previousStations,
+                placement: "after",
+                directionLabel: "Outbound connection",
+              });
+            },
           );
         } else {
-          terminalEntries.forEach((terminalEntry) => {
-            if (!matchConnectionEntry(terminalEntry, previousCrs)) {
-              if (loggedCorridorSkips < 5) {
-                logConnectionInfo(
-                  "Connection skip: previous station mismatch",
-                  terminalCrs,
-                  previousCrs,
-                  terminalEntry.previousStations,
-                );
-                loggedCorridorSkips += 1;
-              }
-              return;
-            }
-            Object.entries(terminalEntry.connections || {}).forEach(
-              ([destCrsRaw, meta]) => {
-                const destCrs = normaliseCrs(destCrsRaw);
-                if (!destCrs) {
-                  if (loggedCorridorSkips < 5) {
-                    logConnectionInfo(
-                      "Connection skip: missing destination CRS",
-                      terminalCrs,
-                    );
-                    loggedCorridorSkips += 1;
-                  }
-                  return;
-                }
-                if (!corridorSet.has(destCrs)) {
-                  if (loggedCorridorSkips < 5) {
-                    logConnectionInfo(
-                      "Connection skip: destination not in corridor",
-                      terminalCrs,
-                      destCrs,
-                    );
-                    loggedCorridorSkips += 1;
-                  }
-                  return;
-                }
-                const durationMinutes = meta.durationMinutes;
-                if (!durationMinutes) {
-                  if (loggedCorridorSkips < 5) {
-                    logConnectionInfo(
-                      "Connection skip: missing duration",
-                      terminalCrs,
-                      destCrs,
-                    );
-                    loggedCorridorSkips += 1;
-                  }
-                  return;
-                }
-                const departMins = arrivalMins + bufferMinutes;
-                const arriveMins = departMins + durationMinutes;
-                pushGeneratedConnection({
-                  sourceEntry: entry,
-                  fromCrs: terminalCrs,
-                  toCrs: destCrs,
-                  departMins,
-                  arriveMins,
-                  mode: meta.mode || "walk",
-                  sourceTimeInfo: arrivalInfo,
-                  previousCrs,
-                  matchedPreviousStations: terminalEntry.previousStations,
-                  placement: "after",
-                  directionLabel: "Outbound connection",
-                });
-              },
+          if (previousCrs && loggedCorridorSkips < 5) {
+            logConnectionInfo(
+              "Connection skip: previous station mismatch",
+              currentCrs,
+              previousCrs,
+              terminalEntry.previousStations,
             );
-          });
+            loggedCorridorSkips += 1;
+          }
         }
-      }
-    }
 
-    const { first, next } = getFirstCallingPair(entry.detail);
-    const originCrs = normaliseCrs(first?.crs || "");
-    if (!originCrs || !corridorSet.has(originCrs)) {
-      return;
-    }
-    const departureInfo = locationTimeInfo(first);
-    const departureMins = departureInfo.minutes;
-    if (departureMins === null) {
-      logConnectionInfo(
-        "Connection skip: origin departure time missing",
-        originCrs,
-      );
-      return;
-    }
-    const nextCrs = normaliseCrs(next?.crs || "");
-    const inboundCandidates = inboundCandidatesByDest.get(originCrs) || [];
-    inboundCandidates.forEach((candidate) => {
-      const fromCrs = candidate.fromCrs;
-      const durationMinutes = candidate.meta?.durationMinutes;
-      if (!fromCrs || !corridorSet.has(fromCrs)) return;
-      if (!durationMinutes) return;
-
-      // Inbound links are anchored to the source service origin. Because we are
-      // synthesising "arrival into this service", prior calling pattern at the
-      // feeder origin is unknown, so previousStations constraints are not enforced.
-      const arriveAtOriginMins = departureMins - bufferMinutes;
-      const departFromFeederMins = arriveAtOriginMins - durationMinutes;
-      pushGeneratedConnection({
-        sourceEntry: entry,
-        fromCrs,
-        toCrs: originCrs,
-        departMins: departFromFeederMins,
-        arriveMins: arriveAtOriginMins,
-        mode: candidate.meta.mode || "walk",
-        sourceTimeInfo: departureInfo,
-        previousCrs: nextCrs,
-        matchedPreviousStations: candidate.terminalEntry?.previousStations,
-        placement: "before",
-        directionLabel: "Inbound connection",
+        const nextCrsList = normaliseCallingCrsList(next);
+        const nextCrs = nextCrsList[0] || "";
+        if (matchConnectionEntryForSide(terminalEntry, nextCrsList)) {
+          Object.entries(terminalEntry.connections || {}).forEach(
+            ([destCrsRaw, meta]) => {
+              const destCrs = normaliseCrs(destCrsRaw);
+              if (!destCrs || !corridorSet.has(destCrs)) return;
+              const durationMinutes = meta.durationMinutes;
+              if (!durationMinutes) return;
+              const arriveAtCurrentMins = currentMins - bufferMinutes;
+              const departFromFeederMins = arriveAtCurrentMins - durationMinutes;
+              pushGeneratedConnection({
+                sourceEntry: entry,
+                fromCrs: destCrs,
+                toCrs: currentCrs,
+                departMins: departFromFeederMins,
+                arriveMins: arriveAtCurrentMins,
+                mode: meta.mode || "walk",
+                sourceTimeInfo: currentTimeInfo,
+                previousCrs: nextCrs,
+                matchedPreviousStations: terminalEntry.previousStations,
+                placement: "before",
+                directionLabel: "Inbound connection",
+              });
+            },
+          );
+        } else if (nextCrs && loggedCorridorSkips < 5) {
+          logConnectionInfo(
+            "Connection skip: next station mismatch",
+            currentCrs,
+            nextCrs,
+            terminalEntry.previousStations,
+          );
+          loggedCorridorSkips += 1;
+        }
       });
     });
   });

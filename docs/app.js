@@ -2348,8 +2348,15 @@ form.addEventListener("submit", async (e) => {
       .map((station) => normaliseCrs(station?.crs || ""))
       .filter(Boolean),
   );
-  const connectionStationSet =
+  const specifiedStationSet = new Set(
+    corridorStations.map((crs) => normaliseCrs(crs || "")).filter(Boolean),
+  );
+  const actualStationSet =
     tableRowStationSet.size > 0 ? tableRowStationSet : discoveredStationSet;
+  const connectionStationSet = new Set([
+    ...actualStationSet,
+    ...specifiedStationSet,
+  ]);
   const retainedBaseServiceKeys = new Set(
     baseRetainedAB
       .concat(baseRetainedBA)
@@ -2936,7 +2943,8 @@ function collectStationData(
 
   // Map each corridor CRS to its index in the chain (A=0, VIA1=1, ..., Z=n)
   corridorStations.forEach((crs, idx) => {
-    if (crs) corridorIndex[crs] = idx;
+    const normalised = normaliseCrs(crs || "");
+    if (normalised) corridorIndex[normalised] = idx;
   });
 
   function addStation(crs, tiploc, name) {
@@ -2948,8 +2956,29 @@ function collectStationData(
         tiploc: tiploc || "",
         name: name || crs,
       };
+      return;
+    }
+    if (!stationMap[key].tiploc && tiploc) {
+      stationMap[key].tiploc = tiploc;
+    }
+    const currentName = stationMap[key].name || "";
+    if (!name) return;
+    if (
+      !currentName ||
+      currentName === crs ||
+      currentName === key
+    ) {
+      stationMap[key].name = name;
     }
   }
+
+  // Keep explicitly requested corridor stations in the station universe even
+  // when no base service details include them as calling points.
+  corridorStations.forEach((crs) => {
+    const normalised = normaliseCrs(crs || "");
+    if (!normalised) return;
+    addStation(normalised, "", normalised);
+  });
 
   servicesWithDetails.forEach(({ detail }) => {
     const locs = detail.locations || [];

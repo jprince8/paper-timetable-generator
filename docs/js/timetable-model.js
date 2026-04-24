@@ -106,6 +106,22 @@ function buildTimetableModel(
   );
   const serviceAllCancelled = new Array(numServices).fill(false);
   const serviceAllNoReport = new Array(numServices).fill(false);
+  const connectionEndpointCrs = new Set();
+
+  servicesWithDetails.forEach((entry) => {
+    const svc = entry?.svc || {};
+    const detail = entry?.detail || {};
+    const uid = svc.originalServiceUid || svc.serviceUid || "";
+    const isSyntheticConnection =
+      entry?.isConnection === true || String(uid).startsWith("CONN-");
+    if (!isSyntheticConnection) return;
+    const locs = detail.locations || [];
+    if (locs.length === 0) return;
+    const fromCrs = locs[0]?.crs || "";
+    const toCrs = locs[locs.length - 1]?.crs || "";
+    if (fromCrs) connectionEndpointCrs.add(fromCrs);
+    if (toCrs) connectionEndpointCrs.add(toCrs);
+  });
 
   const stationTimes = [];
   for (let i = 0; i < numStations; i++) {
@@ -257,7 +273,10 @@ function buildTimetableModel(
 
     let mode;
     if (hasArr && hasDep) {
-      if (hasLongDwell) {
+      const station = displayStations[i];
+      const forceSplitForConnection =
+        station?.crs && connectionEndpointCrs.has(station.crs);
+      if (hasLongDwell || forceSplitForConnection) {
         mode = "two";
       } else {
         mode = "merged";
@@ -638,8 +657,13 @@ function buildTimetableModel(
       const arrTime = padTime(toLoc.gbttBookedArrival || "");
       const baseMode =
         detail.connectionMode ||
+        svc.atocName ||
+        detail.atocName ||
         (serviceTypeLower === "walk" ? "Walking" : "Connection");
-      tooltip = `${baseMode} connection: ${fromLabel} ${depTime} -> ${toLabel} ${arrTime}`;
+      const modeLabel = /connection/i.test(baseMode)
+        ? baseMode
+        : `${baseMode} connection`;
+      tooltip = `${modeLabel}: ${fromLabel} ${depTime} -> ${toLabel} ${arrTime}`;
     }
 
     const passenger =
