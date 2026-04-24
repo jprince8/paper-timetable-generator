@@ -197,11 +197,16 @@ const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 const shareBtn = document.getElementById("shareBtn");
 const realtimeBtn = document.getElementById("realtimeBtn");
 const platformBtn = document.getElementById("platformBtn");
+const specifiedConnectionsOnlyBtn = document.getElementById(
+  "specifiedConnectionsOnlyBtn",
+);
 const nowBtn = document.getElementById("nowBtn");
 const rotateModal = document.getElementById("rotateModal");
 const rotateModalOk = document.getElementById("rotateModalOk");
 const PLATFORM_TOGGLE_STORAGE_KEY = "corridor_showPlatforms";
 const REALTIME_TOGGLE_STORAGE_KEY = "corridor_showRealtime";
+const SPECIFIED_CONNECTIONS_ONLY_STORAGE_KEY =
+  "corridor_specifiedConnectionsOnly";
 const ROTATE_PROMPT_DISMISSED_KEY = "corridor_rotatePromptDismissed";
 
 // === Mutable state ===
@@ -220,6 +225,8 @@ let realtimePreferred = true;
 let showPlatformsEnabled = false;
 let showPlatformsPreferred = false;
 let platformAvailable = false;
+let specifiedConnectionsOnlyEnabled = true;
+let specifiedConnectionsOnlyPreferred = true;
 let buildAbortController = null;
 let buildInProgress = false;
 let buildCancelled = false;
@@ -409,6 +416,24 @@ function setPlatformToggleAvailability(enabled) {
   }
 }
 
+function setSpecifiedConnectionsOnlyState(active, { persist = true } = {}) {
+  specifiedConnectionsOnlyPreferred = Boolean(active);
+  specifiedConnectionsOnlyEnabled = specifiedConnectionsOnlyPreferred;
+  if (specifiedConnectionsOnlyBtn) {
+    specifiedConnectionsOnlyBtn.classList.toggle("is-active", specifiedConnectionsOnlyEnabled);
+    specifiedConnectionsOnlyBtn.setAttribute(
+      "aria-pressed",
+      specifiedConnectionsOnlyEnabled ? "true" : "false",
+    );
+  }
+  if (persist && window.localStorage) {
+    localStorage.setItem(
+      SPECIFIED_CONNECTIONS_ONLY_STORAGE_KEY,
+      specifiedConnectionsOnlyPreferred ? "true" : "false",
+    );
+  }
+}
+
 function readSessionFlag(key) {
   try {
     return window.sessionStorage?.getItem(key) === "true";
@@ -467,6 +492,15 @@ if (platformBtn) {
     setPlatformToggleState(!showPlatformsEnabled);
     if (lastTimetableContext) {
       renderTimetablesFromContext(lastTimetableContext);
+    }
+  });
+}
+
+if (specifiedConnectionsOnlyBtn) {
+  specifiedConnectionsOnlyBtn.addEventListener("click", () => {
+    setSpecifiedConnectionsOnlyState(!specifiedConnectionsOnlyEnabled);
+    if (lastTimetableContext) {
+      rebuildConnectionsAndRender(lastTimetableContext);
     }
   });
 }
@@ -1275,6 +1309,92 @@ shareBtn.addEventListener("click", async () => {
     setStatus("Unable to copy share link.", { isError: true });
   }
 });
+
+function rebuildConnectionsAndRender(context) {
+  const {
+    stations,
+    stationSet,
+    baseRetainedAB,
+    baseRetainedBA,
+    filteredAllDetails,
+    corridorStations,
+  } = context;
+  
+  if (
+    !baseRetainedAB ||
+    !baseRetainedBA ||
+    !filteredAllDetails ||
+    !corridorStations
+  ) {
+    // Fallback: just re-render if rebuild data is not available
+    renderTimetablesFromContext(context);
+    return;
+  }
+
+  // Compute the displayStations (which are already computed and may be needed)
+  const baseFilterAB = filterServicesForTimetableModel(stations, baseRetainedAB);
+  const baseFilterBA = filterServicesForTimetableModel(
+    stations.slice().reverse(),
+    baseRetainedBA,
+  );
+
+  // Build connectionStationSet based on current toggle state
+  const tableRowStationSet = new Set(
+    baseFilterAB.displayStations
+      .concat(baseFilterBA.displayStations)
+      .map((station) => normaliseCrs(station?.crs || ""))
+      .filter(Boolean),
+  );
+  const specifiedStationSet = new Set(
+    corridorStations.map((crs) => normaliseCrs(crs || "")).filter(Boolean),
+  );
+  const actualStationSet =
+    tableRowStationSet.size > 0 ? tableRowStationSet : new Set();
+  
+  let connectionStationSet;
+  if (specifiedConnectionsOnlyEnabled) {
+    connectionStationSet = specifiedStationSet;
+  } else {
+    connectionStationSet = new Set([
+      ...actualStationSet,
+      ...specifiedStationSet,
+    ]);
+  }
+
+  // Rebuild connection entries with the new connectionStationSet
+  const outboundConnectionEntries = buildConnectionServiceEntries(
+    baseRetainedAB,
+    connectionStationSet,
+    0,
+    "both",
+    corridorStations,
+  );
+  const inboundConnectionEntries = buildConnectionServiceEntries(
+    baseRetainedBA,
+    connectionStationSet,
+    0,
+    "both",
+    corridorStations.slice().reverse(),
+  );
+  const connectionEntries = outboundConnectionEntries.concat(inboundConnectionEntries);
+
+  // Rebuild the full services list
+  const allDetailsWithConnections = filteredAllDetails.concat(
+    connectionEntries,
+  );
+  const split = splitByDirection(
+    allDetailsWithConnections,
+    stations,
+    corridorStations,
+  );
+  const servicesAB = split.ab;
+  const servicesBA = split.ba;
+
+  // Update the context with new services and re-render
+  context.servicesAB = servicesAB;
+  context.servicesBA = servicesBA;
+  renderTimetablesFromContext(context);
+}
 
 function renderTimetablesFromContext(context) {
   const {
