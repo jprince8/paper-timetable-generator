@@ -1,3 +1,69 @@
+function computeDisplayStationsForServices(stationsList, svcs) {
+  return stationsList.filter((station) => {
+    return svcs.some(({ detail }) => {
+      const locs = detail.locations || [];
+      return locs.some((locEntry) => {
+        if ((locEntry.crs || "") !== station.crs) return false;
+        const disp = (locEntry.displayAs || "").toUpperCase();
+        const isPublic = locEntry.isPublicCall === true;
+        if (disp === "PASS" || disp === "CANCELLED_PASS") return false;
+        return isPublic;
+      });
+    });
+  });
+}
+
+function serviceCallsAtLeastTwoInSet(detail, crsSet) {
+  const locs = detail.locations || [];
+  const seen = new Set();
+
+  for (const l of locs) {
+    const crs = l.crs || "";
+    if (!crsSet.has(crs)) continue;
+
+    const disp = (l.displayAs || "").toUpperCase();
+    if (disp === "PASS" || disp === "CANCELLED_PASS") continue;
+
+    seen.add(crs);
+    if (seen.size >= 2) return true;
+  }
+  return false;
+}
+
+function filterServicesForTimetableModel(stations, servicesWithDetails) {
+  let workingServices = servicesWithDetails.slice();
+  let displayStations = [];
+
+  let prevKey = "";
+  for (let iter = 0; iter < 5; iter++) {
+    displayStations = computeDisplayStationsForServices(
+      stations,
+      workingServices,
+    );
+    const displaySet = new Set(
+      displayStations.map((s) => s.crs).filter(Boolean),
+    );
+
+    const filtered = workingServices.filter(
+      ({ detail }) =>
+        serviceCallsAtLeastTwoInSet(detail, displaySet) &&
+        serviceCallsAllStationsInRange(detail, displaySet),
+    );
+
+    const key =
+      displayStations.map((s) => s.crs).join(",") + "|" + filtered.length;
+
+    if (key === prevKey) {
+      workingServices = filtered;
+      break;
+    }
+    prevKey = key;
+    workingServices = filtered;
+  }
+
+  return { services: workingServices, displayStations };
+}
+
 function buildTimetableModel(
   stations,
   stationSet,
@@ -10,63 +76,12 @@ function buildTimetableModel(
     atocNameByCode = {},
   } = options;
 
-  function computeDisplayStations(stationsList, svcs) {
-    return stationsList.filter((station) => {
-      return svcs.some(({ detail }) => {
-        const locs = detail.locations || [];
-        return locs.some((locEntry) => {
-          if ((locEntry.crs || "") !== station.crs) return false;
-          const disp = (locEntry.displayAs || "").toUpperCase();
-          const isPublic = locEntry.isPublicCall === true;
-          if (disp === "PASS" || disp === "CANCELLED_PASS") return false;
-          return isPublic;
-        });
-      });
-    });
-  }
-
-  function serviceCallsAtLeastTwoInSet(detail, crsSet) {
-    const locs = detail.locations || [];
-    const seen = new Set();
-
-    for (const l of locs) {
-      const crs = l.crs || "";
-      if (!crsSet.has(crs)) continue;
-
-      const disp = (l.displayAs || "").toUpperCase();
-      if (disp === "PASS" || disp === "CANCELLED_PASS") continue;
-
-      seen.add(crs);
-      if (seen.size >= 2) return true;
-    }
-    return false;
-  }
-
-  let workingServices = servicesWithDetails.slice();
-  let displayStations = [];
-
-  let prevKey = "";
-  for (let iter = 0; iter < 5; iter++) {
-    displayStations = computeDisplayStations(stations, workingServices);
-    const displaySet = new Set(displayStations.map((s) => s.crs).filter(Boolean));
-
-    const filtered = workingServices.filter(
-      ({ detail }) =>
-        serviceCallsAtLeastTwoInSet(detail, displaySet) &&
-        serviceCallsAllStationsInRange(detail, displaySet),
-    );
-
-    const key = displayStations.map((s) => s.crs).join(",") + "|" + filtered.length;
-
-    if (key === prevKey) {
-      workingServices = filtered;
-      break;
-    }
-    prevKey = key;
-    workingServices = filtered;
-  }
-
-  servicesWithDetails = workingServices;
+  const filterResult = filterServicesForTimetableModel(
+    stations,
+    servicesWithDetails,
+  );
+  servicesWithDetails = filterResult.services;
+  const { displayStations } = filterResult;
 
   const numServices = servicesWithDetails.length;
 
@@ -515,55 +530,65 @@ function buildTimetableModel(
     }
   });
 
-  const stationRowGroups = Array.from({ length: numStations }, () => []);
-  for (let r = 0; r < rowSpecs.length; r++) {
-    const spec = rowSpecs[r];
-    if (spec.kind === "station") {
-      stationRowGroups[spec.stationIndex].push(r);
-    }
-  }
-
-  for (let s = 0; s < numServices; s++) {
-    const called = new Array(numStations).fill(false);
-
-    for (let stIdx = 0; stIdx < numStations; stIdx++) {
-      const groupRows = stationRowGroups[stIdx];
-      for (const r of groupRows) {
-        const v = cellToText(rows[r].cells[s]);
-        if (!v) continue;
-        called[stIdx] = true;
-        break;
+  function applyStationLineFill() {
+    const stationRowsInOrder = [];
+    for (let r = 0; r < rowSpecs.length; r++) {
+      if (rowSpecs[r].kind === "station") {
+        stationRowsInOrder.push(r);
       }
     }
 
-    const firstCalled = called.indexOf(true);
-    if (firstCalled === -1) continue;
-    let lastCalled = -1;
-    for (let stIdx = numStations - 1; stIdx >= 0; stIdx--) {
-      if (called[stIdx]) {
-        lastCalled = stIdx;
-        break;
+    // Reset previously generated pass-through markers before recomputing.
+    for (const r of stationRowsInOrder) {
+      for (let s = 0; s < numServices; s++) {
+        const value = rows[r].cells[s];
+        if (cellToText(value) === "|") {
+          rows[r].cells[s] = "";
+        }
       }
     }
-    if (lastCalled <= firstCalled) continue;
 
-    for (let stIdx = firstCalled + 1; stIdx <= lastCalled - 1; stIdx++) {
-      if (called[stIdx]) continue;
-      for (const r of stationRowGroups[stIdx]) {
-        if (rows[r].cells[s] === "") {
-          rows[r].cells[s] = { text: "|" };
+    for (let s = 0; s < numServices; s++) {
+      const called = stationRowsInOrder.map((r) => Boolean(cellToText(rows[r].cells[s])));
+
+      const firstCalled = called.indexOf(true);
+      if (firstCalled === -1) continue;
+      let lastCalled = -1;
+      for (let i = called.length - 1; i >= 0; i--) {
+        if (called[i]) {
+          lastCalled = i;
+          break;
+        }
+      }
+      if (lastCalled <= firstCalled) continue;
+
+      for (let i = firstCalled + 1; i <= lastCalled - 1; i++) {
+        if (called[i]) continue;
+        const rowIndex = stationRowsInOrder[i];
+        if (rows[rowIndex].cells[s] === "") {
+          rows[rowIndex].cells[s] = { text: "|" };
         }
       }
     }
   }
 
-  const servicesMeta = servicesWithDetails.map(({ svc, detail }) => {
+  applyStationLineFill();
+
+  const stationNameByCrs = new Map(
+    displayStations.map((station) => [station.crs || "", station.name || ""]),
+  );
+
+  const servicesMeta = servicesWithDetails.map(({ svc, detail, isConnection }) => {
     const originText = safePairText(detail.origin);
     const destText = safePairText(detail.destination);
     const dateText = detail.runDate || svc.runDate || "";
     const uid = svc.originalServiceUid || svc.serviceUid || "";
     const date = svc.runDate || detail.runDate || "";
-    const href = `https://www.realtimetrains.co.uk/service/gb-nr:${encodeURIComponent(uid)}/${encodeURIComponent(date)}`;
+    const isSyntheticConnection =
+      isConnection === true || String(uid).startsWith("CONN-");
+    const href = isSyntheticConnection
+      ? ""
+      : `https://www.realtimetrains.co.uk/service/gb-nr:${encodeURIComponent(uid)}/${encodeURIComponent(date)}`;
 
     const headcode =
       svc.trainIdentity || svc.runningIdentity || svc.serviceUid || "";
@@ -584,8 +609,38 @@ function buildTimetableModel(
       line2 = `${originText} → ${destText}`;
     }
 
-    const tooltip =
+    let tooltip =
       line2 && line1 ? `${line1}\n${line2}` : line1 || line2 || visible;
+
+    const serviceType = (detail.serviceType || svc.serviceType || "").trim();
+    const serviceTypeLower = serviceType.toLowerCase();
+    const hasConnectionTooltip =
+      isSyntheticConnection || !!detail.connectionMode || serviceTypeLower === "connection";
+    if (hasConnectionTooltip) {
+      const locs = detail.locations || [];
+      const fromLoc = locs[0] || {};
+      const toLoc = locs[locs.length - 1] || {};
+      const fromCrs = fromLoc.crs || "";
+      const toCrs = toLoc.crs || "";
+      const fromLabel =
+        detail.connectionFromLabel ||
+        stationNameByCrs.get(fromCrs) ||
+        fromLoc.description ||
+        fromCrs ||
+        "";
+      const toLabel =
+        detail.connectionToLabel ||
+        stationNameByCrs.get(toCrs) ||
+        toLoc.description ||
+        toCrs ||
+        "";
+      const depTime = padTime(fromLoc.gbttBookedDeparture || "");
+      const arrTime = padTime(toLoc.gbttBookedArrival || "");
+      const baseMode =
+        detail.connectionMode ||
+        (serviceTypeLower === "walk" ? "Walking" : "Connection");
+      tooltip = `${baseMode} connection: ${fromLabel} ${depTime} -> ${toLabel} ${arrTime}`;
+    }
 
     const passenger =
       detail.isPassenger === true || svc.isPassenger !== false;
@@ -593,8 +648,6 @@ function buildTimetableModel(
       passenger && detail.firstClassAvailable === true;
     const isSleeper = passenger && detail.sleeperAvailable === true;
 
-    const serviceType = (detail.serviceType || svc.serviceType || "").trim();
-    const serviceTypeLower = serviceType.toLowerCase();
     const isBus = serviceTypeLower === "bus";
     const isWalk = serviceTypeLower === "walk";
     const busFirstClassAvailable = isBus ? false : firstClassAvailable;
@@ -628,6 +681,10 @@ function buildTimetableModel(
       serviceMisorder: "#f7c9c9",
     },
   });
+
+  // Row-order adjustments during sorting can move station rows; rerun natural
+  // line fill so pass-through continuity reflects the final row order.
+  applyStationLineFill();
 
   return {
     rows,

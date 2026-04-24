@@ -1,6 +1,7 @@
 // === Configuration ===
 // URL query flags:
 // - debug_stations=1/true enables station selection/dwell logging
+// - debug_connections=1/true enables synthetic connection logging
 // - sort_log=1/true enables sort log downloads
 // - rtt_cache=1/true enables local RTT caching
 function hasEnabledQueryFlag(flag) {
@@ -11,11 +12,14 @@ function hasEnabledQueryFlag(flag) {
 }
 
 const DEBUG_STATIONS = hasEnabledQueryFlag("debug_stations");
+const DEBUG_CONNECTIONS = hasEnabledQueryFlag("debug_connections");
 const ENABLE_SORT_LOG_DOWNLOAD = hasEnabledQueryFlag("sort_log");
 const RTT_CACHE_ENABLED = hasEnabledQueryFlag("rtt_cache");
+window.DEBUG_CONNECTIONS = DEBUG_CONNECTIONS;
 
 const ENABLED_OPTIONS = [
   DEBUG_STATIONS ? "debug_stations" : null,
+  DEBUG_CONNECTIONS ? "debug_connections" : null,
   ENABLE_SORT_LOG_DOWNLOAD ? "sort_log" : null,
   RTT_CACHE_ENABLED ? "rtt_cache" : null,
 ].filter(Boolean);
@@ -222,6 +226,10 @@ let suppressNextSubmit = false;
 let hasCompletedBuild = false;
 let atocNameByCode = {};
 let lookupLoadPromise = null;
+let lookupLoadState = "idle";
+let lookupLoadError = null;
+const LOOKUP_LOAD_ERROR_MESSAGE =
+  "Connection lookup data unavailable; cannot validate via connections.";
 
 function resolveInputStationLabel(crs, inputValue, fallback) {
   const trimmed = (inputValue || "").trim();
@@ -231,24 +239,51 @@ function resolveInputStationLabel(crs, inputValue, fallback) {
 
 function loadLookupData(fetcher = fetch) {
   if (lookupLoadPromise) return lookupLoadPromise;
+  lookupLoadState = "loading";
+  lookupLoadError = null;
+  const fetchJsonOrThrow = async (url) => {
+    const resp = await fetcher(url);
+    if (!resp.ok) {
+      throw new Error(`Lookup request failed (${resp.status}) for ${url}`);
+    }
+    return resp.json();
+  };
   lookupLoadPromise = Promise.all([
-    fetcher(PROXY_ATOC).then((resp) =>
-      resp.ok ? resp.json() : Promise.resolve({}),
-    ),
-    fetcher(PROXY_CONNECTIONS).then((resp) =>
-      resp.ok ? resp.json() : Promise.resolve({}),
-    ),
+    fetchJsonOrThrow(PROXY_ATOC),
+    fetchJsonOrThrow(PROXY_CONNECTIONS),
   ])
     .then(([atocData, connectionsData]) => {
       atocNameByCode = atocData || {};
       connectionsByStation = normaliseConnectionData(connectionsData);
+      lookupLoadState = "loaded";
+      return { atocData, connectionsData };
     })
     .catch((err) => {
       console.warn("Failed to load lookup data:", err);
       atocNameByCode = {};
       connectionsByStation = {};
+      lookupLoadState = "failed";
+      lookupLoadError = err;
+      throw err;
     });
   return lookupLoadPromise;
+}
+
+async function ensureLookupDataReadyForBuild() {
+  if (lookupLoadState === "loaded") return true;
+  try {
+    await loadLookupData();
+  } catch (err) {
+    // Lookup load errors are handled via hard-stop status below.
+  }
+  if (lookupLoadState !== "loaded") {
+    if (lookupLoadError) {
+      console.warn("Lookup data unavailable for build:", lookupLoadError);
+    }
+    setStatus(LOOKUP_LOAD_ERROR_MESSAGE, { isError: true });
+    return false;
+  }
+  return true;
 }
 
 function minutesToRttTime(mins) {
@@ -901,7 +936,8 @@ if (new URLSearchParams(window.location.search).size > 0) {
     realtimePreferred = realtimeRaw === "true";
   }
 }
-hydratePrefilledStations().then(() => {
+const lookupInitialisationPromise = loadLookupData().catch(() => undefined);
+Promise.all([hydratePrefilledStations(), lookupInitialisationPromise]).then(() => {
   if (shouldAutoSubmit) {
     setTimeout(() => {
       form.requestSubmit();
@@ -1411,6 +1447,9 @@ form.addEventListener("submit", async (e) => {
   // Run HTML5 validation for "required" fields, min/max, etc.
   stationFields.forEach((field) => updateStationValidity(field));
   if (!form.reportValidity()) {
+    return;
+  }
+  if (!(await ensureLookupDataReadyForBuild())) {
     return;
   }
 
@@ -2258,25 +2297,90 @@ form.addEventListener("submit", async (e) => {
       { isError: true },
     );
   }
+
+  const excludedServiceKeys = new Set(
+    excludedSequences
+      .map((item) => serviceKey(item.svc))
+      .filter(Boolean),
+  );
+  const filteredAllDetails =
+    excludedServiceKeys.size > 0
+      ? allDetails.filter(
+          (entry) => !excludedServiceKeys.has(serviceKey(entry.svc)),
+        )
+      : allDetails;
+  if (DEBUG_CONNECTIONS && excludedServiceKeys.size > 0) {
+    console.info(
+      "Connection source filter: removed excluded base services",
+      excludedServiceKeys.size,
+      "remaining",
+      filteredAllDetails.length,
+    );
+  }
+
   stations = orderedCrs
     .map((crs) => stationData.stationMap[crs])
     .filter(Boolean);
+  const discoveredStationSet = new Set(
+    stations
+      .map((station) => normaliseCrs(station?.crs || ""))
+      .filter(Boolean),
+  );
+
+  const baseSplit = splitByDirection(filteredAllDetails, stations);
+  const baseFilterAB = filterServicesForTimetableModel(
+    stations,
+    baseSplit.ab,
+  );
+  const baseRetainedAB = baseFilterAB.services;
+  const baseFilterBA = filterServicesForTimetableModel(
+    stations.slice().reverse(),
+    baseSplit.ba,
+  );
+  const baseRetainedBA = baseFilterBA.services;
+  const tableRowStationSet = new Set(
+    baseFilterAB.displayStations
+      .concat(baseFilterBA.displayStations)
+      .map((station) => normaliseCrs(station?.crs || ""))
+      .filter(Boolean),
+  );
+  const connectionStationSet =
+    tableRowStationSet.size > 0 ? tableRowStationSet : discoveredStationSet;
+  const retainedBaseServiceKeys = new Set(
+    baseRetainedAB
+      .concat(baseRetainedBA)
+      .map((entry) => serviceKey(entry.svc))
+      .filter(Boolean),
+  );
+  const connectionSourceDetails = filteredAllDetails.filter((entry) =>
+    retainedBaseServiceKeys.has(serviceKey(entry.svc)),
+  );
+  if (DEBUG_CONNECTIONS) {
+    console.info(
+      "Connection source filter: model-retained services",
+      connectionSourceDetails.length,
+      "of",
+      filteredAllDetails.length,
+    );
+  }
 
   // Split into A->B vs B->A, based on order of corridor stations in the calling pattern.
   const connectionEntries = buildConnectionServiceEntries(
-    allDetails,
-    corridorSet,
+    connectionSourceDetails,
+    connectionStationSet,
   );
-  console.info(
-    "Connection summary: generated",
-    connectionEntries.length,
-    "from",
-    allDetails.length,
-    "base services",
-    "corridor",
-    Array.from(corridorSet).join(","),
-  );
-  const allDetailsWithConnections = allDetails.concat(connectionEntries);
+  if (DEBUG_CONNECTIONS) {
+    console.info(
+      "Connection summary: generated",
+      connectionEntries.length,
+      "from",
+      connectionSourceDetails.length,
+      "base services",
+      "table-row stations",
+      Array.from(connectionStationSet).join(","),
+    );
+  }
+  const allDetailsWithConnections = filteredAllDetails.concat(connectionEntries);
   const split = splitByDirection(allDetailsWithConnections, stations);
   const servicesAB = split.ab;
   const servicesBA = split.ba;
@@ -2286,18 +2390,20 @@ form.addEventListener("submit", async (e) => {
     const seen = new Set();
     detail.locations.forEach((loc) => {
       const crs = normaliseCrs(loc?.crs || "");
-      if (crs && corridorSet.has(crs)) seen.add(crs);
+      if (crs && connectionStationSet.has(crs)) seen.add(crs);
     });
     return seen.size >= 2;
   });
-  console.info(
-    "Connection summary: in-table connections",
-    inTableConnections.length,
-    "AB",
-    servicesAB.filter((entry) => entry.isConnection).length,
-    "BA",
-    servicesBA.filter((entry) => entry.isConnection).length,
-  );
+  if (DEBUG_CONNECTIONS) {
+    console.info(
+      "Connection summary: in-table connections",
+      inTableConnections.length,
+      "AB",
+      servicesAB.filter((entry) => entry.isConnection).length,
+      "BA",
+      servicesBA.filter((entry) => entry.isConnection).length,
+    );
+  }
 
   const fromName = resolveInputStationLabel(
     from,
@@ -2888,6 +2994,7 @@ function collectStationData(
 function splitByDirection(servicesWithDetails, stations) {
   const ab = [];
   const ba = [];
+  const directionByServiceKey = new Map();
 
   // Map CRS to corridor order index (0..N-1) based on stations array
   const crsToOrderIdx = {};
@@ -2895,7 +3002,7 @@ function splitByDirection(servicesWithDetails, stations) {
     if (s.crs) crsToOrderIdx[s.crs] = i;
   });
 
-  servicesWithDetails.forEach((entry) => {
+  function deriveDirection(entry) {
     const locs = entry.detail.locations || [];
     const corridorOrderIndices = [];
 
@@ -2910,14 +3017,49 @@ function splitByDirection(servicesWithDetails, stations) {
     if (corridorOrderIndices.length < 2) {
       // Shouldn't normally happen because we already required >=2 corridor calls,
       // but if it does, just treat it as A→B by default so it appears somewhere.
-      ab.push(entry);
-      return;
+      return "AB";
     }
 
     const first = corridorOrderIndices[0];
     const last = corridorOrderIndices[corridorOrderIndices.length - 1];
+    return first <= last ? "AB" : "BA";
+  }
 
-    if (first <= last) {
+  servicesWithDetails.forEach((entry) => {
+    const svc = entry?.svc || {};
+    const isConnection =
+      entry?.isConnection === true ||
+      String(svc.serviceUid || "").startsWith("CONN-");
+    if (isConnection) return;
+
+    const direction = deriveDirection(entry);
+    const sourceKey =
+      (svc.serviceUid || "") + "|" + (svc.runDate || "");
+    if (sourceKey !== "|") {
+      directionByServiceKey.set(sourceKey, direction);
+    }
+    if (direction === "AB") {
+      ab.push(entry);
+    } else {
+      ba.push(entry);
+    }
+  });
+
+  servicesWithDetails.forEach((entry) => {
+    const svc = entry?.svc || {};
+    const isConnection =
+      entry?.isConnection === true ||
+      String(svc.serviceUid || "").startsWith("CONN-");
+    if (!isConnection) return;
+
+    const sourceKey =
+      entry?.connectionSourceServiceKey ||
+      `${entry?.connectionSourceServiceUid || ""}|${entry?.connectionSourceRunDate || ""}`;
+    const sourceDirection = sourceKey
+      ? directionByServiceKey.get(sourceKey)
+      : null;
+    const direction = sourceDirection || deriveDirection(entry);
+    if (direction === "AB") {
       ab.push(entry);
     } else {
       ba.push(entry);
