@@ -135,7 +135,7 @@ class FakeElement {
   remove() {}
 }
 
-function createHarnessEnvironment({ queryUrl, fixture, repoRoot }) {
+function createHarnessEnvironment({ queryUrl, fixture, repoRoot, localStorageSeed = {} }) {
   const urlObj = new URL(queryUrl);
   const queryCacheDir = path.join(repoRoot, 'tests', 'fixtures', 'rtt-query-cache');
   const rawResponseMap = buildRawResponseMapFromQueryCache({
@@ -169,6 +169,9 @@ function createHarnessEnvironment({ queryUrl, fixture, repoRoot }) {
   };
 
   const localStorageMap = new Map();
+  Object.entries(localStorageSeed || {}).forEach(([key, value]) => {
+    localStorageMap.set(key, String(value));
+  });
   const localStorage = {
     getItem: (k) => (localStorageMap.has(k) ? localStorageMap.get(k) : null),
     setItem: (k, v) => {
@@ -385,7 +388,7 @@ function buildDirection(runtime, stationsDir, stationSetObj, servicesDir, model)
   };
 }
 
-export async function runCachedQueryFixture(cachePath) {
+export async function runCachedQueryFixture(cachePath, options = {}) {
   const absoluteCachePath = path.resolve(cachePath);
   const repoRoot = path.resolve(path.dirname(absoluteCachePath), '..', '..');
   const fixture = JSON.parse(fs.readFileSync(absoluteCachePath, 'utf8'));
@@ -398,6 +401,7 @@ export async function runCachedQueryFixture(cachePath) {
     queryUrl: fixture.queryUrl,
     fixture,
     repoRoot,
+    localStorageSeed: options.localStorageSeed,
   });
 
   const scripts = [
