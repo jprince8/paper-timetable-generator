@@ -192,6 +192,18 @@ function locationDepartureTimeInfo(loc) {
   ]);
 }
 
+function locationScheduledArrivalTimeInfo(loc) {
+  return locationTimeInfoFromCandidates(loc, [
+    { field: "gbttBookedArrival", value: loc?.gbttBookedArrival || "" },
+  ]);
+}
+
+function locationScheduledDepartureTimeInfo(loc) {
+  return locationTimeInfoFromCandidates(loc, [
+    { field: "gbttBookedDeparture", value: loc?.gbttBookedDeparture || "" },
+  ]);
+}
+
 function shouldSkipConnection(fromCrs, toCrs, corridorStations) {
   const fromIndex = corridorStations.indexOf(fromCrs);
   const toIndex = corridorStations.indexOf(toCrs);
@@ -205,7 +217,10 @@ function buildConnectionServiceEntries(
   bufferMinutes = DEFAULT_CONNECTION_BUFFER_MINUTES,
   connectionDirection = "both",
   corridorStations = [],
+  options = {},
 ) {
+  const realtimeEnabled = options.realtimeEnabled === true;
+
   function sourceIdentityFromEntry(sourceEntry) {
     const sourceSvc = sourceEntry?.svc || {};
     const sourceDetail = sourceEntry?.detail || {};
@@ -267,8 +282,12 @@ function buildConnectionServiceEntries(
       nextCrs: nextCrsList[0] || "",
       hasPreviousEligible,
       hasNextEligible,
-      arrivalTimeInfo: locationArrivalTimeInfo(current),
-      departureTimeInfo: locationDepartureTimeInfo(current),
+      arrivalTimeInfo: realtimeEnabled
+        ? locationArrivalTimeInfo(current)
+        : locationScheduledArrivalTimeInfo(current),
+      departureTimeInfo: realtimeEnabled
+        ? locationDepartureTimeInfo(current)
+        : locationScheduledDepartureTimeInfo(current),
     };
   }
 
