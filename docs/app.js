@@ -1853,7 +1853,7 @@ form.addEventListener("submit", async (e) => {
   setBuildInProgress(true);
   try {
     resetOutputs();
-    const initStatusLabel = "Initialising timetable...";
+    let initStatusLabel = "Finding services...";
     let initTotal = 0;
     let initCompleted = 0;
     const updateInitProgress = () => {
@@ -1953,6 +1953,7 @@ form.addEventListener("submit", async (e) => {
       { from: leg.from, to: leg.to },
       { from: leg.to, to: leg.from },
     ]);
+    initCompleted = 0;
     initTotal = corridorLegSearches.length;
     updateInitProgress();
     const searchPromises = corridorLegSearches.map((leg) =>
@@ -2106,7 +2107,9 @@ form.addEventListener("submit", async (e) => {
   }
 
   // Step 2: Get full details for corridor services within the selected time range.
-  initTotal += corridorServicesToDetail.length;
+  initStatusLabel = "Gathering service details...";
+  initCompleted = 0;
+  initTotal = corridorServicesToDetail.length;
   updateInitProgress();
   const corridorDetailPromises = corridorServicesToDetail.map(async (svc) => {
     const uid = svc.serviceUid;
@@ -2239,7 +2242,7 @@ form.addEventListener("submit", async (e) => {
   });
 
   if (!directServicesOnlyPreferred) {
-    setProgressStatus("Finding services...", 0, stations.length);
+    setProgressStatus("Finding indirect services...", 0, stations.length);
 
     // For each corridor station, search all services at that station (for the same date),
     // and filter by time range at that station.
@@ -2292,7 +2295,7 @@ form.addEventListener("submit", async (e) => {
       } finally {
         stationsCompleted += 1;
         setProgressStatus(
-          "Finding services...",
+          "Finding indirect services...",
           stationsCompleted,
           stations.length,
         );
@@ -2387,7 +2390,7 @@ form.addEventListener("submit", async (e) => {
         .finally(() => {
           completedDetailServices += 1;
           setProgressStatus(
-            "Gathering service details...",
+            "Gathering indirect service details...",
             completedDetailServices,
             totalCandidateServices,
           );
@@ -2397,7 +2400,7 @@ form.addEventListener("submit", async (e) => {
 
     if (totalCandidateServices > 0) {
       setProgressStatus(
-        "Gathering service details...",
+        "Gathering indirect service details...",
         completedDetailServices,
         totalCandidateServices,
       );
