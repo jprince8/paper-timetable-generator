@@ -141,9 +141,16 @@ function buildTimetableModel(
       );
       if (!loc) return;
 
-      const rawArr = loc.gbttBookedArrival || loc.realtimeArrival || "";
+      const useRealtimeForService =
+        realtimeToggleEnabled && serviceRealtimeFlags[svcIndex] === true;
+      const rawArr =
+        loc.gbttBookedArrival ||
+        (useRealtimeForService ? loc.realtimeArrival : "") ||
+        "";
       const rawDep =
-        loc.gbttBookedDeparture || loc.realtimeDeparture || "";
+        loc.gbttBookedDeparture ||
+        (useRealtimeForService ? loc.realtimeDeparture : "") ||
+        "";
 
       const arrStr = rawArr ? padTime(rawArr) : "";
       const depStr = rawDep ? padTime(rawDep) : "";
@@ -170,8 +177,14 @@ function buildTimetableModel(
       const t = stationTimes[stationIndex][svcIndex];
       if (!t?.loc) continue;
       if (hasNonStrike) break;
-      const hasArr = t.loc.gbttBookedArrival || t.loc.realtimeArrival;
-      const hasDep = t.loc.gbttBookedDeparture || t.loc.realtimeDeparture;
+      const useRealtimeForService =
+        realtimeToggleEnabled && serviceRealtimeFlags[svcIndex] === true;
+      const hasArr =
+        t.loc.gbttBookedArrival ||
+        (useRealtimeForService ? t.loc.realtimeArrival : "");
+      const hasDep =
+        t.loc.gbttBookedDeparture ||
+        (useRealtimeForService ? t.loc.realtimeDeparture : "");
       if (hasArr) {
         const chosen = chooseDisplayedTimeAndStatus(
           t.loc,
@@ -474,8 +487,11 @@ function buildTimetableModel(
           timeStr = chosen.text;
           timeFormat = chosen.format;
         } else if (mode === "merged" || mode === "single") {
+          const useRealtimeForService =
+            realtimeToggleEnabled && serviceRealtimeActivated;
           const hasDeparture =
-            loc.gbttBookedDeparture || loc.realtimeDeparture;
+            loc.gbttBookedDeparture ||
+            (useRealtimeForService ? loc.realtimeDeparture : "");
           const chosen = chooseDisplayedTimeAndStatus(
             loc,
             !hasDeparture,

@@ -197,11 +197,16 @@ const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 const shareBtn = document.getElementById("shareBtn");
 const realtimeBtn = document.getElementById("realtimeBtn");
 const platformBtn = document.getElementById("platformBtn");
+const specifiedConnectionsOnlyBtn = document.getElementById(
+  "specifiedConnectionsOnlyBtn",
+);
 const nowBtn = document.getElementById("nowBtn");
 const rotateModal = document.getElementById("rotateModal");
 const rotateModalOk = document.getElementById("rotateModalOk");
 const PLATFORM_TOGGLE_STORAGE_KEY = "corridor_showPlatforms";
 const REALTIME_TOGGLE_STORAGE_KEY = "corridor_showRealtime";
+const SPECIFIED_CONNECTIONS_ONLY_STORAGE_KEY =
+  "corridor_specifiedConnectionsOnly";
 const ROTATE_PROMPT_DISMISSED_KEY = "corridor_rotatePromptDismissed";
 
 // === Mutable state ===
@@ -220,6 +225,9 @@ let realtimePreferred = true;
 let showPlatformsEnabled = false;
 let showPlatformsPreferred = false;
 let platformAvailable = false;
+let specifiedConnectionsOnlyEnabled = true;
+let specifiedConnectionsOnlyPreferred = true;
+let specifiedConnectionsOnlyAvailable = false;
 let buildAbortController = null;
 let buildInProgress = false;
 let buildCancelled = false;
@@ -345,68 +353,162 @@ if (nowBtn) {
   });
 }
 
-function setRealtimeToggleState({ enabled, active }, { persist = false } = {}) {
-  realtimeAvailable = enabled;
-  realtimePreferred = Boolean(active);
-  realtimeEnabled = enabled && realtimePreferred;
-  if (!realtimeBtn) return;
-  realtimeBtn.disabled = !enabled;
-  realtimeBtn.classList.toggle("is-active", realtimeEnabled);
-  realtimeBtn.setAttribute("aria-pressed", realtimeEnabled ? "true" : "false");
-  if (persist && window.localStorage) {
-    localStorage.setItem(
-      REALTIME_TOGGLE_STORAGE_KEY,
-      realtimePreferred ? "true" : "false",
-    );
+function createToggleControl({
+  button,
+  storageKey,
+  initialAvailable = false,
+  initialPreferred = false,
+  onRender,
+}) {
+  const state = {
+    available: Boolean(initialAvailable),
+    preferred: Boolean(initialPreferred),
+    enabled: Boolean(initialAvailable && initialPreferred),
+  };
+
+  function render({ persist = false } = {}) {
+    state.enabled = state.available && state.preferred;
+    if (button) {
+      button.disabled = !state.available;
+      button.classList.toggle("is-active", state.enabled);
+      button.setAttribute("aria-pressed", state.enabled ? "true" : "false");
+    }
+    if (persist && storageKey && window.localStorage) {
+      localStorage.setItem(storageKey, state.preferred ? "true" : "false");
+    }
+    if (onRender) onRender({ ...state });
   }
+
+  function setState({ available, preferred } = {}, options = {}) {
+    if (typeof available !== "undefined") {
+      state.available = Boolean(available);
+    }
+    if (typeof preferred !== "undefined") {
+      state.preferred = Boolean(preferred);
+    }
+    render(options);
+  }
+
+  function toggle(options = {}) {
+    if (!state.available) return false;
+    state.preferred = !state.preferred;
+    render(options);
+    return true;
+  }
+
+  render();
+
+  return {
+    setState,
+    setAvailability(available, options = {}) {
+      setState({ available }, options);
+    },
+    setPreferred(preferred, options = {}) {
+      setState({ preferred }, options);
+    },
+    toggle,
+  };
+}
+
+const storedToggleControls = [];
+
+function registerStoredToggleControl(config) {
+  const control = createToggleControl(config);
+  storedToggleControls.push({
+    control,
+    storageKey: config.storageKey,
+    applyStoredValue(value) {
+      control.setPreferred(value, { persist: false });
+    },
+  });
+  return control;
+}
+
+function restoreStoredToggleStates() {
+  if (!window.localStorage) return;
+  storedToggleControls.forEach(({ storageKey, applyStoredValue }) => {
+    if (!storageKey) return;
+    const raw = localStorage.getItem(storageKey) || "";
+    if (!raw) return;
+    applyStoredValue(raw === "true");
+  });
+}
+
+function resolveConnectionStationSet({
+  tableRowStationSet,
+  specifiedStationSet,
+  fallbackStationSet,
+}) {
+  const actualStationSet =
+    tableRowStationSet?.size > 0
+      ? tableRowStationSet
+      : fallbackStationSet || new Set();
+  if (specifiedConnectionsOnlyEnabled) {
+    return new Set(specifiedStationSet || []);
+  }
+  return new Set([...actualStationSet, ...(specifiedStationSet || [])]);
+}
+
+const realtimeToggle = registerStoredToggleControl({
+  button: realtimeBtn,
+  storageKey: REALTIME_TOGGLE_STORAGE_KEY,
+  initialPreferred: realtimePreferred,
+  onRender: ({ available, preferred, enabled }) => {
+    realtimeAvailable = available;
+    realtimePreferred = preferred;
+    realtimeEnabled = enabled;
+  },
+});
+
+const platformToggle = registerStoredToggleControl({
+  button: platformBtn,
+  storageKey: PLATFORM_TOGGLE_STORAGE_KEY,
+  initialPreferred: showPlatformsPreferred,
+  onRender: ({ available, preferred, enabled }) => {
+    platformAvailable = available;
+    showPlatformsPreferred = preferred;
+    showPlatformsEnabled = enabled;
+  },
+});
+
+const specifiedConnectionsOnlyToggle = registerStoredToggleControl({
+  button: specifiedConnectionsOnlyBtn,
+  storageKey: SPECIFIED_CONNECTIONS_ONLY_STORAGE_KEY,
+  initialPreferred: specifiedConnectionsOnlyPreferred,
+  onRender: ({ available, preferred, enabled }) => {
+    specifiedConnectionsOnlyAvailable = available;
+    specifiedConnectionsOnlyPreferred = preferred;
+    specifiedConnectionsOnlyEnabled = preferred;
+  },
+});
+
+function setRealtimeToggleState({ enabled, active }, { persist = false } = {}) {
+  realtimeToggle.setState({ available: enabled, preferred: active }, { persist });
 }
 
 if (realtimeBtn) {
   realtimeBtn.addEventListener("click", () => {
-    if (realtimeBtn.disabled) return;
-    const nextPreferred = !realtimePreferred;
-    setRealtimeToggleState(
-      {
-        enabled: realtimeAvailable,
-        active: nextPreferred,
-      },
-      { persist: true },
-    );
+    if (!realtimeToggle.toggle({ persist: true })) return;
     if (lastTimetableContext) {
-      renderTimetablesFromContext(lastTimetableContext);
+      rebuildConnectionsAndRender(lastTimetableContext);
     }
   });
 }
 
 function setPlatformToggleState(active, { persist = true } = {}) {
-  showPlatformsPreferred = Boolean(active);
-  showPlatformsEnabled = platformAvailable && showPlatformsPreferred;
-  if (platformBtn) {
-    platformBtn.classList.toggle("is-active", showPlatformsEnabled);
-    platformBtn.setAttribute(
-      "aria-pressed",
-      showPlatformsEnabled ? "true" : "false",
-    );
-  }
-  if (persist && window.localStorage) {
-    localStorage.setItem(
-      PLATFORM_TOGGLE_STORAGE_KEY,
-      showPlatformsPreferred ? "true" : "false",
-    );
-  }
+  platformToggle.setPreferred(active, { persist });
 }
 
 function setPlatformToggleAvailability(enabled) {
-  platformAvailable = Boolean(enabled);
-  if (platformBtn) {
-    platformBtn.disabled = !platformAvailable;
-    showPlatformsEnabled = platformAvailable && showPlatformsPreferred;
-    platformBtn.classList.toggle("is-active", showPlatformsEnabled);
-    platformBtn.setAttribute(
-      "aria-pressed",
-      showPlatformsEnabled ? "true" : "false",
-    );
-  }
+  platformToggle.setAvailability(enabled);
+}
+
+function setSpecifiedConnectionsOnlyState(active, { persist = true } = {}) {
+  specifiedConnectionsOnlyToggle.setPreferred(active, { persist });
+}
+
+function setSpecifiedConnectionsOnlyAvailability(enabled) {
+  specifiedConnectionsOnlyToggle.setAvailability(enabled);
 }
 
 function readSessionFlag(key) {
@@ -463,10 +565,18 @@ function handleRotatePromptViewportChange() {
 
 if (platformBtn) {
   platformBtn.addEventListener("click", () => {
-    if (platformBtn.disabled) return;
-    setPlatformToggleState(!showPlatformsEnabled);
+    if (!platformToggle.toggle({ persist: true })) return;
     if (lastTimetableContext) {
       renderTimetablesFromContext(lastTimetableContext);
+    }
+  });
+}
+
+if (specifiedConnectionsOnlyBtn) {
+  specifiedConnectionsOnlyBtn.addEventListener("click", () => {
+    if (!specifiedConnectionsOnlyToggle.toggle({ persist: true })) return;
+    if (lastTimetableContext) {
+      rebuildConnectionsAndRender(lastTimetableContext);
     }
   });
 }
@@ -828,10 +938,6 @@ function loadSavedInputsFromStorage() {
   const start = localStorage.getItem("corridor_startTime") || "";
   const end = localStorage.getItem("corridor_endTime") || "";
   const viasStr = localStorage.getItem("corridor_vias") || "";
-  const showPlatformsRaw =
-    localStorage.getItem(PLATFORM_TOGGLE_STORAGE_KEY) || "";
-  const realtimeRaw =
-    localStorage.getItem(REALTIME_TOGGLE_STORAGE_KEY) || "";
 
   if (from) {
     fromField.crsInput.value = normaliseCrs(from);
@@ -842,12 +948,6 @@ function loadSavedInputsFromStorage() {
   if (date) document.getElementById("serviceDate").value = date;
   if (start) document.getElementById("startTime").value = start;
   if (end) document.getElementById("endTime").value = end;
-  if (showPlatformsRaw) {
-    setPlatformToggleState(showPlatformsRaw === "true", { persist: false });
-  }
-  if (realtimeRaw) {
-    realtimePreferred = realtimeRaw === "true";
-  }
 
   // Default to NO vias on first run.
   // On subsequent runs, recreate one via field per saved CRS.
@@ -925,18 +1025,7 @@ const { shouldAutoSubmit, autoBuildRequested } = loadInputsFromQuery();
 if (new URLSearchParams(window.location.search).size === 0) {
   loadSavedInputsFromStorage();
 }
-if (new URLSearchParams(window.location.search).size > 0) {
-  const showPlatformsRaw =
-    localStorage.getItem(PLATFORM_TOGGLE_STORAGE_KEY) || "";
-  if (showPlatformsRaw) {
-    setPlatformToggleState(showPlatformsRaw === "true", { persist: false });
-  }
-  const realtimeRaw =
-    localStorage.getItem(REALTIME_TOGGLE_STORAGE_KEY) || "";
-  if (realtimeRaw) {
-    realtimePreferred = realtimeRaw === "true";
-  }
-}
+restoreStoredToggleStates();
 const lookupInitialisationPromise = loadLookupData().catch(() => undefined);
 Promise.all([hydratePrefilledStations(), lookupInitialisationPromise]).then(() => {
   if (shouldAutoSubmit) {
@@ -1007,6 +1096,11 @@ function hideStatus() {
   if (statusBarEl) statusBarEl.style.width = "0%";
 }
 
+function normaliseStatusMessage(msg) {
+  const text = String(msg).trimEnd();
+  return text.endsWith(".") ? text : `${text}.`;
+}
+
 function setStatus(msg, options = {}) {
   if (!statusEl || !statusTextEl) return;
   if (buildCancelled) {
@@ -1019,7 +1113,7 @@ function setStatus(msg, options = {}) {
     return;
   }
   showStatus();
-  statusTextEl.textContent = msg;
+  statusTextEl.textContent = normaliseStatusMessage(msg);
   statusEl.classList.toggle("is-error", isError);
   if (statusBarEl) {
     statusBarEl.style.width =
@@ -1071,6 +1165,7 @@ function resetOutputs() {
   lastSortLog = "";
   setRealtimeToggleState({ enabled: false, active: realtimePreferred });
   setPlatformToggleAvailability(false);
+  setSpecifiedConnectionsOnlyAvailability(false);
 }
 
 function clearTimetableOutputs() {
@@ -1091,6 +1186,7 @@ function clearTimetableOutputs() {
   lastSortLog = "";
   setRealtimeToggleState({ enabled: false, active: realtimePreferred });
   setPlatformToggleAvailability(false);
+  setSpecifiedConnectionsOnlyAvailability(false);
 }
 
 function buildCorridorPaths(from, to, viaEntries) {
@@ -1185,7 +1281,7 @@ downloadPdfBtn.addEventListener("click", async () => {
     if (!resp.ok) {
       const text = await resp.text();
       const friendly = stripHtmlToText(text).trim();
-      throw new Error(friendly || "PDF build failed");
+      throw new Error(friendly || "PDF build failed.");
     }
 
     const blob = await resp.blob();
@@ -1199,7 +1295,7 @@ downloadPdfBtn.addEventListener("click", async () => {
     URL.revokeObjectURL(url);
     setStatus("");
   } catch (err) {
-    setStatus("Error building PDF: " + err.message, { isError: true });
+    setStatus(`Error building PDF: ${err.message}`, { isError: true });
   } finally {
     downloadPdfBtn.disabled = false;
   }
@@ -1276,6 +1372,124 @@ shareBtn.addEventListener("click", async () => {
   }
 });
 
+function rebuildConnectionsAndRender(context) {
+  const {
+    stations,
+    stationSet,
+    baseRetainedAB,
+    baseRetainedBA,
+    filteredAllDetails,
+    corridorStations,
+  } = context;
+  
+  if (
+    !baseRetainedAB ||
+    !baseRetainedBA ||
+    !filteredAllDetails ||
+    !corridorStations
+  ) {
+    // Fallback: just re-render if rebuild data is not available
+    renderTimetablesFromContext(context);
+    return;
+  }
+
+  // Compute the displayStations (which are already computed and may be needed)
+  const baseFilterAB = filterServicesForTimetableModel(stations, baseRetainedAB);
+  const baseFilterBA = filterServicesForTimetableModel(
+    stations.slice().reverse(),
+    baseRetainedBA,
+  );
+
+  // Build connectionStationSet based on current toggle state
+  const tableRowStationSet = new Set(
+    baseFilterAB.displayStations
+      .concat(baseFilterBA.displayStations)
+      .map((station) => normaliseCrs(station?.crs || ""))
+      .filter(Boolean),
+  );
+  const specifiedStationSet = new Set(
+    corridorStations.map((crs) => normaliseCrs(crs || "")).filter(Boolean),
+  );
+  const connectionStationSet = resolveConnectionStationSet({
+    tableRowStationSet,
+    specifiedStationSet,
+  });
+
+  // Rebuild connection entries with the new connectionStationSet
+  const outboundConnectionEntries = buildConnectionServiceEntries(
+    baseRetainedAB,
+    connectionStationSet,
+    0,
+    "both",
+    corridorStations,
+    { realtimeEnabled },
+  );
+  const inboundConnectionEntries = buildConnectionServiceEntries(
+    baseRetainedBA,
+    connectionStationSet,
+    0,
+    "both",
+    corridorStations.slice().reverse(),
+    { realtimeEnabled },
+  );
+  const connectionEntries = outboundConnectionEntries.concat(inboundConnectionEntries);
+
+  // Rebuild the full services list
+  const allDetailsWithConnections = filteredAllDetails.concat(
+    connectionEntries,
+  );
+  const split = splitByDirection(
+    allDetailsWithConnections,
+    stations,
+    corridorStations,
+  );
+  const servicesAB = split.ab;
+  const servicesBA = split.ba;
+
+  // Update the context with new services and re-render
+  context.servicesAB = servicesAB;
+  context.servicesBA = servicesBA;
+  renderTimetablesFromContext(context);
+}
+
+function stripRealtimeFromLocation(loc) {
+  if (!loc || typeof loc !== "object") return loc;
+  const stripped = { ...loc };
+  [
+    "realtimeArrival",
+    "realtimeDeparture",
+    "realtimePass",
+    "realtimeArrivalActual",
+    "realtimeDepartureActual",
+    "realtimePassActual",
+    "realtimeArrivalNoReport",
+    "realtimeDepartureNoReport",
+    "realtimePassNoReport",
+  ].forEach((key) => {
+    delete stripped[key];
+  });
+  return stripped;
+}
+
+function stripRealtimeFromServiceEntry(entry) {
+  if (!entry?.detail || !Array.isArray(entry.detail.locations)) {
+    return entry;
+  }
+  return {
+    ...entry,
+    detail: {
+      ...entry.detail,
+      realtimeActivated: false,
+      locations: entry.detail.locations.map(stripRealtimeFromLocation),
+    },
+  };
+}
+
+function servicesForCurrentRealtimeMode(services) {
+  if (realtimeEnabled) return services;
+  return services.map(stripRealtimeFromServiceEntry);
+}
+
 function renderTimetablesFromContext(context) {
   const {
     stations,
@@ -1299,12 +1513,14 @@ function renderTimetablesFromContext(context) {
   context.partialSort = null;
 
   if (servicesAB.length > 0) {
-    const modelAB = buildTimetableModel(stations, stationSet, servicesAB, {
+    const renderServicesAB = servicesForCurrentRealtimeMode(servicesAB);
+    const scheduledServicesAB = servicesAB.map(stripRealtimeFromServiceEntry);
+    const modelAB = buildTimetableModel(stations, stationSet, renderServicesAB, {
       realtimeEnabled,
       showPlatforms: showPlatformsEnabled,
       atocNameByCode,
     });
-    const pdfModelAB = buildTimetableModel(stations, stationSet, servicesAB, {
+    const pdfModelAB = buildTimetableModel(stations, stationSet, scheduledServicesAB, {
       realtimeEnabled: false,
       showPlatforms: showPlatformsEnabled,
       atocNameByCode,
@@ -1348,12 +1564,14 @@ function renderTimetablesFromContext(context) {
 
   if (servicesBA.length > 0) {
     const stationsRev = stations.slice().reverse();
-    const modelBA = buildTimetableModel(stationsRev, stationSet, servicesBA, {
+    const renderServicesBA = servicesForCurrentRealtimeMode(servicesBA);
+    const scheduledServicesBA = servicesBA.map(stripRealtimeFromServiceEntry);
+    const modelBA = buildTimetableModel(stationsRev, stationSet, renderServicesBA, {
       realtimeEnabled,
       showPlatforms: showPlatformsEnabled,
       atocNameByCode,
     });
-    const pdfModelBA = buildTimetableModel(stationsRev, stationSet, servicesBA, {
+    const pdfModelBA = buildTimetableModel(stationsRev, stationSet, scheduledServicesBA, {
       realtimeEnabled: false,
       showPlatforms: showPlatformsEnabled,
       atocNameByCode,
@@ -1423,19 +1641,26 @@ function renderTimetablesFromContext(context) {
     shareBtn.disabled = true;
   }
 
+  updateRenderedTimetableStatus(context);
+
+}
+
+function updateRenderedTimetableStatus(context) {
   if (context.partialSort?.unsorted?.length) {
     try {
       assertWithStatus(
         false,
-        "Unable to sort some services",
+        "Unable to sort some services.",
         { services: context.partialSort.unsorted.join(", ") },
         { keepOutputs: true },
       );
     } catch (err) {
       // keep rendered timetable despite the assertion
     }
+    return;
   }
 
+  hideStatus();
 }
 
 // === Main form submit ===
@@ -1738,7 +1963,7 @@ form.addEventListener("submit", async (e) => {
       setStatus("Build cancelled.");
       return;
     }
-    setStatus("Error fetching initial service search results: " + err, {
+    setStatus(`Error fetching initial service search results: ${err}`, {
       isError: true,
     });
     return;
@@ -1867,7 +2092,7 @@ form.addEventListener("submit", async (e) => {
       setStatus("Build cancelled.");
       return;
     }
-    setStatus("Error fetching service details: " + err, { isError: true });
+    setStatus(`Error fetching service details: ${err}`, { isError: true });
     return;
   }
 
@@ -2323,7 +2548,7 @@ form.addEventListener("submit", async (e) => {
       )
       .join(", ");
     setStatus(
-      `${excludedSequences.length} services between ${labelText} were excluded to maintain consistent station order`,
+      `${excludedSequences.length} services between ${labelText} were excluded to maintain consistent station order.`,
       { isError: true },
     );
   }
@@ -2381,12 +2606,18 @@ form.addEventListener("submit", async (e) => {
   const specifiedStationSet = new Set(
     corridorStations.map((crs) => normaliseCrs(crs || "")).filter(Boolean),
   );
-  const actualStationSet =
-    tableRowStationSet.size > 0 ? tableRowStationSet : discoveredStationSet;
-  const connectionStationSet = new Set([
-    ...actualStationSet,
-    ...specifiedStationSet,
-  ]);
+  const connectionStationSet = resolveConnectionStationSet({
+    tableRowStationSet,
+    specifiedStationSet,
+    fallbackStationSet: discoveredStationSet,
+  });
+  const hasRealtimeServices = filteredAllDetails.some(
+    (entry) => entry.detail?.realtimeActivated === true,
+  );
+  setRealtimeToggleState({
+    enabled: hasRealtimeServices,
+    active: realtimePreferred,
+  });
 
   // Split into A->B vs B->A, based on order of corridor stations in the calling pattern.
   const outboundConnectionEntries = buildConnectionServiceEntries(
@@ -2395,6 +2626,7 @@ form.addEventListener("submit", async (e) => {
     0,
     "both",
     corridorStations,
+    { realtimeEnabled },
   );
   const inboundConnectionEntries = buildConnectionServiceEntries(
     baseRetainedBA,
@@ -2402,6 +2634,7 @@ form.addEventListener("submit", async (e) => {
     0,
     "both",
     corridorStations.slice().reverse(),
+    { realtimeEnabled },
   );
   const connectionEntries = outboundConnectionEntries.concat(inboundConnectionEntries);
   if (DEBUG_CONNECTIONS) {
@@ -2494,19 +2727,15 @@ form.addEventListener("submit", async (e) => {
     (pdfFilenameDate ? ` ${pdfFilenameDate}` : "") +
     ".pdf";
 
-  const hasRealtimeServices =
-    servicesAB.some((entry) => entry.detail?.realtimeActivated === true) ||
-    servicesBA.some((entry) => entry.detail?.realtimeActivated === true);
-  setRealtimeToggleState({
-    enabled: hasRealtimeServices,
-    active: realtimePreferred,
-  });
-
   lastTimetableContext = {
     stations,
     stationSet,
     servicesAB,
     servicesBA,
+    baseRetainedAB,
+    baseRetainedBA,
+    filteredAllDetails,
+    corridorStations,
     fromName,
     toName,
     viaNamesForward,
@@ -2518,13 +2747,14 @@ form.addEventListener("submit", async (e) => {
     pdfFilename,
     generatedTimestamp: formatGeneratedTimestamp(),
   };
-    renderTimetablesFromContext(lastTimetableContext);
-    if (!statusEl?.classList.contains("is-error")) {
-      hideStatus();
-      hasCompletedBuild = true;
-      console.debug("Timetable build finished successfully.");
-      maybeShowRotatePrompt();
-    }
+  setSpecifiedConnectionsOnlyAvailability(true);
+  renderTimetablesFromContext(lastTimetableContext);
+  if (!statusEl?.classList.contains("is-error")) {
+    hideStatus();
+    hasCompletedBuild = true;
+    console.debug("Timetable build finished successfully.");
+    maybeShowRotatePrompt();
+  }
   } finally {
     buildAbortController = null;
     setBuildInProgress(false);
@@ -2832,7 +3062,7 @@ function buildStationOrderFromSequences(
     const remaining = allStations.filter((crs) => !ordered.includes(crs));
     assertWithStatus(
       false,
-      "Could not build a consistent station order for this route",
+      "Could not build a consistent station order for this route.",
       {
         reason: "cycle",
         remaining,
@@ -2846,7 +3076,7 @@ function buildStationOrderFromSequences(
     for (let i = 1; i < indices.length; i++) {
       assertWithStatus(
         indices[i - 1] < indices[i],
-        "Service calling pattern conflicts with the station order",
+        "Service calling pattern conflicts with the station order.",
         {
           sequence: [...sequence],
           sequenceIndices: indices,

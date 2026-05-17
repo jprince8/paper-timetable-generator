@@ -19,6 +19,9 @@ registerCachedQuerySuite({
   expectedQueryIncludes: ['from=CBG', 'to=BFR'],
   requireKgxToStpConnection: true,
   requireStpToKgxConnection: false,
+  localStorageSeed: {
+    corridor_specifiedConnectionsOnly: false,
+  },
   expectedAbStationOrderLabels: [
     'Cambridge',
     'London Kings Cross',

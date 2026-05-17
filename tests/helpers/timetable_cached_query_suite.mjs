@@ -290,12 +290,13 @@ export function registerCachedQuerySuite({
   requireKgxToStpConnection = false,
   requireStpToKgxConnection = false,
   expectedAbStationOrderLabels = null,
+  localStorageSeed = {},
   extraAssertions = [],
 }) {
   let cachedResultPromise = null;
   const getResult = async () => {
     if (!cachedResultPromise) {
-      cachedResultPromise = runCachedQueryFixture(cachePath);
+      cachedResultPromise = runCachedQueryFixture(cachePath, { localStorageSeed });
     }
     return cachedResultPromise;
   };
