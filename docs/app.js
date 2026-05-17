@@ -2589,6 +2589,13 @@ form.addEventListener("submit", async (e) => {
     specifiedStationSet,
     fallbackStationSet: discoveredStationSet,
   });
+  const hasRealtimeServices = filteredAllDetails.some(
+    (entry) => entry.detail?.realtimeActivated === true,
+  );
+  setRealtimeToggleState({
+    enabled: hasRealtimeServices,
+    active: realtimePreferred,
+  });
 
   // Split into A->B vs B->A, based on order of corridor stations in the calling pattern.
   const outboundConnectionEntries = buildConnectionServiceEntries(
@@ -2697,14 +2704,6 @@ form.addEventListener("submit", async (e) => {
     `Timetable for ${pdfRouteTitle}` +
     (pdfFilenameDate ? ` ${pdfFilenameDate}` : "") +
     ".pdf";
-
-  const hasRealtimeServices =
-    servicesAB.some((entry) => entry.detail?.realtimeActivated === true) ||
-    servicesBA.some((entry) => entry.detail?.realtimeActivated === true);
-  setRealtimeToggleState({
-    enabled: hasRealtimeServices,
-    active: realtimePreferred,
-  });
 
   lastTimetableContext = {
     stations,

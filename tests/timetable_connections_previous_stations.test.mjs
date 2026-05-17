@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  assertConnectionGenerationUsesRealtimeWhenEnabled,
   assertConnectionEndpointsForceSplitStationRows,
   assertEqualTimeDepartureSortsAfterArrival,
 } from './helpers/timetable_cached_query_runner.mjs';
@@ -22,4 +23,17 @@ test('connection endpoint stations with arrivals and departures use split rows',
 
 test('equal-time departures sort after arrivals at the same station', () => {
   assert.deepEqual(assertEqualTimeDepartureSortsAfterArrival(), [1, 0]);
+});
+
+test('connection generation follows realtime toggle for source train times', () => {
+  assert.deepEqual(assertConnectionGenerationUsesRealtimeWhenEnabled(), {
+    outboundScheduledDepart: '1000',
+    outboundScheduledArrive: '1010',
+    outboundRealtimeDepart: '1005',
+    outboundRealtimeArrive: '1015',
+    inboundScheduledDepart: '1020',
+    inboundScheduledArrive: '1030',
+    inboundRealtimeDepart: '1030',
+    inboundRealtimeArrive: '1040',
+  });
 });

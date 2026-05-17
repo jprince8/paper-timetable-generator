@@ -180,15 +180,15 @@ function locationTimeInfoFromCandidates(loc, candidates) {
 
 function locationArrivalTimeInfo(loc) {
   return locationTimeInfoFromCandidates(loc, [
-    { field: "gbttBookedArrival", value: loc?.gbttBookedArrival || "" },
     { field: "realtimeArrival", value: loc?.realtimeArrival || "" },
+    { field: "gbttBookedArrival", value: loc?.gbttBookedArrival || "" },
   ]);
 }
 
 function locationDepartureTimeInfo(loc) {
   return locationTimeInfoFromCandidates(loc, [
-    { field: "gbttBookedDeparture", value: loc?.gbttBookedDeparture || "" },
     { field: "realtimeDeparture", value: loc?.realtimeDeparture || "" },
+    { field: "gbttBookedDeparture", value: loc?.gbttBookedDeparture || "" },
   ]);
 }
 

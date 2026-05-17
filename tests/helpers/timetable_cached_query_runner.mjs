@@ -850,3 +850,110 @@ export function assertInboundConnectionsHonourPreviousStations() {
     excludedByTildeCount: excludedByTilde.length,
   };
 }
+
+export function assertConnectionGenerationUsesRealtimeWhenEnabled() {
+  const repoRoot = path.resolve(process.cwd());
+  const runtime = loadFrontendRuntime({
+    startMinutes: 0,
+    endMinutes: 24 * 60 - 1,
+    connectionsData: {
+      AAA: [
+        {
+          connections: {
+            BBB: [
+              {
+                durationMinutes: 10,
+                mode: 'walk',
+              },
+            ],
+          },
+        },
+      ],
+    },
+    repoRoot,
+  });
+
+  const corridorSet = new Set(['PRE', 'AAA', 'BBB', 'POST']);
+  const serviceEntry = {
+    svc: { serviceUid: 'SRC-REALTIME-CONNECTIONS', runDate: '2026-04-27' },
+    detail: {
+      runDate: '2026-04-27',
+      realtimeActivated: true,
+      locations: [
+        {
+          crs: 'PRE',
+          gbttBookedDeparture: '0950',
+          displayAs: 'CALL',
+        },
+        {
+          crs: 'AAA',
+          gbttBookedArrival: '1000',
+          realtimeArrival: '1005',
+          gbttBookedDeparture: '1001',
+          displayAs: 'CALL',
+        },
+        {
+          crs: 'BBB',
+          gbttBookedArrival: '1029',
+          gbttBookedDeparture: '1030',
+          realtimeDeparture: '1040',
+          displayAs: 'CALL',
+        },
+        {
+          crs: 'POST',
+          gbttBookedArrival: '1050',
+          displayAs: 'CALL',
+        },
+      ],
+    },
+  };
+
+  const firstLocationTime = (generated) =>
+    generated[0]?.detail?.locations?.[0]?.gbttBookedDeparture || '';
+  const secondLocationTime = (generated) =>
+    generated[0]?.detail?.locations?.[1]?.gbttBookedArrival || '';
+
+  const outboundScheduled = runtime.buildConnectionServiceEntries(
+    [serviceEntry],
+    corridorSet,
+    0,
+    'outbound',
+    ['PRE', 'AAA', 'BBB', 'POST'],
+    { realtimeEnabled: false },
+  );
+  const outboundRealtime = runtime.buildConnectionServiceEntries(
+    [serviceEntry],
+    corridorSet,
+    0,
+    'outbound',
+    ['PRE', 'AAA', 'BBB', 'POST'],
+    { realtimeEnabled: true },
+  );
+  const inboundScheduled = runtime.buildConnectionServiceEntries(
+    [serviceEntry],
+    corridorSet,
+    0,
+    'inbound',
+    ['PRE', 'AAA', 'BBB', 'POST'],
+    { realtimeEnabled: false },
+  );
+  const inboundRealtime = runtime.buildConnectionServiceEntries(
+    [serviceEntry],
+    corridorSet,
+    0,
+    'inbound',
+    ['PRE', 'AAA', 'BBB', 'POST'],
+    { realtimeEnabled: true },
+  );
+
+  return {
+    outboundScheduledDepart: firstLocationTime(outboundScheduled),
+    outboundScheduledArrive: secondLocationTime(outboundScheduled),
+    outboundRealtimeDepart: firstLocationTime(outboundRealtime),
+    outboundRealtimeArrive: secondLocationTime(outboundRealtime),
+    inboundScheduledDepart: firstLocationTime(inboundScheduled),
+    inboundScheduledArrive: secondLocationTime(inboundScheduled),
+    inboundRealtimeDepart: firstLocationTime(inboundRealtime),
+    inboundRealtimeArrive: secondLocationTime(inboundRealtime),
+  };
+}
