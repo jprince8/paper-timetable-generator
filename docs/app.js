@@ -1641,11 +1641,17 @@ form.addEventListener("submit", async (e) => {
   const legServiceCounts = new Map();
   let invalidInputsDetected = false;
   let rttTimeoutDetected = false;
+  let rttHistoryTooOldDetected = false;
+  const rttHistoryTooOldMessage = "Date range is too long ago.";
   const rttTimeoutMessage = "Error fetching data from RTT. Please try again.";
   const rttConnectionMessage =
     "Unable to reach RTT. Please check your connection and try again.";
   let rttConnectionDetected = false;
   const markRttFailure = (data, status) => {
+    if (data && data.error === "history_too_old") {
+      rttHistoryTooOldDetected = true;
+      return true;
+    }
     if (data && data.error === "timeout") {
       rttTimeoutDetected = true;
       return true;
@@ -1743,6 +1749,10 @@ form.addEventListener("submit", async (e) => {
   }
   if (rttTimeoutDetected) {
     setStatus(rttTimeoutMessage, { isError: true });
+    return;
+  }
+  if (rttHistoryTooOldDetected) {
+    setStatus(rttHistoryTooOldMessage, { isError: true });
     return;
   }
   if (rttConnectionDetected) {
@@ -1866,6 +1876,10 @@ form.addEventListener("submit", async (e) => {
   }
   if (rttTimeoutDetected) {
     setStatus(rttTimeoutMessage, { isError: true });
+    return;
+  }
+  if (rttHistoryTooOldDetected) {
+    setStatus(rttHistoryTooOldMessage, { isError: true });
     return;
   }
   if (rttConnectionDetected) {
@@ -2010,6 +2024,10 @@ form.addEventListener("submit", async (e) => {
     setStatus(rttTimeoutMessage, { isError: true });
     return;
   }
+  if (rttHistoryTooOldDetected) {
+    setStatus(rttHistoryTooOldMessage, { isError: true });
+    return;
+  }
   if (rttConnectionDetected) {
     setStatus(rttConnectionMessage, { isError: true });
     return;
@@ -2108,6 +2126,10 @@ form.addEventListener("submit", async (e) => {
   }
   if (rttTimeoutDetected) {
     setStatus(rttTimeoutMessage, { isError: true });
+    return;
+  }
+  if (rttHistoryTooOldDetected) {
+    setStatus(rttHistoryTooOldMessage, { isError: true });
     return;
   }
   if (rttConnectionDetected) {
