@@ -101,6 +101,13 @@ def _legacy_api_looks_deprecated(exc):
     return any(marker in body for marker in markers)
 
 
+def _rtt_error_is_outside_permitted_history(exc):
+    if exc.status_code != 400:
+        return False
+    body = exc.body or ""
+    return "outside your permitted history" in body.lower()
+
+
 def _pin_auto_mode_to_new(reason):
     global _RTT_AUTO_FORCE_NEW_UNTIL_RESTART
     if _RTT_AUTO_FORCE_NEW_UNTIL_RESTART:
@@ -1138,6 +1145,8 @@ def api_search():
             headers["Retry-After"] = str(exc.retry_after)
         return jsonify(payload), 429, headers
     except RttHttpError as exc:
+        if _rtt_error_is_outside_permitted_history(exc):
+            return jsonify({"error": "history_too_old"}), 400
         return jsonify({"error": "upstream", "status": exc.status_code}), 502
     return jsonify(_normalize_search_response(data, to_code=to))
 
@@ -1209,6 +1218,8 @@ def api_service():
             headers["Retry-After"] = str(exc.retry_after)
         return jsonify(payload), 429, headers
     except RttHttpError as exc:
+        if _rtt_error_is_outside_permitted_history(exc):
+            return jsonify({"error": "history_too_old"}), 400
         return jsonify({"error": "upstream", "status": exc.status_code}), 502
     return jsonify(_normalize_service_response(data))
 
