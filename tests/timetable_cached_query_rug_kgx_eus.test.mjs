@@ -13,7 +13,26 @@ registerCachedQuerySuite({
   suiteLabel: 'RUG -> KGX via EUS cached query',
   cachePath: CACHE_PATH,
   expectedQueryIncludes: ['from=RUG', 'to=KGX', 'vias=EUS'],
-  expectedConnectionEntriesAtLeast: 0,
-  expectedBuildError: /No services found calling at London Kings Cross/,
-  extraAssertions: [],
+  expectedConnectionEntriesAtLeast: 1,
+  extraAssertions: [
+    {
+      name: 'uses generated EUS <-> KGX connections to satisfy the KGX endpoint',
+      assert(result) {
+        const connectionRoutes = result.connectionEntries
+          .filter((entry) => isConnectionEntry(entry))
+          .map((entry) =>
+            (entry.detail?.locations || []).map((loc) => loc.crs).join('>'),
+          );
+
+        assert.ok(
+          connectionRoutes.includes('EUS>KGX'),
+          'expected generated EUS -> KGX connection',
+        );
+        assert.ok(
+          connectionRoutes.includes('KGX>EUS'),
+          'expected generated KGX -> EUS connection',
+        );
+      },
+    },
+  ],
 });
