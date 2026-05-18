@@ -6,7 +6,7 @@ import { isConnectionEntry } from './helpers/timetable_cached_query_runner.mjs';
 const CACHE_PATH = path.resolve(
   process.cwd(),
   process.env.RTT_FIXTURE_PATH_RUG_KGX_EUS ||
-    'tests/fixtures/rug-kgx-via-eus-2026-04-27.cached-results.json',
+    'tests/fixtures/rug-kgx-via-eus-2026-05-11.cached-results.json',
 );
 
 registerCachedQuerySuite({
