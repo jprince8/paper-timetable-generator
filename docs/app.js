@@ -1684,6 +1684,75 @@ function rebuildConnectionsAndRender(context) {
   renderTimetablesFromContext(context);
 }
 
+function buildScheduledPdfServicesForContext(context) {
+  const {
+    stations,
+    baseRetainedAB,
+    baseRetainedBA,
+    filteredAllDetails,
+    corridorStations,
+    mandatoryViaStations,
+  } = context;
+
+  if (
+    !baseRetainedAB ||
+    !baseRetainedBA ||
+    !filteredAllDetails ||
+    !corridorStations
+  ) {
+    return null;
+  }
+
+  const baseFilterAB = filterServicesForTimetableModel(stations, baseRetainedAB);
+  const baseFilterBA = filterServicesForTimetableModel(
+    stations.slice().reverse(),
+    baseRetainedBA,
+  );
+  const tableRowStationSet = new Set(
+    baseFilterAB.displayStations
+      .concat(baseFilterBA.displayStations)
+      .map((station) => normaliseCrs(station?.crs || ""))
+      .filter(Boolean),
+  );
+  const specifiedStationSet = new Set(
+    corridorStations.map((crs) => normaliseCrs(crs || "")).filter(Boolean),
+  );
+  const connectionStationSet = resolveConnectionStationSet({
+    tableRowStationSet,
+    specifiedStationSet,
+  });
+  const connectionOptions = {
+    realtimeEnabled: false,
+    mandatoryViaStations: directConnectionsOnlyPreferred
+      ? mandatoryViaStations
+      : [],
+  };
+  const outboundConnectionEntries = buildConnectionServiceEntries(
+    baseRetainedAB,
+    connectionStationSet,
+    0,
+    "both",
+    corridorStations,
+    connectionOptions,
+  );
+  const inboundConnectionEntries = buildConnectionServiceEntries(
+    baseRetainedBA,
+    connectionStationSet,
+    0,
+    "both",
+    corridorStations.slice().reverse(),
+    connectionOptions,
+  );
+  const allDetailsWithConnections = filteredAllDetails
+    .map(stripRealtimeFromServiceEntry)
+    .concat(outboundConnectionEntries, inboundConnectionEntries);
+  return splitByDirection(
+    allDetailsWithConnections,
+    stations,
+    corridorStations,
+  );
+}
+
 function stripRealtimeFromLocation(loc) {
   if (!loc || typeof loc !== "object") return loc;
   const stripped = { ...loc };
@@ -1742,11 +1811,14 @@ function renderTimetablesFromContext(context) {
   setPlatformToggleAvailability(hasServices);
   const pdfTables = [];
   const sortLogs = [];
+  const scheduledPdfServices = buildScheduledPdfServicesForContext(context);
   context.partialSort = null;
 
   if (servicesAB.length > 0) {
     const renderServicesAB = servicesForCurrentRealtimeMode(servicesAB);
-    const scheduledServicesAB = servicesAB.map(stripRealtimeFromServiceEntry);
+    const scheduledServicesAB = (
+      scheduledPdfServices?.ab || servicesAB
+    ).map(stripRealtimeFromServiceEntry);
     const modelAB = buildTimetableModel(stations, stationSet, renderServicesAB, {
       realtimeEnabled,
       showPlatforms: showPlatformsEnabled,
@@ -1762,7 +1834,7 @@ function renderTimetablesFromContext(context) {
       fastestRoutesOnly: fastestRoutesOnlyEnabled,
     });
     headingAB.textContent =
-      forwardStopsLabel + " (" + modelAB.serviceCount + " services)";
+      forwardStopsLabel + " (" + modelAB.orderedSvcIndices.length + " services)";
     if (modelAB.sortLog) sortLogs.push(modelAB.sortLog);
     renderTimetable(
       modelAB,
@@ -1801,7 +1873,9 @@ function renderTimetablesFromContext(context) {
   if (servicesBA.length > 0) {
     const stationsRev = stations.slice().reverse();
     const renderServicesBA = servicesForCurrentRealtimeMode(servicesBA);
-    const scheduledServicesBA = servicesBA.map(stripRealtimeFromServiceEntry);
+    const scheduledServicesBA = (
+      scheduledPdfServices?.ba || servicesBA
+    ).map(stripRealtimeFromServiceEntry);
     const modelBA = buildTimetableModel(stationsRev, stationSet, renderServicesBA, {
       realtimeEnabled,
       showPlatforms: showPlatformsEnabled,
@@ -1817,7 +1891,7 @@ function renderTimetablesFromContext(context) {
       fastestRoutesOnly: fastestRoutesOnlyEnabled,
     });
     headingBA.textContent =
-      reverseStopsLabel + " (" + modelBA.serviceCount + " services)";
+      reverseStopsLabel + " (" + modelBA.orderedSvcIndices.length + " services)";
     if (modelBA.sortLog) sortLogs.push(modelBA.sortLog);
     renderTimetable(
       modelBA,
