@@ -203,6 +203,9 @@ const directConnectionsOnlyBtn = document.getElementById(
 const directServicesOnlyBtn = document.getElementById(
   "directServicesOnlyBtn",
 );
+const reachableServicesOnlyBtn = document.getElementById(
+  "reachableServicesOnlyBtn",
+);
 const nowBtn = document.getElementById("nowBtn");
 const rotateModal = document.getElementById("rotateModal");
 const rotateModalOk = document.getElementById("rotateModalOk");
@@ -211,6 +214,8 @@ const REALTIME_TOGGLE_STORAGE_KEY = "corridor_showRealtime";
 const DIRECT_CONNECTIONS_ONLY_STORAGE_KEY =
   "corridor_specifiedConnectionsOnly";
 const DIRECT_SERVICES_ONLY_STORAGE_KEY = "corridor_directServicesOnly";
+const REACHABLE_SERVICES_ONLY_STORAGE_KEY =
+  "corridor_reachableServicesOnly";
 const ROTATE_PROMPT_DISMISSED_KEY = "corridor_rotatePromptDismissed";
 
 // === Mutable state ===
@@ -235,6 +240,9 @@ let directConnectionsOnlyAvailable = false;
 let directServicesOnlyEnabled = true;
 let directServicesOnlyPreferred = true;
 let directServicesOnlyAvailable = false;
+let reachableServicesOnlyEnabled = true;
+let reachableServicesOnlyPreferred = true;
+let reachableServicesOnlyAvailable = false;
 let buildAbortController = null;
 let buildInProgress = false;
 let buildCancelled = false;
@@ -502,6 +510,18 @@ const directServicesOnlyToggle = registerStoredToggleControl({
   },
 });
 
+const reachableServicesOnlyToggle = registerStoredToggleControl({
+  button: reachableServicesOnlyBtn,
+  storageKey: REACHABLE_SERVICES_ONLY_STORAGE_KEY,
+  initialAvailable: reachableServicesOnlyAvailable,
+  initialPreferred: reachableServicesOnlyPreferred,
+  onRender: ({ available, preferred, enabled }) => {
+    reachableServicesOnlyAvailable = available;
+    reachableServicesOnlyPreferred = preferred;
+    reachableServicesOnlyEnabled = enabled;
+  },
+});
+
 function setRealtimeToggleState({ enabled, active }, { persist = false } = {}) {
   realtimeToggle.setState({ available: enabled, preferred: active }, { persist });
 }
@@ -533,6 +553,10 @@ function setDirectConnectionsOnlyAvailability(enabled) {
 
 function setDirectServicesOnlyAvailability(enabled) {
   directServicesOnlyToggle.setAvailability(enabled);
+}
+
+function setReachableServicesOnlyAvailability(enabled) {
+  reachableServicesOnlyToggle.setAvailability(enabled);
 }
 
 function requestSubmitWithRttCacheRead() {
@@ -619,6 +643,15 @@ if (directServicesOnlyBtn) {
     if (!directServicesOnlyToggle.toggle({ persist: true })) return;
     if (lastTimetableContext) {
       requestSubmitWithRttCacheRead();
+    }
+  });
+}
+
+if (reachableServicesOnlyBtn) {
+  reachableServicesOnlyBtn.addEventListener("click", () => {
+    if (!reachableServicesOnlyToggle.toggle({ persist: true })) return;
+    if (lastTimetableContext) {
+      renderTimetablesFromContext(lastTimetableContext);
     }
   });
 }
@@ -1209,6 +1242,7 @@ function resetOutputs() {
   setPlatformToggleAvailability(false);
   setDirectConnectionsOnlyAvailability(false);
   setDirectServicesOnlyAvailability(false);
+  setReachableServicesOnlyAvailability(false);
 }
 
 function clearTimetableOutputs() {
@@ -1231,6 +1265,7 @@ function clearTimetableOutputs() {
   setPlatformToggleAvailability(false);
   setDirectConnectionsOnlyAvailability(false);
   setDirectServicesOnlyAvailability(false);
+  setReachableServicesOnlyAvailability(false);
 }
 
 function buildCorridorPaths(from, to, viaEntries) {
@@ -1570,11 +1605,13 @@ function renderTimetablesFromContext(context) {
       realtimeEnabled,
       showPlatforms: showPlatformsEnabled,
       atocNameByCode,
+      reachableServicesOnly: reachableServicesOnlyEnabled,
     });
     const pdfModelAB = buildTimetableModel(stations, stationSet, scheduledServicesAB, {
       realtimeEnabled: false,
       showPlatforms: showPlatformsEnabled,
       atocNameByCode,
+      reachableServicesOnly: reachableServicesOnlyEnabled,
     });
     headingAB.textContent =
       forwardStopsLabel + " (" + modelAB.serviceCount + " services)";
@@ -1621,11 +1658,13 @@ function renderTimetablesFromContext(context) {
       realtimeEnabled,
       showPlatforms: showPlatformsEnabled,
       atocNameByCode,
+      reachableServicesOnly: reachableServicesOnlyEnabled,
     });
     const pdfModelBA = buildTimetableModel(stationsRev, stationSet, scheduledServicesBA, {
       realtimeEnabled: false,
       showPlatforms: showPlatformsEnabled,
       atocNameByCode,
+      reachableServicesOnly: reachableServicesOnlyEnabled,
     });
     headingBA.textContent =
       reverseStopsLabel + " (" + modelBA.serviceCount + " services)";
@@ -2819,6 +2858,7 @@ form.addEventListener("submit", async (e) => {
   };
   setDirectConnectionsOnlyAvailability(true);
   setDirectServicesOnlyAvailability(true);
+  setReachableServicesOnlyAvailability(true);
   renderTimetablesFromContext(lastTimetableContext);
   if (!statusEl?.classList.contains("is-error")) {
     hideStatus();

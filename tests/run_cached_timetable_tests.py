@@ -190,6 +190,7 @@ def main() -> int:
         "node",
         "--test",
         "tests/timetable_connections_previous_stations.test.mjs",
+        "tests/timetable_reachable_services.test.mjs",
         "tests/timetable_cached_query.test.mjs",
         "tests/timetable_cached_query_lbz.test.mjs",
         "tests/timetable_cached_query_rug_kgx_eus.test.mjs",

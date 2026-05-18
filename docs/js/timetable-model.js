@@ -64,7 +64,202 @@ function filterServicesForTimetableModel(stations, servicesWithDetails) {
   return { services: workingServices, displayStations };
 }
 
-function buildTimetableModel(
+function cellTimeMinutes(cell) {
+  if (!cell) return null;
+  if (cell && typeof cell === "object" && cell.format?.strike) return null;
+  const text = typeof cell === "object" ? cell.text || "" : String(cell || "");
+  if (!text || text === "|") return null;
+  return timeStrToMinutes(text);
+}
+
+function isDepartureRowSpec(spec) {
+  return (
+    spec?.kind === "station" &&
+    (spec.mode === "dep" || spec.mode === "merged" || spec.mode === "single")
+  );
+}
+
+function isArrivalRowSpec(spec) {
+  return (
+    spec?.kind === "station" &&
+    (spec.mode === "arr" || spec.mode === "merged" || spec.mode === "single")
+  );
+}
+
+function getStationRowIndices(rowSpecs) {
+  const indices = [];
+  rowSpecs.forEach((spec, idx) => {
+    if (spec?.kind === "station") indices.push(idx);
+  });
+  return indices;
+}
+
+function getServiceTimedStationRows(model, svcIndex) {
+  const rows = model.rows || [];
+  const rowSpecs = model.rowSpecs || [];
+  return getStationRowIndices(rowSpecs).filter((rowIdx) => {
+    return cellTimeMinutes(rows[rowIdx]?.cells?.[svcIndex]) !== null;
+  });
+}
+
+function findFirstDepartureAtStation(model, stationIndex) {
+  let first = null;
+  const rows = model.rows || [];
+  const rowSpecs = model.rowSpecs || [];
+  rowSpecs.forEach((spec, rowIdx) => {
+    if (spec?.kind !== "station" || spec.stationIndex !== stationIndex) return;
+    if (!isDepartureRowSpec(spec)) return;
+    (model.orderedSvcIndices || []).forEach((svcIndex) => {
+      const mins = cellTimeMinutes(rows[rowIdx]?.cells?.[svcIndex]);
+      if (mins === null) return;
+      if (first === null || mins < first) first = mins;
+    });
+  });
+  return first;
+}
+
+function findFinalArrivalAtStation(model, stationIndex) {
+  let last = null;
+  const rows = model.rows || [];
+  const rowSpecs = model.rowSpecs || [];
+  rowSpecs.forEach((spec, rowIdx) => {
+    if (spec?.kind !== "station" || spec.stationIndex !== stationIndex) return;
+    if (!isArrivalRowSpec(spec)) return;
+    (model.orderedSvcIndices || []).forEach((svcIndex) => {
+      const mins = cellTimeMinutes(rows[rowIdx]?.cells?.[svcIndex]);
+      if (mins === null) return;
+      if (last === null || mins > last) last = mins;
+    });
+  });
+  return last;
+}
+
+function collectReachableServiceIndices(model) {
+  const rows = model.rows || [];
+  const rowSpecs = model.rowSpecs || [];
+  const displayStations = model.displayStations || [];
+  const orderedSvcIndices = (model.orderedSvcIndices || []).filter(
+    (idx) =>
+      Number.isInteger(idx) &&
+      idx >= 0 &&
+      idx < (model.servicesWithDetails || []).length,
+  );
+
+  if (displayStations.length < 2 || orderedSvcIndices.length === 0) {
+    return null;
+  }
+
+  const firstStationIndex = 0;
+  const lastStationIndex = displayStations.length - 1;
+  const firstDeparture = findFirstDepartureAtStation(model, firstStationIndex);
+  const finalArrival = findFinalArrivalAtStation(model, lastStationIndex);
+  if (firstDeparture === null || finalArrival === null) return null;
+
+  const serviceTimedRows = new Map();
+  orderedSvcIndices.forEach((svcIndex) => {
+    serviceTimedRows.set(svcIndex, getServiceTimedStationRows(model, svcIndex));
+  });
+
+  const earliestAtStation = new Array(displayStations.length).fill(null);
+  earliestAtStation[firstStationIndex] = firstDeparture;
+  const forwardReachable = new Set();
+
+  for (let iter = 0; iter < orderedSvcIndices.length + displayStations.length; iter++) {
+    let changed = false;
+    orderedSvcIndices.forEach((svcIndex) => {
+      const timedRows = serviceTimedRows.get(svcIndex) || [];
+      if (timedRows.length < 2) return;
+      const lastTimedRow = timedRows[timedRows.length - 1];
+      let boarded = false;
+
+      timedRows.forEach((rowIdx) => {
+        const spec = rowSpecs[rowIdx];
+        const stationIndex = spec?.stationIndex;
+        if (stationIndex === null || stationIndex === undefined) return;
+        const mins = cellTimeMinutes(rows[rowIdx]?.cells?.[svcIndex]);
+        if (mins === null) return;
+
+        if (
+          isDepartureRowSpec(spec) &&
+          earliestAtStation[stationIndex] !== null &&
+          earliestAtStation[stationIndex] <= mins
+        ) {
+          boarded = true;
+          if (rowIdx !== lastTimedRow) forwardReachable.add(svcIndex);
+        }
+
+        if (boarded && isArrivalRowSpec(spec)) {
+          const current = earliestAtStation[stationIndex];
+          if (current === null || mins < current) {
+            earliestAtStation[stationIndex] = mins;
+            changed = true;
+          }
+        }
+      });
+    });
+    if (!changed) break;
+  }
+
+  const latestAtStation = new Array(displayStations.length).fill(null);
+  latestAtStation[lastStationIndex] = finalArrival;
+  const backwardReachable = new Set();
+
+  for (let iter = 0; iter < orderedSvcIndices.length + displayStations.length; iter++) {
+    let changed = false;
+    orderedSvcIndices.forEach((svcIndex) => {
+      const timedRows = serviceTimedRows.get(svcIndex) || [];
+      if (timedRows.length < 2) return;
+      const firstTimedRow = timedRows[0];
+      let reachesDestination = false;
+
+      for (let i = timedRows.length - 1; i >= 0; i--) {
+        const rowIdx = timedRows[i];
+        const spec = rowSpecs[rowIdx];
+        const stationIndex = spec?.stationIndex;
+        if (stationIndex === null || stationIndex === undefined) continue;
+        const mins = cellTimeMinutes(rows[rowIdx]?.cells?.[svcIndex]);
+        if (mins === null) continue;
+
+        if (
+          isArrivalRowSpec(spec) &&
+          latestAtStation[stationIndex] !== null &&
+          mins <= latestAtStation[stationIndex]
+        ) {
+          reachesDestination = true;
+          if (rowIdx !== firstTimedRow) backwardReachable.add(svcIndex);
+        }
+
+        if (reachesDestination && isDepartureRowSpec(spec)) {
+          const current = latestAtStation[stationIndex];
+          if (current === null || mins > current) {
+            latestAtStation[stationIndex] = mins;
+            changed = true;
+          }
+        }
+      }
+    });
+    if (!changed) break;
+  }
+
+  const reachable = new Set();
+  orderedSvcIndices.forEach((svcIndex) => {
+    if (forwardReachable.has(svcIndex) && backwardReachable.has(svcIndex)) {
+      reachable.add(svcIndex);
+    }
+  });
+  return reachable;
+}
+
+function filterReachableServicesFromModel(model) {
+  const reachableIndices = collectReachableServiceIndices(model);
+  if (!reachableIndices) return null;
+  const services = model.servicesWithDetails || [];
+  const filtered = services.filter((_, idx) => reachableIndices.has(idx));
+  if (filtered.length === services.length) return null;
+  return filtered;
+}
+
+function buildBaseTimetableModel(
   stations,
   stationSet,
   servicesWithDetails,
@@ -168,6 +363,35 @@ function buildTimetableModel(
     });
   });
 
+  const visibleTimeFlags = stationTimes.map((stationRow) =>
+    stationRow.map((t) => ({
+      arr: t?.arrMins !== null,
+      dep: t?.depMins !== null,
+    })),
+  );
+
+  for (let s = 0; s < numServices; s++) {
+    const timedStationIndices = [];
+    for (let stationIndex = 0; stationIndex < numStations; stationIndex++) {
+      const t = stationTimes[stationIndex][s];
+      if (!t?.loc) continue;
+      if (t.arrMins === null && t.depMins === null) continue;
+      timedStationIndices.push(stationIndex);
+    }
+
+    if (timedStationIndices.length === 0) continue;
+
+    const firstStationIndex = timedStationIndices[0];
+    const lastStationIndex = timedStationIndices[timedStationIndices.length - 1];
+
+    if (stationTimes[firstStationIndex][s]?.arrMins !== null) {
+      visibleTimeFlags[firstStationIndex][s].arr = false;
+    }
+    if (stationTimes[lastStationIndex][s]?.depMins !== null) {
+      visibleTimeFlags[lastStationIndex][s].dep = false;
+    }
+  }
+
   for (let svcIndex = 0; svcIndex < numServices; svcIndex++) {
     let hasAny = false;
     let hasNonStrike = false;
@@ -233,6 +457,7 @@ function buildTimetableModel(
     for (let s = 0; s < numServices; s++) {
       const t = times[s];
       if (!t) continue;
+      const flags = visibleTimeFlags[i][s];
 
       const svc = servicesWithDetails[s].svc;
       const trainId =
@@ -241,16 +466,16 @@ function buildTimetableModel(
         svc.serviceUid ||
         "svc#" + s;
 
-      if (t.arrMins !== null) {
+      if (flags.arr && t.arrMins !== null) {
         hasArr = true;
         hasAny = true;
       }
-      if (t.depMins !== null) {
+      if (flags.dep && t.depMins !== null) {
         hasDep = true;
         hasAny = true;
       }
 
-      if (t.arrMins !== null && t.depMins !== null) {
+      if (flags.arr && flags.dep && t.arrMins !== null && t.depMins !== null) {
         const dwellMinutes = Math.abs(t.depMins - t.arrMins);
 
         if (dwellMinutes > 2) {
@@ -270,7 +495,7 @@ function buildTimetableModel(
         }
       } else if (
         DEBUG_STATIONS &&
-        (t.arrMins !== null || t.depMins !== null)
+        ((flags.arr && t.arrMins !== null) || (flags.dep && t.depMins !== null))
       ) {
         dwellDebugEntries.push({
           svcIndex: s,
@@ -462,6 +687,7 @@ function buildTimetableModel(
         if (!t) continue;
         const loc = t.loc;
         if (!loc) continue;
+        const flags = visibleTimeFlags[stationIndex][s];
 
         const serviceRealtimeActivated = serviceRealtimeFlags[s] === true;
 
@@ -469,6 +695,7 @@ function buildTimetableModel(
         let timeFormat = null;
         let platformInfo = null;
         if (mode === "arr") {
+          if (!flags.arr) continue;
           const chosen = chooseDisplayedTimeAndStatus(
             loc,
             true,
@@ -478,6 +705,7 @@ function buildTimetableModel(
           timeStr = chosen.text;
           timeFormat = chosen.format;
         } else if (mode === "dep") {
+          if (!flags.dep) continue;
           const chosen = chooseDisplayedTimeAndStatus(
             loc,
             false,
@@ -489,12 +717,22 @@ function buildTimetableModel(
         } else if (mode === "merged" || mode === "single") {
           const useRealtimeForService =
             realtimeToggleEnabled && serviceRealtimeActivated;
-          const hasDeparture =
-            loc.gbttBookedDeparture ||
-            (useRealtimeForService ? loc.realtimeDeparture : "");
+          const hasVisibleDeparture =
+            flags.dep &&
+            Boolean(
+              loc.gbttBookedDeparture ||
+                (useRealtimeForService ? loc.realtimeDeparture : ""),
+            );
+          const hasVisibleArrival =
+            flags.arr &&
+            Boolean(
+              loc.gbttBookedArrival ||
+                (useRealtimeForService ? loc.realtimeArrival : ""),
+            );
+          if (!hasVisibleDeparture && !hasVisibleArrival) continue;
           const chosen = chooseDisplayedTimeAndStatus(
             loc,
-            !hasDeparture,
+            !hasVisibleDeparture,
             serviceRealtimeActivated,
             realtimeToggleEnabled,
           );
@@ -728,10 +966,46 @@ function buildTimetableModel(
 
   return {
     rows,
+    rowSpecs,
+    displayStations,
+    servicesWithDetails,
     orderedSvcIndices: sortResult.orderedSvcIndices,
     servicesMeta: sortResult.servicesMeta,
     sortLog: sortResult.sortLog,
     partialSort: sortResult.partialSort,
     serviceCount: numServices,
   };
+}
+
+function buildTimetableModel(
+  stations,
+  stationSet,
+  servicesWithDetails,
+  options = {},
+) {
+  const model = buildBaseTimetableModel(
+    stations,
+    stationSet,
+    servicesWithDetails,
+    options,
+  );
+
+  if (options.reachableServicesOnly !== true) {
+    return model;
+  }
+
+  const filteredServices = filterReachableServicesFromModel(model);
+  if (!filteredServices) {
+    return model;
+  }
+
+  return buildBaseTimetableModel(
+    stations,
+    stationSet,
+    filteredServices,
+    {
+      ...options,
+      reachableServicesOnly: false,
+    },
+  );
 }
