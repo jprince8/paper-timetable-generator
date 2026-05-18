@@ -68,6 +68,17 @@
             "mode": "Underground"
           }
         ],
+        "FPK": [
+          {
+            "nextStations": [
+              "~KGX",
+              "~STP",
+              "~MOG"
+            ],
+            "durationMinutes": 30,
+            "mode": "Underground"
+          }
+        ],
         "FST": [
           {
             "durationMinutes": 30,
@@ -116,6 +127,16 @@
               "BDS"
             ],
             "durationMinutes": 10,
+            "mode": "Underground"
+          }
+        ],
+        "TOM": [
+          {
+            "nextStations": [
+              "~LST",
+              "~SRA"
+            ],
+            "durationMinutes": 35,
             "mode": "Underground"
           }
         ],
@@ -258,6 +279,17 @@
             "mode": "Underground"
           }
         ],
+        "FPK": [
+          {
+            "nextStations": [
+              "~KGX",
+              "~STP",
+              "~MOG"
+            ],
+            "durationMinutes": 15,
+            "mode": "Underground"
+          }
+        ],
         "FST": [
           {
             "durationMinutes": 25,
@@ -366,6 +398,16 @@
             "mode": "Underground"
           }
         ],
+        "TOM": [
+          {
+            "nextStations": [
+              "~LST",
+              "~SRA"
+            ],
+            "durationMinutes": 20,
+            "mode": "Underground"
+          }
+        ],
         "VIC": [
           {
             "durationMinutes": 15,
@@ -407,6 +449,110 @@
               "CTK"
             ],
             "durationMinutes": 20,
+            "mode": "Underground"
+          }
+        ]
+      }
+    }
+  ],
+  "FPK": [
+    {
+      "nextStations": [
+        "~KGX",
+        "~STP",
+        "~MOG"
+      ],
+      "connections": {
+        "TOM": [
+          {
+            "nextStations": [
+              "~LST",
+              "~SRA"
+            ],
+            "durationMinutes": 15,
+            "mode": "Underground"
+          }
+        ]
+      }
+    },
+    {
+      "nextStations": [
+        "KGX",
+        "STP",
+        "MOG"
+      ],
+      "connections": {
+        "CHX": [
+          {
+            "durationMinutes": 30,
+            "mode": "Underground"
+          }
+        ],
+        "EUS": [
+          {
+            "durationMinutes": 15,
+            "mode": "Underground"
+          }
+        ],
+        "MYB": [
+          {
+            "durationMinutes": 35,
+            "mode": "Underground"
+          }
+        ],
+        "PAD": [
+          {
+            "nextStations": [
+              "~BDS"
+            ],
+            "durationMinutes": 35,
+            "mode": "Underground"
+          }
+        ],
+        "TCR": [
+          {
+            "nextStations": [
+              "ZFD"
+            ],
+            "durationMinutes": 25,
+            "mode": "Underground"
+          },
+          {
+            "nextStations": [
+              "BDS"
+            ],
+            "durationMinutes": 25,
+            "mode": "Underground"
+          }
+        ],
+        "TOM": [
+          {
+            "nextStations": [
+              "~LST",
+              "~SRA"
+            ],
+            "durationMinutes": 15,
+            "mode": "Underground"
+          }
+        ],
+        "VIC": [
+          {
+            "durationMinutes": 25,
+            "mode": "Underground"
+          }
+        ],
+        "WAE": [
+          {
+            "nextStations": [
+              "LBG"
+            ],
+            "durationMinutes": 35,
+            "mode": "Underground"
+          }
+        ],
+        "WAT": [
+          {
+            "durationMinutes": 30,
             "mode": "Underground"
           }
         ]
@@ -668,6 +814,16 @@
             ],
             "durationMinutes": 7,
             "mode": "walk"
+          }
+        ],
+        "TOM": [
+          {
+            "nextStations": [
+              "~LST",
+              "~SRA"
+            ],
+            "durationMinutes": 20,
+            "mode": "Underground"
           }
         ],
         "VIC": [
@@ -1090,6 +1246,17 @@
             "mode": "Underground"
           }
         ],
+        "FPK": [
+          {
+            "nextStations": [
+              "~KGX",
+              "~STP",
+              "~MOG"
+            ],
+            "durationMinutes": 35,
+            "mode": "Underground"
+          }
+        ],
         "FST": [
           {
             "durationMinutes": 35,
@@ -1177,6 +1344,16 @@
             "mode": "Underground"
           }
         ],
+        "TOM": [
+          {
+            "nextStations": [
+              "~LST",
+              "~SRA"
+            ],
+            "durationMinutes": 35,
+            "mode": "Underground"
+          }
+        ],
         "VIC": [
           {
             "durationMinutes": 25,
@@ -1220,6 +1397,17 @@
             "mode": "Underground"
           }
         ],
+        "FPK": [
+          {
+            "nextStations": [
+              "~KGX",
+              "~STP",
+              "~MOG"
+            ],
+            "durationMinutes": 35,
+            "mode": "Underground"
+          }
+        ],
         "KGX": [
           {
             "durationMinutes": 25,
@@ -1256,6 +1444,16 @@
               "~ZFD"
             ],
             "durationMinutes": 25,
+            "mode": "Underground"
+          }
+        ],
+        "TOM": [
+          {
+            "nextStations": [
+              "~LST",
+              "~SRA"
+            ],
+            "durationMinutes": 40,
             "mode": "Underground"
           }
         ],
@@ -1340,6 +1538,16 @@
             "durationMinutes": 20,
             "mode": "Underground"
           }
+        ],
+        "TOM": [
+          {
+            "nextStations": [
+              "~LST",
+              "~SRA"
+            ],
+            "durationMinutes": 20,
+            "mode": "Underground"
+          }
         ]
       }
     },
@@ -1378,6 +1586,16 @@
         ],
         "MYB": [
           {
+            "durationMinutes": 20,
+            "mode": "Underground"
+          }
+        ],
+        "TOM": [
+          {
+            "nextStations": [
+              "~LST",
+              "~SRA"
+            ],
             "durationMinutes": 20,
             "mode": "Underground"
           }
@@ -1443,6 +1661,16 @@
               "BDS"
             ],
             "durationMinutes": 25,
+            "mode": "Underground"
+          }
+        ],
+        "TOM": [
+          {
+            "nextStations": [
+              "~LST",
+              "~SRA"
+            ],
+            "durationMinutes": 20,
             "mode": "Underground"
           }
         ],
@@ -1545,6 +1773,16 @@
             "mode": "Underground"
           }
         ],
+        "TOM": [
+          {
+            "nextStations": [
+              "~LST",
+              "~SRA"
+            ],
+            "durationMinutes": 20,
+            "mode": "Underground"
+          }
+        ],
         "VIC": [
           {
             "durationMinutes": 20,
@@ -1593,6 +1831,17 @@
             "mode": "Underground"
           }
         ],
+        "FPK": [
+          {
+            "nextStations": [
+              "~KGX",
+              "~STP",
+              "~MOG"
+            ],
+            "durationMinutes": 25,
+            "mode": "Underground"
+          }
+        ],
         "FST": [
           {
             "durationMinutes": 25,
@@ -1623,6 +1872,16 @@
               "~ZFD"
             ],
             "durationMinutes": 25,
+            "mode": "Underground"
+          }
+        ],
+        "TOM": [
+          {
+            "nextStations": [
+              "~LST",
+              "~SRA"
+            ],
+            "durationMinutes": 30,
             "mode": "Underground"
           }
         ],
@@ -1666,6 +1925,17 @@
             "mode": "Underground"
           }
         ],
+        "FPK": [
+          {
+            "nextStations": [
+              "~KGX",
+              "~STP",
+              "~MOG"
+            ],
+            "durationMinutes": 25,
+            "mode": "Underground"
+          }
+        ],
         "VIC": [
           {
             "durationMinutes": 25,
@@ -1684,6 +1954,132 @@
         "WAT": [
           {
             "durationMinutes": 15,
+            "mode": "Underground"
+          }
+        ]
+      }
+    }
+  ],
+  "TOM": [
+    {
+      "nextStations": [
+        "LST",
+        "SRA"
+      ],
+      "connections": {
+        "CHX": [
+          {
+            "durationMinutes": 35,
+            "mode": "Underground"
+          }
+        ],
+        "EUS": [
+          {
+            "durationMinutes": 20,
+            "mode": "Underground"
+          }
+        ],
+        "FPK": [
+          {
+            "nextStations": [
+              "~KGX",
+              "~STP",
+              "~MOG"
+            ],
+            "durationMinutes": 15,
+            "mode": "Underground"
+          },
+          {
+            "nextStations": [
+              "KGX",
+              "STP",
+              "MOG"
+            ],
+            "durationMinutes": 15,
+            "mode": "Underground"
+          }
+        ],
+        "KGX": [
+          {
+            "durationMinutes": 20,
+            "mode": "Underground"
+          }
+        ],
+        "MYB": [
+          {
+            "durationMinutes": 35,
+            "mode": "Underground"
+          }
+        ],
+        "PAD": [
+          {
+            "nextStations": [
+              "~BDS"
+            ],
+            "durationMinutes": 40,
+            "mode": "Underground"
+          }
+        ],
+        "STP": [
+          {
+            "nextStations": [
+              "FPK"
+            ],
+            "durationMinutes": 20,
+            "mode": "Underground"
+          },
+          {
+            "nextStations": [
+              "~FPK",
+              "~ZFD"
+            ],
+            "durationMinutes": 20,
+            "mode": "Underground"
+          },
+          {
+            "previousStations": [
+              "FPK"
+            ],
+            "durationMinutes": 20,
+            "mode": "Underground"
+          },
+          {
+            "previousStations": [
+              "KTN",
+              "WHP",
+              "SAC"
+            ],
+            "durationMinutes": 20,
+            "mode": "Underground"
+          }
+        ],
+        "TCR": [
+          {
+            "nextStations": [
+              "BDS"
+            ],
+            "durationMinutes": 30,
+            "mode": "Underground"
+          }
+        ],
+        "VIC": [
+          {
+            "durationMinutes": 30,
+            "mode": "Underground"
+          }
+        ],
+        "WAE": [
+          {
+            "nextStations": [
+              "LBG"
+            ],
+            "durationMinutes": 40,
+            "mode": "Underground"
+          }
+        ],
+        "WAT": [
+          {
+            "durationMinutes": 40,
             "mode": "Underground"
           }
         ]
@@ -1726,6 +2122,17 @@
         "EUS": [
           {
             "durationMinutes": 15,
+            "mode": "Underground"
+          }
+        ],
+        "FPK": [
+          {
+            "nextStations": [
+              "~KGX",
+              "~STP",
+              "~MOG"
+            ],
+            "durationMinutes": 25,
             "mode": "Underground"
           }
         ],
@@ -1830,6 +2237,16 @@
             "mode": "Underground"
           }
         ],
+        "TOM": [
+          {
+            "nextStations": [
+              "~LST",
+              "~SRA"
+            ],
+            "durationMinutes": 30,
+            "mode": "Underground"
+          }
+        ],
         "WAE": [
           {
             "nextStations": [
@@ -1851,6 +2268,17 @@
         "EUS": [
           {
             "durationMinutes": 25,
+            "mode": "Underground"
+          }
+        ],
+        "FPK": [
+          {
+            "nextStations": [
+              "~KGX",
+              "~STP",
+              "~MOG"
+            ],
+            "durationMinutes": 35,
             "mode": "Underground"
           }
         ],
@@ -1926,6 +2354,16 @@
               "BDS"
             ],
             "durationMinutes": 20,
+            "mode": "Underground"
+          }
+        ],
+        "TOM": [
+          {
+            "nextStations": [
+              "~LST",
+              "~SRA"
+            ],
+            "durationMinutes": 40,
             "mode": "Underground"
           }
         ],
@@ -1996,6 +2434,17 @@
             "mode": "Underground"
           }
         ],
+        "FPK": [
+          {
+            "nextStations": [
+              "~KGX",
+              "~STP",
+              "~MOG"
+            ],
+            "durationMinutes": 30,
+            "mode": "Underground"
+          }
+        ],
         "FST": [
           {
             "durationMinutes": 25,
@@ -2068,6 +2517,16 @@
               "BDS"
             ],
             "durationMinutes": 15,
+            "mode": "Underground"
+          }
+        ],
+        "TOM": [
+          {
+            "nextStations": [
+              "~LST",
+              "~SRA"
+            ],
+            "durationMinutes": 40,
             "mode": "Underground"
           }
         ],

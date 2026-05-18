@@ -64,7 +64,439 @@ function filterServicesForTimetableModel(stations, servicesWithDetails) {
   return { services: workingServices, displayStations };
 }
 
-function buildTimetableModel(
+function cellTimeMinutes(cell) {
+  if (!cell) return null;
+  if (cell && typeof cell === "object" && cell.format?.strike) return null;
+  const text = typeof cell === "object" ? cell.text || "" : String(cell || "");
+  if (!text || text === "|") return null;
+  return timeStrToMinutes(text);
+}
+
+function isDepartureRowSpec(spec) {
+  return (
+    spec?.kind === "station" &&
+    (spec.mode === "dep" || spec.mode === "merged" || spec.mode === "single")
+  );
+}
+
+function isArrivalRowSpec(spec) {
+  return (
+    spec?.kind === "station" &&
+    (spec.mode === "arr" || spec.mode === "merged" || spec.mode === "single")
+  );
+}
+
+function getStationRowIndices(rowSpecs) {
+  const indices = [];
+  rowSpecs.forEach((spec, idx) => {
+    if (spec?.kind === "station") indices.push(idx);
+  });
+  return indices;
+}
+
+function getServiceTimedStationRows(model, svcIndex) {
+  const rows = model.rows || [];
+  const rowSpecs = model.rowSpecs || [];
+  return getStationRowIndices(rowSpecs).filter((rowIdx) => {
+    return cellTimeMinutes(rows[rowIdx]?.cells?.[svcIndex]) !== null;
+  });
+}
+
+function findFirstDepartureAtStation(model, stationIndex) {
+  let first = null;
+  const rows = model.rows || [];
+  const rowSpecs = model.rowSpecs || [];
+  rowSpecs.forEach((spec, rowIdx) => {
+    if (spec?.kind !== "station" || spec.stationIndex !== stationIndex) return;
+    if (!isDepartureRowSpec(spec)) return;
+    (model.orderedSvcIndices || []).forEach((svcIndex) => {
+      const mins = cellTimeMinutes(rows[rowIdx]?.cells?.[svcIndex]);
+      if (mins === null) return;
+      if (first === null || mins < first) first = mins;
+    });
+  });
+  return first;
+}
+
+function findFinalArrivalAtStation(model, stationIndex) {
+  let last = null;
+  const rows = model.rows || [];
+  const rowSpecs = model.rowSpecs || [];
+  rowSpecs.forEach((spec, rowIdx) => {
+    if (spec?.kind !== "station" || spec.stationIndex !== stationIndex) return;
+    if (!isArrivalRowSpec(spec)) return;
+    (model.orderedSvcIndices || []).forEach((svcIndex) => {
+      const mins = cellTimeMinutes(rows[rowIdx]?.cells?.[svcIndex]);
+      if (mins === null) return;
+      if (last === null || mins > last) last = mins;
+    });
+  });
+  return last;
+}
+
+function collectReachableServiceIndices(model) {
+  const rows = model.rows || [];
+  const rowSpecs = model.rowSpecs || [];
+  const displayStations = model.displayStations || [];
+  const orderedSvcIndices = (model.orderedSvcIndices || []).filter(
+    (idx) =>
+      Number.isInteger(idx) &&
+      idx >= 0 &&
+      idx < (model.servicesWithDetails || []).length,
+  );
+
+  if (displayStations.length < 2 || orderedSvcIndices.length === 0) {
+    return null;
+  }
+
+  const firstStationIndex = 0;
+  const lastStationIndex = displayStations.length - 1;
+  const firstDeparture = findFirstDepartureAtStation(model, firstStationIndex);
+  const finalArrival = findFinalArrivalAtStation(model, lastStationIndex);
+  if (firstDeparture === null || finalArrival === null) return null;
+
+  const serviceTimedRows = new Map();
+  orderedSvcIndices.forEach((svcIndex) => {
+    serviceTimedRows.set(svcIndex, getServiceTimedStationRows(model, svcIndex));
+  });
+
+  const earliestAtStation = new Array(displayStations.length).fill(null);
+  earliestAtStation[firstStationIndex] = firstDeparture;
+  const forwardReachable = new Set();
+
+  for (let iter = 0; iter < orderedSvcIndices.length + displayStations.length; iter++) {
+    let changed = false;
+    orderedSvcIndices.forEach((svcIndex) => {
+      const timedRows = serviceTimedRows.get(svcIndex) || [];
+      if (timedRows.length < 2) return;
+      const lastTimedRow = timedRows[timedRows.length - 1];
+      let boarded = false;
+
+      timedRows.forEach((rowIdx) => {
+        const spec = rowSpecs[rowIdx];
+        const stationIndex = spec?.stationIndex;
+        if (stationIndex === null || stationIndex === undefined) return;
+        const mins = cellTimeMinutes(rows[rowIdx]?.cells?.[svcIndex]);
+        if (mins === null) return;
+
+        if (
+          isDepartureRowSpec(spec) &&
+          earliestAtStation[stationIndex] !== null &&
+          earliestAtStation[stationIndex] <= mins
+        ) {
+          boarded = true;
+          if (rowIdx !== lastTimedRow) forwardReachable.add(svcIndex);
+        }
+
+        if (boarded && isArrivalRowSpec(spec)) {
+          const current = earliestAtStation[stationIndex];
+          if (current === null || mins < current) {
+            earliestAtStation[stationIndex] = mins;
+            changed = true;
+          }
+        }
+      });
+    });
+    if (!changed) break;
+  }
+
+  const latestAtStation = new Array(displayStations.length).fill(null);
+  latestAtStation[lastStationIndex] = finalArrival;
+  const backwardReachable = new Set();
+
+  for (let iter = 0; iter < orderedSvcIndices.length + displayStations.length; iter++) {
+    let changed = false;
+    orderedSvcIndices.forEach((svcIndex) => {
+      const timedRows = serviceTimedRows.get(svcIndex) || [];
+      if (timedRows.length < 2) return;
+      const firstTimedRow = timedRows[0];
+      let reachesDestination = false;
+
+      for (let i = timedRows.length - 1; i >= 0; i--) {
+        const rowIdx = timedRows[i];
+        const spec = rowSpecs[rowIdx];
+        const stationIndex = spec?.stationIndex;
+        if (stationIndex === null || stationIndex === undefined) continue;
+        const mins = cellTimeMinutes(rows[rowIdx]?.cells?.[svcIndex]);
+        if (mins === null) continue;
+
+        if (
+          isArrivalRowSpec(spec) &&
+          latestAtStation[stationIndex] !== null &&
+          mins <= latestAtStation[stationIndex]
+        ) {
+          reachesDestination = true;
+          if (rowIdx !== firstTimedRow) backwardReachable.add(svcIndex);
+        }
+
+        if (reachesDestination && isDepartureRowSpec(spec)) {
+          const current = latestAtStation[stationIndex];
+          if (current === null || mins > current) {
+            latestAtStation[stationIndex] = mins;
+            changed = true;
+          }
+        }
+      }
+    });
+    if (!changed) break;
+  }
+
+  const reachable = new Set();
+  orderedSvcIndices.forEach((svcIndex) => {
+    if (forwardReachable.has(svcIndex) && backwardReachable.has(svcIndex)) {
+      reachable.add(svcIndex);
+    }
+  });
+  return reachable;
+}
+
+function filterReachableServicesFromModel(model) {
+  const reachableIndices = collectReachableServiceIndices(model);
+  if (!reachableIndices) return null;
+  const services = model.servicesWithDetails || [];
+  const filtered = services.filter((_, idx) => reachableIndices.has(idx));
+  if (filtered.length === services.length) return null;
+  return filtered;
+}
+
+function collectServiceStationTimes(model) {
+  const rows = model.rows || [];
+  const rowSpecs = model.rowSpecs || [];
+  const displayStations = model.displayStations || [];
+  const services = model.servicesWithDetails || [];
+  const serviceTimes = new Map();
+
+  services.forEach((_, svcIndex) => {
+    serviceTimes.set(
+      svcIndex,
+      displayStations.map(() => ({ arr: null, dep: null })),
+    );
+  });
+
+  rowSpecs.forEach((spec, rowIdx) => {
+    if (spec?.kind !== "station") return;
+    const stationIndex = spec.stationIndex;
+    if (
+      !Number.isInteger(stationIndex) ||
+      stationIndex < 0 ||
+      stationIndex >= displayStations.length
+    ) {
+      return;
+    }
+
+    services.forEach((_, svcIndex) => {
+      const mins = cellTimeMinutes(rows[rowIdx]?.cells?.[svcIndex]);
+      if (mins === null) return;
+      const stationTime = serviceTimes.get(svcIndex)?.[stationIndex];
+      if (!stationTime) return;
+      if (isArrivalRowSpec(spec)) stationTime.arr = mins;
+      if (isDepartureRowSpec(spec)) stationTime.dep = mins;
+    });
+  });
+
+  return serviceTimes;
+}
+
+function collectFastestRouteLegs(model) {
+  const displayStations = model.displayStations || [];
+  const services = model.servicesWithDetails || [];
+  const orderedSvcIndices = (model.orderedSvcIndices || []).filter(
+    (idx) => Number.isInteger(idx) && idx >= 0 && idx < services.length,
+  );
+
+  if (displayStations.length < 2 || orderedSvcIndices.length === 0) {
+    return null;
+  }
+
+  const lastStationIndex = displayStations.length - 1;
+  const serviceTimes = collectServiceStationTimes(model);
+  const legs = [];
+  const legsFromStation = new Map();
+  const legsToStation = new Map();
+
+  orderedSvcIndices.forEach((svcIndex) => {
+    const times = serviceTimes.get(svcIndex) || [];
+    for (let from = 0; from < lastStationIndex; from++) {
+      const dep = times[from]?.dep;
+      if (dep === null || dep === undefined) continue;
+      for (let to = from + 1; to <= lastStationIndex; to++) {
+        const arr = times[to]?.arr;
+        if (arr === null || arr === undefined) continue;
+        if (arr < dep) continue;
+        const leg = { svcIndex, from, to, dep, arr };
+        legs.push(leg);
+        if (!legsFromStation.has(from)) legsFromStation.set(from, []);
+        legsFromStation.get(from).push(leg);
+        if (!legsToStation.has(to)) legsToStation.set(to, []);
+        legsToStation.get(to).push(leg);
+      }
+    }
+  });
+
+  if (legs.length === 0) return null;
+
+  legs.forEach((leg, index) => {
+    leg.index = index;
+  });
+
+  return { displayStations, lastStationIndex, legs, legsFromStation, legsToStation };
+}
+
+function collectForwardFastestRouteServiceIndices(routeGraph) {
+  const { displayStations, lastStationIndex, legs, legsFromStation } = routeGraph;
+  const startDepartures = new Set(
+    (legsFromStation.get(0) || []).map((leg) => leg.dep),
+  );
+  if (startDepartures.size === 0) return null;
+
+  const fastestServiceIndices = new Set();
+  let foundPath = false;
+
+  startDepartures.forEach((startDep) => {
+    const earliestAtStation = new Array(displayStations.length).fill(null);
+    const forwardReachableLegs = new Set();
+    earliestAtStation[0] = startDep;
+
+    for (let stationIndex = 0; stationIndex <= lastStationIndex; stationIndex++) {
+      const earliest = earliestAtStation[stationIndex];
+      if (earliest === null) continue;
+
+      (legsFromStation.get(stationIndex) || []).forEach((leg) => {
+        if (stationIndex === 0 && leg.dep !== startDep) return;
+        if (leg.dep < earliest) return;
+        forwardReachableLegs.add(leg.index);
+        const current = earliestAtStation[leg.to];
+        if (current === null || leg.arr < current) {
+          earliestAtStation[leg.to] = leg.arr;
+        }
+      });
+    }
+
+    const fastestArrival = earliestAtStation[lastStationIndex];
+    if (fastestArrival === null) return;
+    foundPath = true;
+
+    const latestAtStation = new Array(displayStations.length).fill(null);
+    latestAtStation[lastStationIndex] = fastestArrival;
+
+    for (let stationIndex = lastStationIndex - 1; stationIndex >= 0; stationIndex--) {
+      (legsFromStation.get(stationIndex) || []).forEach((leg) => {
+        const latestAtDestination = latestAtStation[leg.to];
+        if (latestAtDestination === null) return;
+        if (leg.arr > latestAtDestination) return;
+        const current = latestAtStation[leg.from];
+        if (current === null || leg.dep > current) {
+          latestAtStation[leg.from] = leg.dep;
+        }
+      });
+    }
+
+    legs.forEach((leg) => {
+      if (!forwardReachableLegs.has(leg.index)) return;
+      const latestAtDestination = latestAtStation[leg.to];
+      if (latestAtDestination === null) return;
+      if (leg.arr > latestAtDestination) return;
+      fastestServiceIndices.add(leg.svcIndex);
+    });
+  });
+
+  if (!foundPath || fastestServiceIndices.size === 0) return null;
+  return fastestServiceIndices;
+}
+
+function collectBackwardFastestRouteServiceIndices(routeGraph) {
+  const { displayStations, lastStationIndex, legs, legsFromStation, legsToStation } =
+    routeGraph;
+  const finalArrivals = new Set(
+    (legsToStation.get(lastStationIndex) || []).map((leg) => leg.arr),
+  );
+  if (finalArrivals.size === 0) return null;
+
+  const fastestServiceIndices = new Set();
+  let foundPath = false;
+
+  finalArrivals.forEach((finalArr) => {
+    const latestAtStation = new Array(displayStations.length).fill(null);
+    latestAtStation[lastStationIndex] = finalArr;
+
+    for (let stationIndex = lastStationIndex - 1; stationIndex >= 0; stationIndex--) {
+      (legsFromStation.get(stationIndex) || []).forEach((leg) => {
+        const latestAtDestination = latestAtStation[leg.to];
+        if (latestAtDestination === null) return;
+        if (leg.to === lastStationIndex && leg.arr !== finalArr) return;
+        if (leg.arr > latestAtDestination) return;
+        const current = latestAtStation[leg.from];
+        if (current === null || leg.dep > current) {
+          latestAtStation[leg.from] = leg.dep;
+        }
+      });
+    }
+
+    const fastestDeparture = latestAtStation[0];
+    if (fastestDeparture === null) return;
+    foundPath = true;
+
+    const earliestAtStation = new Array(displayStations.length).fill(null);
+    const forwardReachableLegs = new Set();
+    earliestAtStation[0] = fastestDeparture;
+
+    for (let stationIndex = 0; stationIndex <= lastStationIndex; stationIndex++) {
+      const earliest = earliestAtStation[stationIndex];
+      if (earliest === null) continue;
+
+      (legsFromStation.get(stationIndex) || []).forEach((leg) => {
+        if (stationIndex === 0 && leg.dep !== fastestDeparture) return;
+        if (leg.to === lastStationIndex && leg.arr !== finalArr) return;
+        if (leg.dep < earliest) return;
+        forwardReachableLegs.add(leg.index);
+        const current = earliestAtStation[leg.to];
+        if (current === null || leg.arr < current) {
+          earliestAtStation[leg.to] = leg.arr;
+        }
+      });
+    }
+
+    legs.forEach((leg) => {
+      if (!forwardReachableLegs.has(leg.index)) return;
+      const latestAtDestination = latestAtStation[leg.to];
+      if (latestAtDestination === null) return;
+      if (leg.to === lastStationIndex && leg.arr !== finalArr) return;
+      if (leg.arr > latestAtDestination) return;
+      fastestServiceIndices.add(leg.svcIndex);
+    });
+  });
+
+  if (!foundPath || fastestServiceIndices.size === 0) return null;
+  return fastestServiceIndices;
+}
+
+function collectFastestRouteServiceIndices(model) {
+  const routeGraph = collectFastestRouteLegs(model);
+  if (!routeGraph) return null;
+
+  const forwardIndices = collectForwardFastestRouteServiceIndices(routeGraph);
+  const backwardIndices = collectBackwardFastestRouteServiceIndices(routeGraph);
+  if (!forwardIndices || !backwardIndices) return null;
+
+  const fastestIndices = new Set();
+  forwardIndices.forEach((svcIndex) => {
+    if (backwardIndices.has(svcIndex)) fastestIndices.add(svcIndex);
+  });
+
+  if (fastestIndices.size === 0) return null;
+  return fastestIndices;
+}
+
+function filterFastestRouteServicesFromModel(model) {
+  const fastestIndices = collectFastestRouteServiceIndices(model);
+  if (!fastestIndices) return null;
+  const services = model.servicesWithDetails || [];
+  const filtered = services.filter((_, idx) => fastestIndices.has(idx));
+  if (filtered.length === services.length) return null;
+  return filtered;
+}
+
+function buildBaseTimetableModel(
   stations,
   stationSet,
   servicesWithDetails,
@@ -168,6 +600,35 @@ function buildTimetableModel(
     });
   });
 
+  const visibleTimeFlags = stationTimes.map((stationRow) =>
+    stationRow.map((t) => ({
+      arr: t?.arrMins !== null,
+      dep: t?.depMins !== null,
+    })),
+  );
+
+  for (let s = 0; s < numServices; s++) {
+    const timedStationIndices = [];
+    for (let stationIndex = 0; stationIndex < numStations; stationIndex++) {
+      const t = stationTimes[stationIndex][s];
+      if (!t?.loc) continue;
+      if (t.arrMins === null && t.depMins === null) continue;
+      timedStationIndices.push(stationIndex);
+    }
+
+    if (timedStationIndices.length === 0) continue;
+
+    const firstStationIndex = timedStationIndices[0];
+    const lastStationIndex = timedStationIndices[timedStationIndices.length - 1];
+
+    if (stationTimes[firstStationIndex][s]?.arrMins !== null) {
+      visibleTimeFlags[firstStationIndex][s].arr = false;
+    }
+    if (stationTimes[lastStationIndex][s]?.depMins !== null) {
+      visibleTimeFlags[lastStationIndex][s].dep = false;
+    }
+  }
+
   for (let svcIndex = 0; svcIndex < numServices; svcIndex++) {
     let hasAny = false;
     let hasNonStrike = false;
@@ -233,6 +694,7 @@ function buildTimetableModel(
     for (let s = 0; s < numServices; s++) {
       const t = times[s];
       if (!t) continue;
+      const flags = visibleTimeFlags[i][s];
 
       const svc = servicesWithDetails[s].svc;
       const trainId =
@@ -241,16 +703,16 @@ function buildTimetableModel(
         svc.serviceUid ||
         "svc#" + s;
 
-      if (t.arrMins !== null) {
+      if (flags.arr && t.arrMins !== null) {
         hasArr = true;
         hasAny = true;
       }
-      if (t.depMins !== null) {
+      if (flags.dep && t.depMins !== null) {
         hasDep = true;
         hasAny = true;
       }
 
-      if (t.arrMins !== null && t.depMins !== null) {
+      if (flags.arr && flags.dep && t.arrMins !== null && t.depMins !== null) {
         const dwellMinutes = Math.abs(t.depMins - t.arrMins);
 
         if (dwellMinutes > 2) {
@@ -270,7 +732,7 @@ function buildTimetableModel(
         }
       } else if (
         DEBUG_STATIONS &&
-        (t.arrMins !== null || t.depMins !== null)
+        ((flags.arr && t.arrMins !== null) || (flags.dep && t.depMins !== null))
       ) {
         dwellDebugEntries.push({
           svcIndex: s,
@@ -462,6 +924,7 @@ function buildTimetableModel(
         if (!t) continue;
         const loc = t.loc;
         if (!loc) continue;
+        const flags = visibleTimeFlags[stationIndex][s];
 
         const serviceRealtimeActivated = serviceRealtimeFlags[s] === true;
 
@@ -469,6 +932,7 @@ function buildTimetableModel(
         let timeFormat = null;
         let platformInfo = null;
         if (mode === "arr") {
+          if (!flags.arr) continue;
           const chosen = chooseDisplayedTimeAndStatus(
             loc,
             true,
@@ -478,6 +942,7 @@ function buildTimetableModel(
           timeStr = chosen.text;
           timeFormat = chosen.format;
         } else if (mode === "dep") {
+          if (!flags.dep) continue;
           const chosen = chooseDisplayedTimeAndStatus(
             loc,
             false,
@@ -489,12 +954,22 @@ function buildTimetableModel(
         } else if (mode === "merged" || mode === "single") {
           const useRealtimeForService =
             realtimeToggleEnabled && serviceRealtimeActivated;
-          const hasDeparture =
-            loc.gbttBookedDeparture ||
-            (useRealtimeForService ? loc.realtimeDeparture : "");
+          const hasVisibleDeparture =
+            flags.dep &&
+            Boolean(
+              loc.gbttBookedDeparture ||
+                (useRealtimeForService ? loc.realtimeDeparture : ""),
+            );
+          const hasVisibleArrival =
+            flags.arr &&
+            Boolean(
+              loc.gbttBookedArrival ||
+                (useRealtimeForService ? loc.realtimeArrival : ""),
+            );
+          if (!hasVisibleDeparture && !hasVisibleArrival) continue;
           const chosen = chooseDisplayedTimeAndStatus(
             loc,
-            !hasDeparture,
+            !hasVisibleDeparture,
             serviceRealtimeActivated,
             realtimeToggleEnabled,
           );
@@ -728,10 +1203,61 @@ function buildTimetableModel(
 
   return {
     rows,
+    rowSpecs,
+    displayStations,
+    servicesWithDetails,
     orderedSvcIndices: sortResult.orderedSvcIndices,
     servicesMeta: sortResult.servicesMeta,
     sortLog: sortResult.sortLog,
     partialSort: sortResult.partialSort,
     serviceCount: numServices,
   };
+}
+
+function buildTimetableModel(
+  stations,
+  stationSet,
+  servicesWithDetails,
+  options = {},
+) {
+  let model = buildBaseTimetableModel(
+    stations,
+    stationSet,
+    servicesWithDetails,
+    options,
+  );
+
+  if (options.reachableServicesOnly === true) {
+    const filteredServices = filterReachableServicesFromModel(model);
+    if (filteredServices) {
+      model = buildBaseTimetableModel(
+        stations,
+        stationSet,
+        filteredServices,
+        {
+          ...options,
+          reachableServicesOnly: false,
+          fastestRoutesOnly: false,
+        },
+      );
+    }
+  }
+
+  if (options.fastestRoutesOnly === true) {
+    const filteredServices = filterFastestRouteServicesFromModel(model);
+    if (filteredServices) {
+      model = buildBaseTimetableModel(
+        stations,
+        stationSet,
+        filteredServices,
+        {
+          ...options,
+          reachableServicesOnly: false,
+          fastestRoutesOnly: false,
+        },
+      );
+    }
+  }
+
+  return model;
 }

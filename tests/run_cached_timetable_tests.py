@@ -22,28 +22,28 @@ DEFAULT_FIXTURE_TARGETS = [
         "name": "bfr",
         "query_url": (
             "http://127.0.0.1:8080/"
-            "?from=CBG&to=BFR&date=2026-04-27&start=10%3A00&end=13%3A00&vias=KGX%3F"
+            "?from=CBG&to=BFR&date=2026-05-11&start=10%3A00&end=13%3A00&vias=KGX%3F"
         ),
-        "fixture_name": "cbg-bfr-via-kgx-optional-2026-04-27.cached-results.json",
+        "fixture_name": "cbg-bfr-via-kgx-optional-2026-05-11.cached-results.json",
         "env_var": "RTT_FIXTURE_PATH_BFR",
     },
     {
         "name": "lbz",
         "query_url": (
             "http://127.0.0.1:8080/"
-            "?from=CBG&to=LBZ&date=2026-04-27&start=10%3A00&end=13%3A00&vias=KGX%2CEUS"
+            "?from=CBG&to=LBZ&date=2026-05-11&start=10%3A00&end=13%3A00&vias=KGX%2CEUS"
         ),
-        "fixture_name": "cbg-lbz-via-kgx-eus-2026-04-27.cached-results.json",
+        "fixture_name": "cbg-lbz-via-kgx-eus-2026-05-11.cached-results.json",
         "env_var": "RTT_FIXTURE_PATH_LBZ",
     },
     {
         "name": "rug_kgx_eus",
         "query_url": (
             "http://127.0.0.1:8080/"
-            "?from=RUG&to=KGX&date=2026-04-27&start=09%3A00&end=12%3A00"
+            "?from=RUG&to=KGX&date=2026-05-11&start=09%3A00&end=12%3A00"
             "&rtt_cache=1&vias=EUS&debug_connections=1"
         ),
-        "fixture_name": "rug-kgx-via-eus-2026-04-27.cached-results.json",
+        "fixture_name": "rug-kgx-via-eus-2026-05-11.cached-results.json",
         "env_var": "RTT_FIXTURE_PATH_RUG_KGX_EUS",
     },
 ]
@@ -190,6 +190,8 @@ def main() -> int:
         "node",
         "--test",
         "tests/timetable_connections_previous_stations.test.mjs",
+        "tests/timetable_reachable_services.test.mjs",
+        "tests/timetable_fastest_routes.test.mjs",
         "tests/timetable_cached_query.test.mjs",
         "tests/timetable_cached_query_lbz.test.mjs",
         "tests/timetable_cached_query_rug_kgx_eus.test.mjs",

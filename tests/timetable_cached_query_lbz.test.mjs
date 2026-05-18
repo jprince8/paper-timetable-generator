@@ -4,7 +4,7 @@ import { registerCachedQuerySuite } from './helpers/timetable_cached_query_suite
 const CACHE_PATH = path.resolve(
   process.cwd(),
   process.env.RTT_FIXTURE_PATH_LBZ ||
-    'tests/fixtures/cbg-lbz-via-kgx-eus-2026-04-27.cached-results.json',
+    'tests/fixtures/cbg-lbz-via-kgx-eus-2026-05-11.cached-results.json',
 );
 
 registerCachedQuerySuite({

@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import {
   assertConnectionGenerationUsesRealtimeWhenEnabled,
   assertConnectionEndpointsForceSplitStationRows,
   assertEqualTimeDepartureSortsAfterArrival,
+  loadFrontendRuntime,
 } from './helpers/timetable_cached_query_runner.mjs';
 
 test('connection endpoint stations with arrivals and departures use split rows', () => {
@@ -37,3 +39,144 @@ test('connection generation follows realtime toggle for source train times', () 
     inboundRealtimeArrive: '1040',
   });
 });
+
+test('direct connection mandatory vias block generated connections that skip over them', () => {
+  const runtime = loadFrontendRuntime({
+    startMinutes: 0,
+    endMinutes: 24 * 60 - 1,
+    connectionsData: {
+      AAA: [
+        {
+          connections: {
+            BBB: [{ durationMinutes: 5, mode: 'walk' }],
+            CCC: [{ durationMinutes: 10, mode: 'walk' }],
+          },
+        },
+      ],
+      BBB: [
+        {
+          connections: {
+            CCC: [{ durationMinutes: 5, mode: 'walk' }],
+          },
+        },
+      ],
+    },
+    repoRoot: path.resolve(process.cwd()),
+  });
+  const corridorSet = new Set(['AAA', 'BBB', 'CCC']);
+  const entries = [
+    buildConnectionContextService('SRC-AAA', ['BBB', 'AAA', 'ZZZ']),
+    buildConnectionContextService('SRC-BBB', ['AAA', 'BBB', 'ZZZ']),
+    buildConnectionContextService('SRC-CCC', ['BBB', 'CCC', 'ZZZ']),
+  ];
+  const generatedWithoutBarrier = runtime.buildConnectionServiceEntries(
+    entries,
+    corridorSet,
+    0,
+    'both',
+    ['AAA', 'BBB', 'CCC'],
+  );
+  const generatedWithBarrier = runtime.buildConnectionServiceEntries(
+    entries,
+    corridorSet,
+    0,
+    'both',
+    ['AAA', 'BBB', 'CCC'],
+    { mandatoryViaStations: ['BBB'] },
+  );
+
+  assert.ok(
+    countGeneratedConnection(generatedWithoutBarrier, 'AAA', 'CCC') > 0,
+    'expected baseline connection to skip over BBB',
+  );
+  assert.equal(countGeneratedConnection(generatedWithBarrier, 'AAA', 'CCC'), 0);
+  assert.ok(countGeneratedConnection(generatedWithBarrier, 'AAA', 'BBB') > 0);
+  assert.ok(countGeneratedConnection(generatedWithBarrier, 'BBB', 'CCC') > 0);
+});
+
+test('endpoint arrival and departure times are hidden before deciding split rows', () => {
+  const runtime = loadFrontendRuntime({
+    startMinutes: 0,
+    endMinutes: 24 * 60 - 1,
+    connectionsData: {},
+    repoRoot: path.resolve(process.cwd()),
+  });
+  const stations = [
+    { crs: 'AAA', name: 'Alpha' },
+    { crs: 'BBB', name: 'Bravo' },
+    { crs: 'CCC', name: 'Charlie' },
+  ];
+  const stationSet = Object.fromEntries(stations.map((station) => [station.crs, station]));
+  const model = runtime.buildTimetableModel(stations, stationSet, [
+    {
+      svc: { serviceUid: 'SPLIT-ENDPOINTS', runDate: '2026-04-27' },
+      detail: {
+        runDate: '2026-04-27',
+        locations: [
+          {
+            crs: 'AAA',
+            gbttBookedArrival: '0900',
+            gbttBookedDeparture: '0910',
+            displayAs: 'CALL',
+            isPublicCall: true,
+          },
+          {
+            crs: 'BBB',
+            gbttBookedArrival: '0920',
+            gbttBookedDeparture: '0921',
+            displayAs: 'CALL',
+            isPublicCall: true,
+          },
+          {
+            crs: 'CCC',
+            gbttBookedArrival: '0930',
+            gbttBookedDeparture: '0940',
+            displayAs: 'CALL',
+            isPublicCall: true,
+          },
+        ],
+      },
+    },
+  ]);
+
+  const stationRows = model.rows.filter((row) => row.kind === 'station');
+  const renderedRows = stationRows.map((row) => ({
+    station: row.labelStation,
+    arrDep: row.labelArrDep,
+    cell: row.cells[0]?.text || row.cells[0] || '',
+  }));
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(renderedRows)),
+    [
+      { station: 'Alpha', arrDep: '', cell: '09:10' },
+      { station: 'Bravo', arrDep: '', cell: '09:21' },
+      { station: 'Charlie', arrDep: '', cell: '09:30' },
+    ],
+  );
+});
+
+function buildConnectionContextService(uid, crsList) {
+  return {
+    svc: { serviceUid: uid, runDate: '2026-04-27' },
+    detail: {
+      runDate: '2026-04-27',
+      locations: crsList.map((crs, idx) => ({
+        crs,
+        gbttBookedArrival: idx === 0 ? '' : `09${String(idx).padStart(2, '0')}`,
+        gbttBookedDeparture:
+          idx === crsList.length - 1 ? '' : `09${String(idx).padStart(2, '0')}`,
+        displayAs: 'CALL',
+        isPublicCall: true,
+      })),
+    },
+  };
+}
+
+function countGeneratedConnection(entries, fromCrs, toCrs) {
+  return entries.filter(
+    (entry) =>
+      entry?.detail?.locations?.[0]?.crs === fromCrs &&
+      entry?.detail?.locations?.[1]?.crs === toCrs,
+  ).length;
+}

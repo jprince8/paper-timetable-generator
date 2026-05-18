@@ -3,7 +3,8 @@ import io
 import json
 import os
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date as date_cls, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 import requests
 
 from pdf_utils import build_timetable_pdf
@@ -41,6 +42,8 @@ if not ((RTT_USER and RTT_PASS) or RTT_TOKEN):
 RTT_LEGACY_BASE = "https://api.rtt.io/api/v1"
 RTT_NEW_BASE = "https://data.rtt.io"
 NEW_API_NAMESPACE = "gb-nr"
+RTT_LOCAL_TIMEZONE = ZoneInfo("Europe/London")
+RTT_LEGACY_MAX_HISTORY_DAYS = 7
 
 _RTT_ACCESS_TOKEN = None
 _RTT_ACCESS_TOKEN_VALID_UNTIL = None
@@ -106,6 +109,22 @@ def _rtt_error_is_outside_permitted_history(exc):
         return False
     body = exc.body or ""
     return "outside your permitted history" in body.lower()
+
+
+def _parse_request_date(value):
+    text = str(value or "")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        return None
+    try:
+        return date_cls.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _legacy_request_is_outside_permitted_history(request_date):
+    today = datetime.now(RTT_LOCAL_TIMEZONE).date()
+    oldest_allowed = today - timedelta(days=RTT_LEGACY_MAX_HISTORY_DAYS)
+    return request_date < oldest_allowed
 
 
 def _pin_auto_mode_to_new(reason):
@@ -1078,15 +1097,18 @@ def api_search():
     if not crs or not date:
         return jsonify({"error": "crs and date required"}), 400
 
-    # Convert YYYY-MM-DD -> YYYY/MM/DD for RTT, and insert /to/<toStation> before the date
-    try:
-        year, month, day = date.split("-")
-    except ValueError:
+    request_date = _parse_request_date(date)
+    if request_date is None:
         return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+    year = f"{request_date.year:04d}"
+    month = f"{request_date.month:02d}"
+    day = f"{request_date.day:02d}"
 
     api_mode = RTT_API_MODE
 
     def fetch_legacy():
+        if _legacy_request_is_outside_permitted_history(request_date):
+            raise RttHttpError(400, "outside your permitted history")
         path = f"/json/search/{crs}"
         if to:
             path += f"/to/{to}"
@@ -1158,14 +1180,18 @@ def api_service():
     if not uid or not date:
         return jsonify({"error": "uid and date required"}), 400
 
-    try:
-        year, month, day = date.split("-")
-    except ValueError:
+    request_date = _parse_request_date(date)
+    if request_date is None:
         return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+    year = f"{request_date.year:04d}"
+    month = f"{request_date.month:02d}"
+    day = f"{request_date.day:02d}"
 
     api_mode = RTT_API_MODE
 
     def fetch_legacy():
+        if _legacy_request_is_outside_permitted_history(request_date):
+            raise RttHttpError(400, "outside your permitted history")
         path = f"/json/service/{uid}/{year}/{month}/{day}"
         return rtt_get(path)
 

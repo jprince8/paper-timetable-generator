@@ -3,7 +3,7 @@
 // - debug_stations=1/true enables station selection/dwell logging
 // - debug_connections=1/true enables synthetic connection logging
 // - sort_log=1/true enables sort log downloads
-// - rtt_cache=1/true enables local RTT caching
+// - rtt_cache=1/true enables local RTT cache reads for normal builds
 function hasEnabledQueryFlag(flag) {
   const params = new URLSearchParams(window.location.search);
   if (!params.has(flag)) return false;
@@ -14,14 +14,14 @@ function hasEnabledQueryFlag(flag) {
 const DEBUG_STATIONS = hasEnabledQueryFlag("debug_stations");
 const DEBUG_CONNECTIONS = hasEnabledQueryFlag("debug_connections");
 const ENABLE_SORT_LOG_DOWNLOAD = hasEnabledQueryFlag("sort_log");
-const RTT_CACHE_ENABLED = hasEnabledQueryFlag("rtt_cache");
+const RTT_CACHE_READS_ENABLED = hasEnabledQueryFlag("rtt_cache");
 window.DEBUG_CONNECTIONS = DEBUG_CONNECTIONS;
 
 const ENABLED_OPTIONS = [
   DEBUG_STATIONS ? "debug_stations" : null,
   DEBUG_CONNECTIONS ? "debug_connections" : null,
   ENABLE_SORT_LOG_DOWNLOAD ? "sort_log" : null,
-  RTT_CACHE_ENABLED ? "rtt_cache" : null,
+  RTT_CACHE_READS_ENABLED ? "rtt_cache" : null,
 ].filter(Boolean);
 
 if (ENABLED_OPTIONS.length > 0) {
@@ -44,8 +44,9 @@ const ALWAYS_SORT_CANCELLED_TIMES = true;
 const INIT_SERVICE_DETAILS_ONLY_IN_RANGE = true;
 
 const RTT_CACHE_PREFIX = "rttCache:";
-const rttCacheEnabled = RTT_CACHE_ENABLED;
-let rttCacheStorageEnabled = RTT_CACHE_ENABLED;
+let rttCacheStorageEnabled = true;
+let useRttCacheForCurrentBuild = false;
+let useRttCacheForNextSubmit = false;
 const rttMemoryCache = new Map();
 
 function getRttCacheKey(url) {
@@ -82,7 +83,7 @@ function listRttCacheEntries() {
 }
 
 function readRttCache(url) {
-  if (!rttCacheEnabled) return null;
+  if (!RTT_CACHE_READS_ENABLED && !useRttCacheForCurrentBuild) return null;
   const memoryCached = rttMemoryCache.get(url);
   if (memoryCached) {
     return {
@@ -110,7 +111,6 @@ function readRttCache(url) {
 
 function writeRttCache(url, payload) {
   const normalised = normaliseRttCachePayload(payload);
-  if (!rttCacheEnabled) return;
   if (!window.localStorage || !rttCacheStorageEnabled) {
     rttMemoryCache.set(url, normalised);
     return;
@@ -197,16 +197,29 @@ const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 const shareBtn = document.getElementById("shareBtn");
 const realtimeBtn = document.getElementById("realtimeBtn");
 const platformBtn = document.getElementById("platformBtn");
-const specifiedConnectionsOnlyBtn = document.getElementById(
-  "specifiedConnectionsOnlyBtn",
+const directConnectionsOnlyBtn = document.getElementById(
+  "directConnectionsOnlyBtn",
+);
+const directServicesOnlyBtn = document.getElementById(
+  "directServicesOnlyBtn",
+);
+const reachableServicesOnlyBtn = document.getElementById(
+  "reachableServicesOnlyBtn",
+);
+const fastestRoutesOnlyBtn = document.getElementById(
+  "fastestRoutesOnlyBtn",
 );
 const nowBtn = document.getElementById("nowBtn");
 const rotateModal = document.getElementById("rotateModal");
 const rotateModalOk = document.getElementById("rotateModalOk");
 const PLATFORM_TOGGLE_STORAGE_KEY = "corridor_showPlatforms";
 const REALTIME_TOGGLE_STORAGE_KEY = "corridor_showRealtime";
-const SPECIFIED_CONNECTIONS_ONLY_STORAGE_KEY =
+const DIRECT_CONNECTIONS_ONLY_STORAGE_KEY =
   "corridor_specifiedConnectionsOnly";
+const DIRECT_SERVICES_ONLY_STORAGE_KEY = "corridor_directServicesOnly";
+const REACHABLE_SERVICES_ONLY_STORAGE_KEY =
+  "corridor_reachableServicesOnly";
+const FASTEST_ROUTES_ONLY_STORAGE_KEY = "corridor_fastestRoutesOnly";
 const ROTATE_PROMPT_DISMISSED_KEY = "corridor_rotatePromptDismissed";
 
 // === Mutable state ===
@@ -225,9 +238,18 @@ let realtimePreferred = true;
 let showPlatformsEnabled = false;
 let showPlatformsPreferred = false;
 let platformAvailable = false;
-let specifiedConnectionsOnlyEnabled = true;
-let specifiedConnectionsOnlyPreferred = true;
-let specifiedConnectionsOnlyAvailable = false;
+let directConnectionsOnlyEnabled = false;
+let directConnectionsOnlyPreferred = false;
+let directConnectionsOnlyAvailable = false;
+let directServicesOnlyEnabled = true;
+let directServicesOnlyPreferred = true;
+let directServicesOnlyAvailable = false;
+let reachableServicesOnlyEnabled = true;
+let reachableServicesOnlyPreferred = true;
+let reachableServicesOnlyAvailable = false;
+let fastestRoutesOnlyEnabled = false;
+let fastestRoutesOnlyPreferred = false;
+let fastestRoutesOnlyAvailable = false;
 let buildAbortController = null;
 let buildInProgress = false;
 let buildCancelled = false;
@@ -367,6 +389,7 @@ function createToggleControl({
   };
 
   function render({ persist = false } = {}) {
+    // preferred is the stored user choice; enabled is the choice while available.
     state.enabled = state.available && state.preferred;
     if (button) {
       button.disabled = !state.available;
@@ -443,7 +466,7 @@ function resolveConnectionStationSet({
     tableRowStationSet?.size > 0
       ? tableRowStationSet
       : fallbackStationSet || new Set();
-  if (specifiedConnectionsOnlyEnabled) {
+  if (directConnectionsOnlyPreferred) {
     return new Set(specifiedStationSet || []);
   }
   return new Set([...actualStationSet, ...(specifiedStationSet || [])]);
@@ -471,14 +494,50 @@ const platformToggle = registerStoredToggleControl({
   },
 });
 
-const specifiedConnectionsOnlyToggle = registerStoredToggleControl({
-  button: specifiedConnectionsOnlyBtn,
-  storageKey: SPECIFIED_CONNECTIONS_ONLY_STORAGE_KEY,
-  initialPreferred: specifiedConnectionsOnlyPreferred,
+const directConnectionsOnlyToggle = registerStoredToggleControl({
+  button: directConnectionsOnlyBtn,
+  storageKey: DIRECT_CONNECTIONS_ONLY_STORAGE_KEY,
+  initialPreferred: directConnectionsOnlyPreferred,
   onRender: ({ available, preferred, enabled }) => {
-    specifiedConnectionsOnlyAvailable = available;
-    specifiedConnectionsOnlyPreferred = preferred;
-    specifiedConnectionsOnlyEnabled = preferred;
+    directConnectionsOnlyAvailable = available;
+    directConnectionsOnlyPreferred = preferred;
+    directConnectionsOnlyEnabled = enabled;
+  },
+});
+
+const directServicesOnlyToggle = registerStoredToggleControl({
+  button: directServicesOnlyBtn,
+  storageKey: DIRECT_SERVICES_ONLY_STORAGE_KEY,
+  initialAvailable: directServicesOnlyAvailable,
+  initialPreferred: directServicesOnlyPreferred,
+  onRender: ({ available, preferred, enabled }) => {
+    directServicesOnlyAvailable = available;
+    directServicesOnlyPreferred = preferred;
+    directServicesOnlyEnabled = enabled;
+  },
+});
+
+const reachableServicesOnlyToggle = registerStoredToggleControl({
+  button: reachableServicesOnlyBtn,
+  storageKey: REACHABLE_SERVICES_ONLY_STORAGE_KEY,
+  initialAvailable: reachableServicesOnlyAvailable,
+  initialPreferred: reachableServicesOnlyPreferred,
+  onRender: ({ available, preferred, enabled }) => {
+    reachableServicesOnlyAvailable = available;
+    reachableServicesOnlyPreferred = preferred;
+    reachableServicesOnlyEnabled = enabled;
+  },
+});
+
+const fastestRoutesOnlyToggle = registerStoredToggleControl({
+  button: fastestRoutesOnlyBtn,
+  storageKey: FASTEST_ROUTES_ONLY_STORAGE_KEY,
+  initialAvailable: fastestRoutesOnlyAvailable,
+  initialPreferred: fastestRoutesOnlyPreferred,
+  onRender: ({ available, preferred, enabled }) => {
+    fastestRoutesOnlyAvailable = available;
+    fastestRoutesOnlyPreferred = preferred;
+    fastestRoutesOnlyEnabled = enabled;
   },
 });
 
@@ -503,12 +562,33 @@ function setPlatformToggleAvailability(enabled) {
   platformToggle.setAvailability(enabled);
 }
 
-function setSpecifiedConnectionsOnlyState(active, { persist = true } = {}) {
-  specifiedConnectionsOnlyToggle.setPreferred(active, { persist });
+function setDirectConnectionsOnlyState(active, { persist = true } = {}) {
+  directConnectionsOnlyToggle.setPreferred(active, { persist });
 }
 
-function setSpecifiedConnectionsOnlyAvailability(enabled) {
-  specifiedConnectionsOnlyToggle.setAvailability(enabled);
+function setDirectConnectionsOnlyAvailability(enabled) {
+  directConnectionsOnlyToggle.setAvailability(enabled);
+}
+
+function setDirectServicesOnlyAvailability(enabled) {
+  directServicesOnlyToggle.setAvailability(enabled);
+}
+
+function setReachableServicesOnlyAvailability(enabled) {
+  reachableServicesOnlyToggle.setAvailability(enabled);
+}
+
+function setFastestRoutesOnlyAvailability(enabled) {
+  fastestRoutesOnlyToggle.setAvailability(enabled);
+}
+
+function requestSubmitWithRttCacheRead() {
+  useRttCacheForNextSubmit = true;
+  if (typeof form?.requestSubmit === "function") {
+    form.requestSubmit();
+  } else {
+    useRttCacheForNextSubmit = false;
+  }
 }
 
 function readSessionFlag(key) {
@@ -572,11 +652,38 @@ if (platformBtn) {
   });
 }
 
-if (specifiedConnectionsOnlyBtn) {
-  specifiedConnectionsOnlyBtn.addEventListener("click", () => {
-    if (!specifiedConnectionsOnlyToggle.toggle({ persist: true })) return;
+if (directConnectionsOnlyBtn) {
+  directConnectionsOnlyBtn.addEventListener("click", () => {
+    if (!directConnectionsOnlyToggle.toggle({ persist: true })) return;
     if (lastTimetableContext) {
       rebuildConnectionsAndRender(lastTimetableContext);
+    }
+  });
+}
+
+if (directServicesOnlyBtn) {
+  directServicesOnlyBtn.addEventListener("click", () => {
+    if (!directServicesOnlyToggle.toggle({ persist: true })) return;
+    if (lastTimetableContext) {
+      requestSubmitWithRttCacheRead();
+    }
+  });
+}
+
+if (reachableServicesOnlyBtn) {
+  reachableServicesOnlyBtn.addEventListener("click", () => {
+    if (!reachableServicesOnlyToggle.toggle({ persist: true })) return;
+    if (lastTimetableContext) {
+      renderTimetablesFromContext(lastTimetableContext);
+    }
+  });
+}
+
+if (fastestRoutesOnlyBtn) {
+  fastestRoutesOnlyBtn.addEventListener("click", () => {
+    if (!fastestRoutesOnlyToggle.toggle({ persist: true })) return;
+    if (lastTimetableContext) {
+      renderTimetablesFromContext(lastTimetableContext);
     }
   });
 }
@@ -1165,7 +1272,10 @@ function resetOutputs() {
   lastSortLog = "";
   setRealtimeToggleState({ enabled: false, active: realtimePreferred });
   setPlatformToggleAvailability(false);
-  setSpecifiedConnectionsOnlyAvailability(false);
+  setDirectConnectionsOnlyAvailability(false);
+  setDirectServicesOnlyAvailability(false);
+  setReachableServicesOnlyAvailability(false);
+  setFastestRoutesOnlyAvailability(false);
 }
 
 function clearTimetableOutputs() {
@@ -1186,7 +1296,10 @@ function clearTimetableOutputs() {
   lastSortLog = "";
   setRealtimeToggleState({ enabled: false, active: realtimePreferred });
   setPlatformToggleAvailability(false);
-  setSpecifiedConnectionsOnlyAvailability(false);
+  setDirectConnectionsOnlyAvailability(false);
+  setDirectServicesOnlyAvailability(false);
+  setReachableServicesOnlyAvailability(false);
+  setFastestRoutesOnlyAvailability(false);
 }
 
 function buildCorridorPaths(from, to, viaEntries) {
@@ -1228,6 +1341,13 @@ function buildCorridorLegs(paths) {
   });
 
   return Array.from(legMap.values());
+}
+
+function getLegServiceCount(legServiceCounts, fromCrs, toCrs) {
+  return (
+    (legServiceCounts.get(`${fromCrs}|${toCrs}`) || 0) +
+    (legServiceCounts.get(`${toCrs}|${fromCrs}`) || 0)
+  );
 }
 
 function formatAssertDetail(detail) {
@@ -1380,6 +1500,7 @@ function rebuildConnectionsAndRender(context) {
     baseRetainedBA,
     filteredAllDetails,
     corridorStations,
+    mandatoryViaStations,
   } = context;
   
   if (
@@ -1422,7 +1543,12 @@ function rebuildConnectionsAndRender(context) {
     0,
     "both",
     corridorStations,
-    { realtimeEnabled },
+    {
+      realtimeEnabled,
+      mandatoryViaStations: directConnectionsOnlyPreferred
+        ? mandatoryViaStations
+        : [],
+    },
   );
   const inboundConnectionEntries = buildConnectionServiceEntries(
     baseRetainedBA,
@@ -1430,7 +1556,12 @@ function rebuildConnectionsAndRender(context) {
     0,
     "both",
     corridorStations.slice().reverse(),
-    { realtimeEnabled },
+    {
+      realtimeEnabled,
+      mandatoryViaStations: directConnectionsOnlyPreferred
+        ? mandatoryViaStations
+        : [],
+    },
   );
   const connectionEntries = outboundConnectionEntries.concat(inboundConnectionEntries);
 
@@ -1519,11 +1650,15 @@ function renderTimetablesFromContext(context) {
       realtimeEnabled,
       showPlatforms: showPlatformsEnabled,
       atocNameByCode,
+      reachableServicesOnly: reachableServicesOnlyEnabled,
+      fastestRoutesOnly: fastestRoutesOnlyEnabled,
     });
     const pdfModelAB = buildTimetableModel(stations, stationSet, scheduledServicesAB, {
       realtimeEnabled: false,
       showPlatforms: showPlatformsEnabled,
       atocNameByCode,
+      reachableServicesOnly: reachableServicesOnlyEnabled,
+      fastestRoutesOnly: fastestRoutesOnlyEnabled,
     });
     headingAB.textContent =
       forwardStopsLabel + " (" + modelAB.serviceCount + " services)";
@@ -1570,11 +1705,15 @@ function renderTimetablesFromContext(context) {
       realtimeEnabled,
       showPlatforms: showPlatformsEnabled,
       atocNameByCode,
+      reachableServicesOnly: reachableServicesOnlyEnabled,
+      fastestRoutesOnly: fastestRoutesOnlyEnabled,
     });
     const pdfModelBA = buildTimetableModel(stationsRev, stationSet, scheduledServicesBA, {
       realtimeEnabled: false,
       showPlatforms: showPlatformsEnabled,
       atocNameByCode,
+      reachableServicesOnly: reachableServicesOnlyEnabled,
+      fastestRoutesOnly: fastestRoutesOnlyEnabled,
     });
     headingBA.textContent =
       reverseStopsLabel + " (" + modelBA.serviceCount + " services)";
@@ -1666,10 +1805,14 @@ function updateRenderedTimetableStatus(context) {
 // === Main form submit ===
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
+  useRttCacheForCurrentBuild = useRttCacheForNextSubmit;
+  useRttCacheForNextSubmit = false;
   if (suppressNextSubmit) {
+    useRttCacheForCurrentBuild = false;
     return;
   }
   if (buildInProgress) {
+    useRttCacheForCurrentBuild = false;
     return;
   }
 
@@ -1677,9 +1820,11 @@ form.addEventListener("submit", async (e) => {
   // Run HTML5 validation for "required" fields, min/max, etc.
   stationFields.forEach((field) => updateStationValidity(field));
   if (!form.reportValidity()) {
+    useRttCacheForCurrentBuild = false;
     return;
   }
   if (!(await ensureLookupDataReadyForBuild())) {
+    useRttCacheForCurrentBuild = false;
     return;
   }
 
@@ -1796,7 +1941,7 @@ form.addEventListener("submit", async (e) => {
   setBuildInProgress(true);
   try {
     resetOutputs();
-    const initStatusLabel = "Initialising timetable...";
+    let initStatusLabel = "Finding services...";
     let initTotal = 0;
     let initCompleted = 0;
     const updateInitProgress = () => {
@@ -1823,6 +1968,9 @@ form.addEventListener("submit", async (e) => {
     }))
     .filter((entry) => entry.crs);
   const viaValues = viaEntries.map((entry) => entry.crs);
+  const mandatoryViaStations = viaEntries
+    .filter((entry) => entry.required)
+    .map((entry) => entry.crs);
 
   // Persist current form values + vias for next visit
   localStorage.setItem("corridor_fromCrs", from);
@@ -1892,70 +2040,80 @@ form.addEventListener("submit", async (e) => {
   };
 
   try {
-  initTotal = corridorLegs.length;
-  updateInitProgress();
-  const searchPromises = corridorLegs.map(async (leg) => {
-    const url =
-      PROXY_SEARCH +
-      "?crs=" +
-      encodeURIComponent(leg.from) +
-        "&to=" +
-        encodeURIComponent(leg.to) +
-        "&date=" +
-        encodeURIComponent(currentDate);
-      const { text, status } = await fetchRttText(url, {
-        headers: { Accept: "application/json" },
-      });
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch (e) {
-        console.warn(
-          "Failed to parse corridor search JSON for leg",
-          leg,
-          e,
-          text,
-        );
-        return;
-      }
-      if (data && data.error === "unknown error occurred") {
-        invalidInputsDetected = true;
-        return;
-      }
-      if (markRttFailure(data, status)) {
-        return;
-      }
-      const fromNameCandidate =
-        data.location?.name || data.location?.description || null;
-      if (fromNameCandidate) {
-        stationNameByCrs[leg.from] = fromNameCandidate;
-      }
-      const toNameCandidate =
-        data.filter?.destination?.name ||
-        data.filter?.destination?.description ||
-        data.filter?.location?.name ||
-        data.filter?.location?.description ||
-        null;
-      if (toNameCandidate) {
-        stationNameByCrs[leg.to] = toNameCandidate;
-      }
-      const services = Array.isArray(data.services) ? data.services : [];
-      const eligibleServices = services.filter((svc) => {
-        if (svc.isPassenger === false) return;
-        if (svc.plannedCancel) return;
-        return true;
-      });
-      legServiceCounts.set(
-        `${leg.from}|${leg.to}`,
-        eligibleServices.length,
-      );
-      eligibleServices.forEach((svc) => {
-        const key = (svc.serviceUid || "") + "|" + (svc.runDate || "");
-        if (!corridorServicesMap.has(key)) {
-          corridorServicesMap.set(key, svc);
+    const corridorLegSearches = corridorLegs.flatMap((leg) => [
+      { from: leg.from, to: leg.to },
+      { from: leg.to, to: leg.from },
+    ]);
+    initCompleted = 0;
+    initTotal = corridorLegSearches.length;
+    updateInitProgress();
+    const searchPromises = corridorLegSearches.map((leg) =>
+      (async () => {
+        const url =
+          PROXY_SEARCH +
+          "?crs=" +
+          encodeURIComponent(leg.from) +
+          "&to=" +
+          encodeURIComponent(leg.to) +
+          "&date=" +
+          encodeURIComponent(currentDate);
+        const { text, status } = await fetchRttText(url, {
+          headers: { Accept: "application/json" },
+        });
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          console.warn(
+            "Failed to parse corridor search JSON for leg",
+            leg,
+            e,
+            text,
+          );
+          return;
         }
-      });
-    });
+        if (data && data.error === "unknown error occurred") {
+          invalidInputsDetected = true;
+          return;
+        }
+        if (markRttFailure(data, status)) {
+          return;
+        }
+        const fromNameCandidate =
+          data.location?.name || data.location?.description || null;
+        if (fromNameCandidate) {
+          stationNameByCrs[leg.from] = fromNameCandidate;
+        }
+        const toNameCandidate =
+          data.filter?.destination?.name ||
+          data.filter?.destination?.description ||
+          data.filter?.location?.name ||
+          data.filter?.location?.description ||
+          null;
+        if (toNameCandidate) {
+          stationNameByCrs[leg.to] = toNameCandidate;
+        }
+        const services = Array.isArray(data.services) ? data.services : [];
+        const eligibleServices = services.filter((svc) => {
+          if (svc.isPassenger === false) return;
+          if (svc.plannedCancel) return;
+          return true;
+        });
+        legServiceCounts.set(
+          `${leg.from}|${leg.to}`,
+          eligibleServices.length,
+        );
+        eligibleServices.forEach((svc) => {
+          const key = (svc.serviceUid || "") + "|" + (svc.runDate || "");
+          if (!corridorServicesMap.has(key)) {
+            corridorServicesMap.set(key, svc);
+          }
+        });
+      })().finally(() => {
+        initCompleted += 1;
+        updateInitProgress();
+      }),
+    );
 
     await Promise.all(searchPromises);
   } catch (err) {
@@ -1996,8 +2154,7 @@ form.addEventListener("submit", async (e) => {
       for (let i = 0; i < path.length - 1; i += 1) {
         const fromCrs = path[i];
         const toCrs = path[i + 1];
-        const count =
-          legServiceCounts.get(`${fromCrs}|${toCrs}`) || 0;
+        const count = getLegServiceCount(legServiceCounts, fromCrs, toCrs);
         if (count === 0 && !hasConnectionBetweenStations(fromCrs, toCrs)) {
           missing.push({ from: fromCrs, to: toCrs });
         }
@@ -2006,7 +2163,7 @@ form.addEventListener("submit", async (e) => {
     })
     .filter((entry) => entry.missing.length > 0);
   const connectionsAllowAllLegs = corridorLegs.every((leg) => {
-    const count = legServiceCounts.get(`${leg.from}|${leg.to}`) || 0;
+    const count = getLegServiceCount(legServiceCounts, leg.from, leg.to);
     return count > 0 || hasConnectionBetweenStations(leg.from, leg.to);
   });
   if (invalidPaths.length === corridorPaths.length) {
@@ -2041,7 +2198,9 @@ form.addEventListener("submit", async (e) => {
   }
 
   // Step 2: Get full details for corridor services within the selected time range.
-  initTotal += corridorServicesToDetail.length;
+  initStatusLabel = "Gathering service details...";
+  initCompleted = 0;
+  initTotal = corridorServicesToDetail.length;
   updateInitProgress();
   const corridorDetailPromises = corridorServicesToDetail.map(async (svc) => {
     const uid = svc.serviceUid;
@@ -2155,8 +2314,6 @@ form.addEventListener("submit", async (e) => {
     if (s.crs) stationSet[s.crs] = true;
   });
 
-  setProgressStatus("Finding services...", 0, stations.length);
-
   // Build a candidate map of all services seen at any corridor station.
   const candidateMap = new Map(); // key -> { svc, detail, seed, matchedStations:Set<string> }
 
@@ -2175,191 +2332,195 @@ form.addEventListener("submit", async (e) => {
     });
   });
 
-  // For each corridor station, search all services at that station (for the same date),
-  // and filter by time range at that station.
-  let stationsCompleted = 0;
-  const stationSearchPromises = stations.map(async (st) => {
-    try {
-      const url =
-        PROXY_SEARCH +
-        "?crs=" +
-        encodeURIComponent(st.crs) +
-        "&date=" +
-        encodeURIComponent(currentDate);
-      const { text, status } = await fetchRttText(url, {
-        headers: { Accept: "application/json" },
-      });
-      let data;
+  if (!directServicesOnlyPreferred) {
+    setProgressStatus("Finding indirect services...", 0, stations.length);
+
+    // For each corridor station, search all services at that station (for the same date),
+    // and filter by time range at that station.
+    let stationsCompleted = 0;
+    const stationSearchPromises = stations.map(async (st) => {
       try {
-        data = JSON.parse(text);
-      } catch (e) {
-        console.warn(
-          "Failed to parse search for station",
-          st.crs,
-          e,
-          text,
-        );
-        return;
-      }
-      if (markRttFailure(data, status)) {
-        return;
-      }
-      const services = Array.isArray(data.services) ? data.services : [];
-      services.forEach((svc) => {
-        if (svc.isPassenger === false) return;
-        if (svc.plannedCancel) return;
-        if (!serviceAtStationInRange(svc)) return;
-        const key = serviceKey(svc);
-        if (!key) return;
-        let existing = candidateMap.get(key);
-        if (!existing) {
-          existing = {
-            svc: svc,
-            detail: null,
-            seed: false,
-            matchedStations: new Set(),
-          };
-          candidateMap.set(key, existing);
-        }
-        existing.matchedStations.add(st.crs);
-      });
-    } finally {
-      stationsCompleted += 1;
-      setProgressStatus(
-        "Finding services...",
-        stationsCompleted,
-        stations.length,
-      );
-    }
-  });
-
-  try {
-    await Promise.all(stationSearchPromises);
-  } catch (err) {
-    if (isAbortError(err)) {
-      return;
-    }
-    console.warn("Error during station searches:", err);
-  }
-
-  if (shouldAbort()) {
-    return;
-  }
-  if (rttTimeoutDetected) {
-    setStatus(rttTimeoutMessage, { isError: true });
-    return;
-  }
-  if (rttHistoryTooOldDetected) {
-    setStatus(rttHistoryTooOldMessage, { isError: true });
-    return;
-  }
-  if (rttConnectionDetected) {
-    setStatus(rttConnectionMessage, { isError: true });
-    return;
-  }
-
-  // Fetch details for candidates that don't already have them.
-  // To reduce bulk /service calls without changing output logic:
-  // - always keep seed services (used to build corridor station union/order)
-  // - for station-discovered services, only fetch detail if seen in-range at >=2 corridor stations
-  //   (single-hit candidates cannot satisfy the final >=2-station inclusion rule).
-  const detailCandidateMap = new Map();
-  for (const [key, entry] of candidateMap.entries()) {
-    const matchCount = entry.matchedStations?.size || 0;
-    if (entry.seed || entry.detail || matchCount >= 2) {
-      detailCandidateMap.set(key, entry);
-    }
-  }
-
-  const totalCandidateServices = detailCandidateMap.size;
-  let completedDetailServices = 0;
-  const detailFetchPromises = [];
-  for (const [key, entry] of detailCandidateMap.entries()) {
-    if (entry.detail) {
-      completedDetailServices += 1;
-      continue; // already have
-    }
-    const uid = entry.svc.serviceUid;
-    const date = entry.svc.runDate;
-    if (!uid || !date) continue;
-    const url =
-      PROXY_SERVICE +
-      "?uid=" +
-      encodeURIComponent(uid) +
-      "&date=" +
-      encodeURIComponent(date);
-    const p = fetchRttText(url, {
-      headers: { Accept: "application/json" },
-    })
-      .then(({ text, status }) => {
-        let data = null;
+        const url =
+          PROXY_SEARCH +
+          "?crs=" +
+          encodeURIComponent(st.crs) +
+          "&date=" +
+          encodeURIComponent(currentDate);
+        const { text, status } = await fetchRttText(url, {
+          headers: { Accept: "application/json" },
+        });
+        let data;
         try {
           data = JSON.parse(text);
         } catch (e) {
           console.warn(
-            "Failed to parse candidate service JSON for",
-            uid,
+            "Failed to parse search for station",
+            st.crs,
             e,
             text,
           );
+          return;
         }
         if (markRttFailure(data, status)) {
           return;
         }
-        entry.detail = data;
-      })
-      .catch((err) => {
-        if (isAbortError(err)) {
-          throw err;
-        }
-        console.warn(
-          "Error fetching candidate service detail for",
-          uid,
-          err,
-        );
-      })
-      .finally(() => {
-        completedDetailServices += 1;
+        const services = Array.isArray(data.services) ? data.services : [];
+        services.forEach((svc) => {
+          if (svc.isPassenger === false) return;
+          if (svc.plannedCancel) return;
+          if (!serviceAtStationInRange(svc)) return;
+          const key = serviceKey(svc);
+          if (!key) return;
+          let existing = candidateMap.get(key);
+          if (!existing) {
+            existing = {
+              svc: svc,
+              detail: null,
+              seed: false,
+              matchedStations: new Set(),
+            };
+            candidateMap.set(key, existing);
+          }
+          existing.matchedStations.add(st.crs);
+        });
+      } finally {
+        stationsCompleted += 1;
         setProgressStatus(
-          "Gathering service details...",
-          completedDetailServices,
-          totalCandidateServices,
+          "Finding indirect services...",
+          stationsCompleted,
+          stations.length,
         );
-      });
-    detailFetchPromises.push(p);
-  }
+      }
+    });
 
-  if (totalCandidateServices > 0) {
-    setProgressStatus(
-      "Gathering service details...",
-      completedDetailServices,
-      totalCandidateServices,
-    );
-  }
+    try {
+      await Promise.all(stationSearchPromises);
+    } catch (err) {
+      if (isAbortError(err)) {
+        return;
+      }
+      console.warn("Error during station searches:", err);
+    }
 
-  try {
-    await Promise.all(detailFetchPromises);
-  } catch (err) {
-    if (isAbortError(err)) {
+    if (shouldAbort()) {
       return;
     }
-    console.warn("Error during candidate detail fetch:", err);
-  }
+    if (rttTimeoutDetected) {
+      setStatus(rttTimeoutMessage, { isError: true });
+      return;
+    }
+    if (rttHistoryTooOldDetected) {
+      setStatus(rttHistoryTooOldMessage, { isError: true });
+      return;
+    }
+    if (rttConnectionDetected) {
+      setStatus(rttConnectionMessage, { isError: true });
+      return;
+    }
 
-  if (shouldAbort()) {
-    return;
-  }
-  if (rttTimeoutDetected) {
-    setStatus(rttTimeoutMessage, { isError: true });
-    return;
-  }
-  if (rttHistoryTooOldDetected) {
-    setStatus(rttHistoryTooOldMessage, { isError: true });
-    return;
-  }
-  if (rttConnectionDetected) {
-    setStatus(rttConnectionMessage, { isError: true });
-    return;
+    // Fetch details for candidates that don't already have them.
+    // To reduce bulk /service calls without changing output logic:
+    // - always keep seed services (used to build corridor station union/order)
+    // - for station-discovered services, only fetch detail if seen in-range at >=2 corridor stations
+    //   (single-hit candidates cannot satisfy the final >=2-station inclusion rule).
+    const detailCandidateMap = new Map();
+    for (const [key, entry] of candidateMap.entries()) {
+      const matchCount = entry.matchedStations?.size || 0;
+      if (entry.seed || entry.detail || matchCount >= 2) {
+        detailCandidateMap.set(key, entry);
+      }
+    }
+
+    const totalCandidateServices = detailCandidateMap.size;
+    let completedDetailServices = 0;
+    const detailFetchPromises = [];
+    for (const [key, entry] of detailCandidateMap.entries()) {
+      if (entry.detail) {
+        completedDetailServices += 1;
+        continue; // already have
+      }
+      const uid = entry.svc.serviceUid;
+      const date = entry.svc.runDate;
+      if (!uid || !date) continue;
+      const url =
+        PROXY_SERVICE +
+        "?uid=" +
+        encodeURIComponent(uid) +
+        "&date=" +
+        encodeURIComponent(date);
+      const p = fetchRttText(url, {
+        headers: { Accept: "application/json" },
+      })
+        .then(({ text, status }) => {
+          let data = null;
+          try {
+            data = JSON.parse(text);
+          } catch (e) {
+            console.warn(
+              "Failed to parse candidate service JSON for",
+              uid,
+              e,
+              text,
+            );
+          }
+          if (markRttFailure(data, status)) {
+            return;
+          }
+          entry.detail = data;
+        })
+        .catch((err) => {
+          if (isAbortError(err)) {
+            throw err;
+          }
+          console.warn(
+            "Error fetching candidate service detail for",
+            uid,
+            err,
+          );
+        })
+        .finally(() => {
+          completedDetailServices += 1;
+          setProgressStatus(
+            "Gathering indirect service details...",
+            completedDetailServices,
+            totalCandidateServices,
+          );
+        });
+      detailFetchPromises.push(p);
+    }
+
+    if (totalCandidateServices > 0) {
+      setProgressStatus(
+        "Gathering indirect service details...",
+        completedDetailServices,
+        totalCandidateServices,
+      );
+    }
+
+    try {
+      await Promise.all(detailFetchPromises);
+    } catch (err) {
+      if (isAbortError(err)) {
+        return;
+      }
+      console.warn("Error during candidate detail fetch:", err);
+    }
+
+    if (shouldAbort()) {
+      return;
+    }
+    if (rttTimeoutDetected) {
+      setStatus(rttTimeoutMessage, { isError: true });
+      return;
+    }
+    if (rttHistoryTooOldDetected) {
+      setStatus(rttHistoryTooOldMessage, { isError: true });
+      return;
+    }
+    if (rttConnectionDetected) {
+      setStatus(rttConnectionMessage, { isError: true });
+      return;
+    }
   }
 
   setStatus("Building timetable...");
@@ -2626,7 +2787,12 @@ form.addEventListener("submit", async (e) => {
     0,
     "both",
     corridorStations,
-    { realtimeEnabled },
+    {
+      realtimeEnabled,
+      mandatoryViaStations: directConnectionsOnlyPreferred
+        ? mandatoryViaStations
+        : [],
+    },
   );
   const inboundConnectionEntries = buildConnectionServiceEntries(
     baseRetainedBA,
@@ -2634,7 +2800,12 @@ form.addEventListener("submit", async (e) => {
     0,
     "both",
     corridorStations.slice().reverse(),
-    { realtimeEnabled },
+    {
+      realtimeEnabled,
+      mandatoryViaStations: directConnectionsOnlyPreferred
+        ? mandatoryViaStations
+        : [],
+    },
   );
   const connectionEntries = outboundConnectionEntries.concat(inboundConnectionEntries);
   if (DEBUG_CONNECTIONS) {
@@ -2736,6 +2907,7 @@ form.addEventListener("submit", async (e) => {
     baseRetainedBA,
     filteredAllDetails,
     corridorStations,
+    mandatoryViaStations,
     fromName,
     toName,
     viaNamesForward,
@@ -2747,7 +2919,10 @@ form.addEventListener("submit", async (e) => {
     pdfFilename,
     generatedTimestamp: formatGeneratedTimestamp(),
   };
-  setSpecifiedConnectionsOnlyAvailability(true);
+  setDirectConnectionsOnlyAvailability(true);
+  setDirectServicesOnlyAvailability(true);
+  setReachableServicesOnlyAvailability(true);
+  setFastestRoutesOnlyAvailability(true);
   renderTimetablesFromContext(lastTimetableContext);
   if (!statusEl?.classList.contains("is-error")) {
     hideStatus();
@@ -2757,6 +2932,7 @@ form.addEventListener("submit", async (e) => {
   }
   } finally {
     buildAbortController = null;
+    useRttCacheForCurrentBuild = false;
     setBuildInProgress(false);
   }
 });

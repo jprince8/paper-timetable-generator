@@ -286,7 +286,7 @@ function createHarnessEnvironment({ queryUrl, fixture, repoRoot, localStorageSee
   };
 }
 
-function loadFrontendRuntime({ startMinutes, endMinutes, connectionsData, repoRoot }) {
+export function loadFrontendRuntime({ startMinutes, endMinutes, connectionsData, repoRoot }) {
   const context = {
     console,
     window: {
@@ -367,22 +367,25 @@ function buildDirection(runtime, stationsDir, stationSetObj, servicesDir, model)
   if (!model || typeof model !== 'object') {
     throw new Error('Missing rendered model from app harness');
   }
-  if (model.serviceCount !== preFiltered.length) {
+  const renderedServices = Array.isArray(model.servicesWithDetails)
+    ? model.servicesWithDetails
+    : preFiltered;
+  if (model.serviceCount !== renderedServices.length) {
     throw new Error(
-      `Unexpected service count mismatch: model=${model.serviceCount} preFiltered=${preFiltered.length}`,
+      `Unexpected service count mismatch: model=${model.serviceCount} rendered=${renderedServices.length}`,
     );
   }
 
   const orderedSvcIndicesRaw = model.orderedSvcIndices.filter(
     (idx) => Number.isInteger(idx) && idx >= 0 && idx < model.serviceCount,
   );
-  const orderedEntries = orderedSvcIndicesRaw.map((idx) => preFiltered[idx]);
+  const orderedEntries = orderedSvcIndicesRaw.map((idx) => renderedServices[idx]);
 
   return {
     model,
     pdfTableData: runtime.buildPdfTableData(model),
     preFiltered,
-    displayStations: filterResult.displayStations,
+    displayStations: model.displayStations || filterResult.displayStations,
     orderedSvcIndicesRaw,
     orderedEntries,
   };
