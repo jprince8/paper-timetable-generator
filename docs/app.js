@@ -3,7 +3,7 @@
 // - debug_stations=1/true enables station selection/dwell logging
 // - debug_connections=1/true enables synthetic connection logging
 // - sort_log=1/true enables sort log downloads
-// - rtt_cache=1/true enables local RTT cache reads for normal builds
+// - rtt_cache=1/true preserves existing local RTT cache reads for normal builds
 function hasEnabledQueryFlag(flag) {
   const params = new URLSearchParams(window.location.search);
   if (!params.has(flag)) return false;
@@ -45,8 +45,7 @@ const INIT_SERVICE_DETAILS_ONLY_IN_RANGE = true;
 
 const RTT_CACHE_PREFIX = "rttCache:";
 let rttCacheStorageEnabled = true;
-let useRttCacheForCurrentBuild = false;
-let useRttCacheForNextSubmit = false;
+let clearRttCacheForNextSubmit = false;
 const rttMemoryCache = new Map();
 
 function getRttCacheKey(url) {
@@ -82,8 +81,15 @@ function listRttCacheEntries() {
   return entries;
 }
 
+function clearRttCache() {
+  rttMemoryCache.clear();
+  if (!window.localStorage) return;
+  for (const entry of listRttCacheEntries()) {
+    localStorage.removeItem(entry.key);
+  }
+}
+
 function readRttCache(url) {
-  if (!RTT_CACHE_READS_ENABLED && !useRttCacheForCurrentBuild) return null;
   const memoryCached = rttMemoryCache.get(url);
   if (memoryCached) {
     return {
@@ -342,7 +348,10 @@ function setBuildInProgress(active) {
 
 if (buildBtn) {
   buildBtn.addEventListener("click", (event) => {
-    if (!buildInProgress || !buildAbortController) return;
+    if (!buildInProgress || !buildAbortController) {
+      clearRttCacheForNextSubmit = !RTT_CACHE_READS_ENABLED;
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     suppressNextSubmit = true;
@@ -582,12 +591,9 @@ function setFastestRoutesOnlyAvailability(enabled) {
   fastestRoutesOnlyToggle.setAvailability(enabled);
 }
 
-function requestSubmitWithRttCacheRead() {
-  useRttCacheForNextSubmit = true;
+function requestTimetableSubmit() {
   if (typeof form?.requestSubmit === "function") {
     form.requestSubmit();
-  } else {
-    useRttCacheForNextSubmit = false;
   }
 }
 
@@ -665,7 +671,7 @@ if (directServicesOnlyBtn) {
   directServicesOnlyBtn.addEventListener("click", () => {
     if (!directServicesOnlyToggle.toggle({ persist: true })) return;
     if (lastTimetableContext) {
-      requestSubmitWithRttCacheRead();
+      requestTimetableSubmit();
     }
   });
 }
@@ -1805,14 +1811,16 @@ function updateRenderedTimetableStatus(context) {
 // === Main form submit ===
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
-  useRttCacheForCurrentBuild = useRttCacheForNextSubmit;
-  useRttCacheForNextSubmit = false;
+  if (clearRttCacheForNextSubmit) {
+    clearRttCache();
+  }
+  clearRttCacheForNextSubmit = false;
   if (suppressNextSubmit) {
-    useRttCacheForCurrentBuild = false;
+    clearRttCacheForNextSubmit = false;
     return;
   }
   if (buildInProgress) {
-    useRttCacheForCurrentBuild = false;
+    clearRttCacheForNextSubmit = false;
     return;
   }
 
@@ -1820,11 +1828,9 @@ form.addEventListener("submit", async (e) => {
   // Run HTML5 validation for "required" fields, min/max, etc.
   stationFields.forEach((field) => updateStationValidity(field));
   if (!form.reportValidity()) {
-    useRttCacheForCurrentBuild = false;
     return;
   }
   if (!(await ensureLookupDataReadyForBuild())) {
-    useRttCacheForCurrentBuild = false;
     return;
   }
 
@@ -2932,7 +2938,6 @@ form.addEventListener("submit", async (e) => {
   }
   } finally {
     buildAbortController = null;
-    useRttCacheForCurrentBuild = false;
     setBuildInProgress(false);
   }
 });
