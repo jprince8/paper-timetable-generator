@@ -1411,7 +1411,11 @@ function formatAssertDetail(detail) {
     if (value === undefined || value === null || value === "") return;
     let rendered = value;
     if (Array.isArray(value)) {
-      rendered = value.join(" → ");
+      rendered = value
+        .map((item) =>
+          item && typeof item === "object" ? JSON.stringify(item) : String(item),
+        )
+        .join(" → ");
     } else if (typeof value === "object") {
       rendered = JSON.stringify(value);
     }

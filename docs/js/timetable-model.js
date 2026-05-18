@@ -92,6 +92,29 @@ function serviceDebugLabel(entry, meta, svcIndex) {
     .trim() || `service #${svcIndex + 1}`;
 }
 
+function serviceLocationDebugSummary(entry) {
+  const locs = entry?.detail?.locations || [];
+  return locs.map((loc) => {
+    const crs = loc.crs || "";
+    const displayAs = loc.displayAs || "";
+    const arr = padTime(
+      loc.gbttBookedArrival ||
+        loc.realtimeArrival ||
+        loc.publicArrival ||
+        "",
+    );
+    const dep = padTime(
+      loc.gbttBookedDeparture ||
+        loc.realtimeDeparture ||
+        loc.publicDeparture ||
+        "",
+    );
+    const publicFlag = loc.isPublicCall === true ? "public" : "non-public";
+    const timeText = arr && dep && arr !== dep ? `${arr}/${dep}` : arr || dep;
+    return [crs, timeText, displayAs, publicFlag].filter(Boolean).join(" ");
+  });
+}
+
 function assertNoBlankRenderedStationRows(rows, rowSpecs, displayStations) {
   const blankRows = [];
   rows.forEach((row, rowIdx) => {
@@ -130,19 +153,39 @@ function assertNoBlankRenderedServiceColumns(
     .filter((rowIdx) => rowIdx !== null);
   const blankServices = [];
 
-  (orderedSvcIndices || []).forEach((svcIndex) => {
+  (orderedSvcIndices || []).forEach((svcIndex, orderedPosition) => {
+    const meta = servicesMeta?.[svcIndex] || null;
+    if (meta?.isSpacer === true || svcIndex >= servicesWithDetails.length) {
+      return;
+    }
     const hasVisibleCell = stationRowIndices.some((rowIdx) => {
       const text = cellToText(rows[rowIdx]?.cells?.[svcIndex]).trim();
       return text && text !== "|";
     });
     if (hasVisibleCell) return;
+    const rowSamples = stationRowIndices.map((rowIdx) => {
+      const spec = rowSpecs[rowIdx] || {};
+      const row = rows[rowIdx] || {};
+      return {
+        row: rowIdx,
+        stationIndex: spec.stationIndex,
+        station: row.labelStation || "",
+        label: row.labelArrDep || "",
+        mode: spec.mode || "",
+        text: cellToText(row.cells?.[svcIndex]),
+      };
+    });
     blankServices.push({
       index: svcIndex,
+      orderedPosition,
       service: serviceDebugLabel(
         servicesWithDetails[svcIndex],
-        servicesMeta?.[svcIndex],
+        meta,
         svcIndex,
       ),
+      meta,
+      rows: rowSamples,
+      locations: serviceLocationDebugSummary(servicesWithDetails[svcIndex]),
     });
   });
 

@@ -1730,6 +1730,7 @@ function sortTimetableColumns({
       firstClassAvailable: false,
       isSleeper: false,
       isBus: false,
+      isSpacer: true,
     });
     rows.forEach((row) => {
       row.cells[spacerIndex] = "";
