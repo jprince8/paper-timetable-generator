@@ -232,7 +232,7 @@ function assertSplitArrDepRowsAreAdjacent(directionName, directionData) {
   });
 }
 
-function assertWalkOnlyAppearsAsPdfOperator(directionName, directionData) {
+function assertWalkAppearsInPdfFacilitiesRow(directionName, directionData) {
   const tableData = directionData?.pdfTableData || {};
   const headers = tableData.headers || [];
   const facilitiesRow = tableData.rows?.[0] || [];
@@ -243,10 +243,10 @@ function assertWalkOnlyAppearsAsPdfOperator(directionName, directionData) {
   if (walkOperatorColumns.length === 0) return;
 
   walkOperatorColumns.forEach((idx) => {
-    assert.notEqual(
+    assert.equal(
       String(facilitiesRow[idx] || '').toUpperCase(),
       'WALK',
-      `${directionName}: WALK should not appear in PDF facilities row`,
+      `${directionName}: WALK should appear in PDF facilities row`,
     );
   });
 }
@@ -377,10 +377,10 @@ export function registerCachedQuerySuite({
     assertColumnFillContinuity('BA', result.ba);
   });
 
-  test(`${suiteLabel} keeps walking labels out of PDF facilities row`, async () => {
+  test(`${suiteLabel} includes walking labels in PDF facilities row`, async () => {
     const result = await getResult();
-    assertWalkOnlyAppearsAsPdfOperator('AB', result.ab);
-    assertWalkOnlyAppearsAsPdfOperator('BA', result.ba);
+    assertWalkAppearsInPdfFacilitiesRow('AB', result.ab);
+    assertWalkAppearsInPdfFacilitiesRow('BA', result.ba);
   });
 
   test(`${suiteLabel} uses connection mode in tooltips without duplicate labels`, async () => {

@@ -41,10 +41,14 @@ function walkSvgMarkup() {
   return `
 <span class="walk-icon" title="Walking connection" aria-label="Walking connection">
   <svg viewBox="0 0 24 24" role="img" focusable="false" aria-hidden="true">
-    <circle cx="12" cy="4" r="2" fill="currentColor"/>
-    <path d="M12 6l-2 5l-3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-    <path d="M10 11l4 2l2 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-    <path d="M9 21l2-6l3-1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <g transform="translate(-1.2 -1.1) scale(1.14)">
+      <circle cx="12" cy="4" r="2.25" fill="currentColor"/>
+      <path d="M12 6l-1 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M11.5 8l-4 2.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M11.5 8l4 2" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M11 11l1.25 3.25l-2.25 2.75" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M11 11l3.5 2.5l1.5 3.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
   </svg>
 </span>
   `;

@@ -334,11 +334,12 @@ def build_timetable_pdf(tables, meta=None):
         elements.append(Spacer(1, 6))
 
     assets_dir = os.path.join(os.path.dirname(__file__), "docs", "icons")
-    icon_size = 10
+    icon_size = 11
     icon_map = {
         "FC": _load_svg_icon(os.path.join(assets_dir, "first-class.svg"), icon_size),
         "SL": _load_svg_icon(os.path.join(assets_dir, "bed.svg"), icon_size),
         "BUS": _load_svg_icon(os.path.join(assets_dir, "bus.svg"), icon_size),
+        "WALK": _load_svg_icon(os.path.join(assets_dir, "walk.svg"), icon_size),
         "LU": _load_svg_icon(os.path.join(assets_dir, "lu.svg"), icon_size),
         "TRAM": _load_svg_icon(os.path.join(assets_dir, "tram.svg"), icon_size),
         "DLR": _load_svg_icon(os.path.join(assets_dir, "dlr.svg"), icon_size),
@@ -440,6 +441,8 @@ def build_timetable_pdf(tables, meta=None):
                 key_items.append((icon_map.get("SL"), "Sleeper"))
             if "BUS" in facilities_tokens:
                 key_items.append((icon_map.get("BUS"), "Bus service"))
+            if "WALK" in facilities_tokens:
+                key_items.append((icon_map.get("WALK"), "Walking connection"))
             if "LU" in facilities_tokens:
                 key_items.append((icon_map.get("LU"), "LU connection"))
             if "TRAM" in facilities_tokens:

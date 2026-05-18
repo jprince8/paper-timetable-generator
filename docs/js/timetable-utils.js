@@ -294,6 +294,7 @@ function buildPdfTableData(model) {
       if (meta.firstClassAvailable) icons.push("FC");
       if (meta.isSleeper) icons.push("SL");
       if (meta.isBus) icons.push("BUS");
+      if (meta.isWalk) icons.push("WALK");
       if (meta.isUndergroundConnection) icons.push("LU");
       if (meta.isTramConnection) icons.push("TRAM");
       if (meta.isDlrConnection) icons.push("DLR");
