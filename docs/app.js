@@ -206,6 +206,9 @@ const directServicesOnlyBtn = document.getElementById(
 const reachableServicesOnlyBtn = document.getElementById(
   "reachableServicesOnlyBtn",
 );
+const fastestRoutesOnlyBtn = document.getElementById(
+  "fastestRoutesOnlyBtn",
+);
 const nowBtn = document.getElementById("nowBtn");
 const rotateModal = document.getElementById("rotateModal");
 const rotateModalOk = document.getElementById("rotateModalOk");
@@ -216,6 +219,7 @@ const DIRECT_CONNECTIONS_ONLY_STORAGE_KEY =
 const DIRECT_SERVICES_ONLY_STORAGE_KEY = "corridor_directServicesOnly";
 const REACHABLE_SERVICES_ONLY_STORAGE_KEY =
   "corridor_reachableServicesOnly";
+const FASTEST_ROUTES_ONLY_STORAGE_KEY = "corridor_fastestRoutesOnly";
 const ROTATE_PROMPT_DISMISSED_KEY = "corridor_rotatePromptDismissed";
 
 // === Mutable state ===
@@ -243,6 +247,9 @@ let directServicesOnlyAvailable = false;
 let reachableServicesOnlyEnabled = true;
 let reachableServicesOnlyPreferred = true;
 let reachableServicesOnlyAvailable = false;
+let fastestRoutesOnlyEnabled = false;
+let fastestRoutesOnlyPreferred = false;
+let fastestRoutesOnlyAvailable = false;
 let buildAbortController = null;
 let buildInProgress = false;
 let buildCancelled = false;
@@ -522,6 +529,18 @@ const reachableServicesOnlyToggle = registerStoredToggleControl({
   },
 });
 
+const fastestRoutesOnlyToggle = registerStoredToggleControl({
+  button: fastestRoutesOnlyBtn,
+  storageKey: FASTEST_ROUTES_ONLY_STORAGE_KEY,
+  initialAvailable: fastestRoutesOnlyAvailable,
+  initialPreferred: fastestRoutesOnlyPreferred,
+  onRender: ({ available, preferred, enabled }) => {
+    fastestRoutesOnlyAvailable = available;
+    fastestRoutesOnlyPreferred = preferred;
+    fastestRoutesOnlyEnabled = enabled;
+  },
+});
+
 function setRealtimeToggleState({ enabled, active }, { persist = false } = {}) {
   realtimeToggle.setState({ available: enabled, preferred: active }, { persist });
 }
@@ -557,6 +576,10 @@ function setDirectServicesOnlyAvailability(enabled) {
 
 function setReachableServicesOnlyAvailability(enabled) {
   reachableServicesOnlyToggle.setAvailability(enabled);
+}
+
+function setFastestRoutesOnlyAvailability(enabled) {
+  fastestRoutesOnlyToggle.setAvailability(enabled);
 }
 
 function requestSubmitWithRttCacheRead() {
@@ -650,6 +673,15 @@ if (directServicesOnlyBtn) {
 if (reachableServicesOnlyBtn) {
   reachableServicesOnlyBtn.addEventListener("click", () => {
     if (!reachableServicesOnlyToggle.toggle({ persist: true })) return;
+    if (lastTimetableContext) {
+      renderTimetablesFromContext(lastTimetableContext);
+    }
+  });
+}
+
+if (fastestRoutesOnlyBtn) {
+  fastestRoutesOnlyBtn.addEventListener("click", () => {
+    if (!fastestRoutesOnlyToggle.toggle({ persist: true })) return;
     if (lastTimetableContext) {
       renderTimetablesFromContext(lastTimetableContext);
     }
@@ -1243,6 +1275,7 @@ function resetOutputs() {
   setDirectConnectionsOnlyAvailability(false);
   setDirectServicesOnlyAvailability(false);
   setReachableServicesOnlyAvailability(false);
+  setFastestRoutesOnlyAvailability(false);
 }
 
 function clearTimetableOutputs() {
@@ -1266,6 +1299,7 @@ function clearTimetableOutputs() {
   setDirectConnectionsOnlyAvailability(false);
   setDirectServicesOnlyAvailability(false);
   setReachableServicesOnlyAvailability(false);
+  setFastestRoutesOnlyAvailability(false);
 }
 
 function buildCorridorPaths(from, to, viaEntries) {
@@ -1606,12 +1640,14 @@ function renderTimetablesFromContext(context) {
       showPlatforms: showPlatformsEnabled,
       atocNameByCode,
       reachableServicesOnly: reachableServicesOnlyEnabled,
+      fastestRoutesOnly: fastestRoutesOnlyEnabled,
     });
     const pdfModelAB = buildTimetableModel(stations, stationSet, scheduledServicesAB, {
       realtimeEnabled: false,
       showPlatforms: showPlatformsEnabled,
       atocNameByCode,
       reachableServicesOnly: reachableServicesOnlyEnabled,
+      fastestRoutesOnly: fastestRoutesOnlyEnabled,
     });
     headingAB.textContent =
       forwardStopsLabel + " (" + modelAB.serviceCount + " services)";
@@ -1659,12 +1695,14 @@ function renderTimetablesFromContext(context) {
       showPlatforms: showPlatformsEnabled,
       atocNameByCode,
       reachableServicesOnly: reachableServicesOnlyEnabled,
+      fastestRoutesOnly: fastestRoutesOnlyEnabled,
     });
     const pdfModelBA = buildTimetableModel(stationsRev, stationSet, scheduledServicesBA, {
       realtimeEnabled: false,
       showPlatforms: showPlatformsEnabled,
       atocNameByCode,
       reachableServicesOnly: reachableServicesOnlyEnabled,
+      fastestRoutesOnly: fastestRoutesOnlyEnabled,
     });
     headingBA.textContent =
       reverseStopsLabel + " (" + modelBA.serviceCount + " services)";
@@ -2859,6 +2897,7 @@ form.addEventListener("submit", async (e) => {
   setDirectConnectionsOnlyAvailability(true);
   setDirectServicesOnlyAvailability(true);
   setReachableServicesOnlyAvailability(true);
+  setFastestRoutesOnlyAvailability(true);
   renderTimetablesFromContext(lastTimetableContext);
   if (!statusEl?.classList.contains("is-error")) {
     hideStatus();

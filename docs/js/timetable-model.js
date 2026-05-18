@@ -259,6 +259,243 @@ function filterReachableServicesFromModel(model) {
   return filtered;
 }
 
+function collectServiceStationTimes(model) {
+  const rows = model.rows || [];
+  const rowSpecs = model.rowSpecs || [];
+  const displayStations = model.displayStations || [];
+  const services = model.servicesWithDetails || [];
+  const serviceTimes = new Map();
+
+  services.forEach((_, svcIndex) => {
+    serviceTimes.set(
+      svcIndex,
+      displayStations.map(() => ({ arr: null, dep: null })),
+    );
+  });
+
+  rowSpecs.forEach((spec, rowIdx) => {
+    if (spec?.kind !== "station") return;
+    const stationIndex = spec.stationIndex;
+    if (
+      !Number.isInteger(stationIndex) ||
+      stationIndex < 0 ||
+      stationIndex >= displayStations.length
+    ) {
+      return;
+    }
+
+    services.forEach((_, svcIndex) => {
+      const mins = cellTimeMinutes(rows[rowIdx]?.cells?.[svcIndex]);
+      if (mins === null) return;
+      const stationTime = serviceTimes.get(svcIndex)?.[stationIndex];
+      if (!stationTime) return;
+      if (isArrivalRowSpec(spec)) stationTime.arr = mins;
+      if (isDepartureRowSpec(spec)) stationTime.dep = mins;
+    });
+  });
+
+  return serviceTimes;
+}
+
+function collectFastestRouteLegs(model) {
+  const displayStations = model.displayStations || [];
+  const services = model.servicesWithDetails || [];
+  const orderedSvcIndices = (model.orderedSvcIndices || []).filter(
+    (idx) => Number.isInteger(idx) && idx >= 0 && idx < services.length,
+  );
+
+  if (displayStations.length < 2 || orderedSvcIndices.length === 0) {
+    return null;
+  }
+
+  const lastStationIndex = displayStations.length - 1;
+  const serviceTimes = collectServiceStationTimes(model);
+  const legs = [];
+  const legsFromStation = new Map();
+  const legsToStation = new Map();
+
+  orderedSvcIndices.forEach((svcIndex) => {
+    const times = serviceTimes.get(svcIndex) || [];
+    for (let from = 0; from < lastStationIndex; from++) {
+      const dep = times[from]?.dep;
+      if (dep === null || dep === undefined) continue;
+      for (let to = from + 1; to <= lastStationIndex; to++) {
+        const arr = times[to]?.arr;
+        if (arr === null || arr === undefined) continue;
+        if (arr < dep) continue;
+        const leg = { svcIndex, from, to, dep, arr };
+        legs.push(leg);
+        if (!legsFromStation.has(from)) legsFromStation.set(from, []);
+        legsFromStation.get(from).push(leg);
+        if (!legsToStation.has(to)) legsToStation.set(to, []);
+        legsToStation.get(to).push(leg);
+      }
+    }
+  });
+
+  if (legs.length === 0) return null;
+
+  legs.forEach((leg, index) => {
+    leg.index = index;
+  });
+
+  return { displayStations, lastStationIndex, legs, legsFromStation, legsToStation };
+}
+
+function collectForwardFastestRouteServiceIndices(routeGraph) {
+  const { displayStations, lastStationIndex, legs, legsFromStation } = routeGraph;
+  const startDepartures = new Set(
+    (legsFromStation.get(0) || []).map((leg) => leg.dep),
+  );
+  if (startDepartures.size === 0) return null;
+
+  const fastestServiceIndices = new Set();
+  let foundPath = false;
+
+  startDepartures.forEach((startDep) => {
+    const earliestAtStation = new Array(displayStations.length).fill(null);
+    const forwardReachableLegs = new Set();
+    earliestAtStation[0] = startDep;
+
+    for (let stationIndex = 0; stationIndex <= lastStationIndex; stationIndex++) {
+      const earliest = earliestAtStation[stationIndex];
+      if (earliest === null) continue;
+
+      (legsFromStation.get(stationIndex) || []).forEach((leg) => {
+        if (stationIndex === 0 && leg.dep !== startDep) return;
+        if (leg.dep < earliest) return;
+        forwardReachableLegs.add(leg.index);
+        const current = earliestAtStation[leg.to];
+        if (current === null || leg.arr < current) {
+          earliestAtStation[leg.to] = leg.arr;
+        }
+      });
+    }
+
+    const fastestArrival = earliestAtStation[lastStationIndex];
+    if (fastestArrival === null) return;
+    foundPath = true;
+
+    const latestAtStation = new Array(displayStations.length).fill(null);
+    latestAtStation[lastStationIndex] = fastestArrival;
+
+    for (let stationIndex = lastStationIndex - 1; stationIndex >= 0; stationIndex--) {
+      (legsFromStation.get(stationIndex) || []).forEach((leg) => {
+        const latestAtDestination = latestAtStation[leg.to];
+        if (latestAtDestination === null) return;
+        if (leg.arr > latestAtDestination) return;
+        const current = latestAtStation[leg.from];
+        if (current === null || leg.dep > current) {
+          latestAtStation[leg.from] = leg.dep;
+        }
+      });
+    }
+
+    legs.forEach((leg) => {
+      if (!forwardReachableLegs.has(leg.index)) return;
+      const latestAtDestination = latestAtStation[leg.to];
+      if (latestAtDestination === null) return;
+      if (leg.arr > latestAtDestination) return;
+      fastestServiceIndices.add(leg.svcIndex);
+    });
+  });
+
+  if (!foundPath || fastestServiceIndices.size === 0) return null;
+  return fastestServiceIndices;
+}
+
+function collectBackwardFastestRouteServiceIndices(routeGraph) {
+  const { displayStations, lastStationIndex, legs, legsFromStation, legsToStation } =
+    routeGraph;
+  const finalArrivals = new Set(
+    (legsToStation.get(lastStationIndex) || []).map((leg) => leg.arr),
+  );
+  if (finalArrivals.size === 0) return null;
+
+  const fastestServiceIndices = new Set();
+  let foundPath = false;
+
+  finalArrivals.forEach((finalArr) => {
+    const latestAtStation = new Array(displayStations.length).fill(null);
+    latestAtStation[lastStationIndex] = finalArr;
+
+    for (let stationIndex = lastStationIndex - 1; stationIndex >= 0; stationIndex--) {
+      (legsFromStation.get(stationIndex) || []).forEach((leg) => {
+        const latestAtDestination = latestAtStation[leg.to];
+        if (latestAtDestination === null) return;
+        if (leg.to === lastStationIndex && leg.arr !== finalArr) return;
+        if (leg.arr > latestAtDestination) return;
+        const current = latestAtStation[leg.from];
+        if (current === null || leg.dep > current) {
+          latestAtStation[leg.from] = leg.dep;
+        }
+      });
+    }
+
+    const fastestDeparture = latestAtStation[0];
+    if (fastestDeparture === null) return;
+    foundPath = true;
+
+    const earliestAtStation = new Array(displayStations.length).fill(null);
+    const forwardReachableLegs = new Set();
+    earliestAtStation[0] = fastestDeparture;
+
+    for (let stationIndex = 0; stationIndex <= lastStationIndex; stationIndex++) {
+      const earliest = earliestAtStation[stationIndex];
+      if (earliest === null) continue;
+
+      (legsFromStation.get(stationIndex) || []).forEach((leg) => {
+        if (stationIndex === 0 && leg.dep !== fastestDeparture) return;
+        if (leg.to === lastStationIndex && leg.arr !== finalArr) return;
+        if (leg.dep < earliest) return;
+        forwardReachableLegs.add(leg.index);
+        const current = earliestAtStation[leg.to];
+        if (current === null || leg.arr < current) {
+          earliestAtStation[leg.to] = leg.arr;
+        }
+      });
+    }
+
+    legs.forEach((leg) => {
+      if (!forwardReachableLegs.has(leg.index)) return;
+      const latestAtDestination = latestAtStation[leg.to];
+      if (latestAtDestination === null) return;
+      if (leg.to === lastStationIndex && leg.arr !== finalArr) return;
+      if (leg.arr > latestAtDestination) return;
+      fastestServiceIndices.add(leg.svcIndex);
+    });
+  });
+
+  if (!foundPath || fastestServiceIndices.size === 0) return null;
+  return fastestServiceIndices;
+}
+
+function collectFastestRouteServiceIndices(model) {
+  const routeGraph = collectFastestRouteLegs(model);
+  if (!routeGraph) return null;
+
+  const forwardIndices = collectForwardFastestRouteServiceIndices(routeGraph);
+  const backwardIndices = collectBackwardFastestRouteServiceIndices(routeGraph);
+  if (!forwardIndices || !backwardIndices) return null;
+
+  const fastestIndices = new Set();
+  forwardIndices.forEach((svcIndex) => {
+    if (backwardIndices.has(svcIndex)) fastestIndices.add(svcIndex);
+  });
+
+  if (fastestIndices.size === 0) return null;
+  return fastestIndices;
+}
+
+function filterFastestRouteServicesFromModel(model) {
+  const fastestIndices = collectFastestRouteServiceIndices(model);
+  if (!fastestIndices) return null;
+  const services = model.servicesWithDetails || [];
+  const filtered = services.filter((_, idx) => fastestIndices.has(idx));
+  if (filtered.length === services.length) return null;
+  return filtered;
+}
+
 function buildBaseTimetableModel(
   stations,
   stationSet,
@@ -983,29 +1220,44 @@ function buildTimetableModel(
   servicesWithDetails,
   options = {},
 ) {
-  const model = buildBaseTimetableModel(
+  let model = buildBaseTimetableModel(
     stations,
     stationSet,
     servicesWithDetails,
     options,
   );
 
-  if (options.reachableServicesOnly !== true) {
-    return model;
+  if (options.reachableServicesOnly === true) {
+    const filteredServices = filterReachableServicesFromModel(model);
+    if (filteredServices) {
+      model = buildBaseTimetableModel(
+        stations,
+        stationSet,
+        filteredServices,
+        {
+          ...options,
+          reachableServicesOnly: false,
+          fastestRoutesOnly: false,
+        },
+      );
+    }
   }
 
-  const filteredServices = filterReachableServicesFromModel(model);
-  if (!filteredServices) {
-    return model;
+  if (options.fastestRoutesOnly === true) {
+    const filteredServices = filterFastestRouteServicesFromModel(model);
+    if (filteredServices) {
+      model = buildBaseTimetableModel(
+        stations,
+        stationSet,
+        filteredServices,
+        {
+          ...options,
+          reachableServicesOnly: false,
+          fastestRoutesOnly: false,
+        },
+      );
+    }
   }
 
-  return buildBaseTimetableModel(
-    stations,
-    stationSet,
-    filteredServices,
-    {
-      ...options,
-      reachableServicesOnly: false,
-    },
-  );
+  return model;
 }
