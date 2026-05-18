@@ -1374,6 +1374,29 @@ function serviceAnyStationInRange(detail, crsSet) {
   });
 }
 
+function serviceCallsStation(detail, crs) {
+  if (!detail || !Array.isArray(detail.locations)) return false;
+  const targetCrs = normaliseCrs(crs || "");
+  if (!targetCrs) return false;
+
+  return detail.locations.some((loc) => {
+    if (normaliseCrs(loc.crs || "") !== targetCrs) return false;
+
+    const disp = (loc.displayAs || "").toUpperCase();
+    if (disp === "PASS" || disp === "CANCELLED_PASS") return false;
+
+    return loc.isPublicCall === true;
+  });
+}
+
+function serviceMatchesSearchLeg(detail, leg) {
+  if (!leg) return false;
+  return (
+    serviceCallsStation(detail, leg.from) &&
+    serviceCallsStation(detail, leg.to)
+  );
+}
+
 // === Status helpers ===
 function showStatus() {
   if (!statusEl) return;
@@ -2420,8 +2443,9 @@ form.addEventListener("submit", async (e) => {
         eligibleServices.forEach((svc) => {
           const key = (svc.serviceUid || "") + "|" + (svc.runDate || "");
           if (!corridorServicesMap.has(key)) {
-            corridorServicesMap.set(key, svc);
+            corridorServicesMap.set(key, { svc, searchLegs: [] });
           }
+          corridorServicesMap.get(key).searchLegs.push(leg);
         });
       })().finally(() => {
         initCompleted += 1;
@@ -2494,7 +2518,7 @@ form.addEventListener("submit", async (e) => {
 
   const corridorServices = Array.from(corridorServicesMap.values());
   const corridorServicesToDetail = INIT_SERVICE_DETAILS_ONLY_IN_RANGE
-    ? corridorServices.filter(serviceAtStationInRange)
+    ? corridorServices.filter((entry) => serviceAtStationInRange(entry.svc))
     : corridorServices;
 
   if (corridorServices.length === 0 && !connectionsAllowAllLegs) {
@@ -2516,7 +2540,8 @@ form.addEventListener("submit", async (e) => {
   initCompleted = 0;
   initTotal = corridorServicesToDetail.length;
   updateInitProgress();
-  const corridorDetailPromises = corridorServicesToDetail.map(async (svc) => {
+  const corridorDetailPromises = corridorServicesToDetail.map(async (entry) => {
+    const svc = entry.svc;
     const uid = svc.serviceUid;
     const date = svc.runDate;
     const url =
@@ -2546,6 +2571,7 @@ form.addEventListener("submit", async (e) => {
     return {
       svc,
       detail: data,
+      searchLegs: entry.searchLegs,
       status,
       statusText,
       seed: true,
@@ -2585,8 +2611,15 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
+  const validatedCorridorDetails = corridorDetails.filter((entry) => {
+    if (!entry.detail || !Array.isArray(entry.detail.locations)) return true;
+    const searchLegs = Array.isArray(entry.searchLegs) ? entry.searchLegs : [];
+    if (searchLegs.length === 0) return true;
+    return searchLegs.some((leg) => serviceMatchesSearchLeg(entry.detail, leg));
+  });
+
   const splitCorridorDetailsResult = splitServiceEntries(
-    corridorDetails,
+    validatedCorridorDetails,
     corridorStations,
   );
   const splitCorridorDetails = splitCorridorDetailsResult.entries;
