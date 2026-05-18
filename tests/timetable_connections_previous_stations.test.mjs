@@ -94,6 +94,88 @@ test('direct connection mandatory vias block generated connections that skip ove
   assert.ok(countGeneratedConnection(generatedWithBarrier, 'BBB', 'CCC') > 0);
 });
 
+test('cancelled current stops do not anchor generated connections', () => {
+  const runtime = loadFrontendRuntime({
+    startMinutes: 0,
+    endMinutes: 24 * 60 - 1,
+    connectionsData: {
+      AAA: [
+        {
+          previousStations: ['PRE'],
+          connections: {
+            BBB: [
+              {
+                durationMinutes: 5,
+                mode: 'walk',
+              },
+            ],
+          },
+        },
+      ],
+      BBB: [
+        {
+          connections: {
+            CCC: [
+              {
+                durationMinutes: 5,
+                mode: 'walk',
+                nextStations: ['POST'],
+              },
+            ],
+          },
+        },
+      ],
+    },
+    repoRoot: path.resolve(process.cwd()),
+  });
+  const corridorSet = new Set(['PRE', 'AAA', 'BBB', 'CCC', 'POST']);
+
+  const cancelledAnchor = runtime.buildConnectionServiceEntries(
+    [
+      buildConnectionContextService('SRC-CANCELLED-ANCHOR', [
+        'PRE',
+        { crs: 'AAA', displayAs: 'CANCELLED_CALL' },
+        'BBB',
+      ]),
+    ],
+    corridorSet,
+    0,
+    'outbound',
+    [],
+  );
+  const cancelledPrevious = runtime.buildConnectionServiceEntries(
+    [
+      buildConnectionContextService('SRC-CANCELLED-PREVIOUS', [
+        { crs: 'PRE', displayAs: 'CANCELLED_CALL' },
+        'AAA',
+        'BBB',
+      ]),
+    ],
+    corridorSet,
+    0,
+    'outbound',
+    [],
+  );
+  const cancelledNext = runtime.buildConnectionServiceEntries(
+    [
+      buildConnectionContextService('SRC-CANCELLED-NEXT', [
+        'AAA',
+        'BBB',
+        'CCC',
+        { crs: 'POST', displayAs: 'CANCELLED_CALL' },
+      ]),
+    ],
+    corridorSet,
+    0,
+    'inbound',
+    [],
+  );
+
+  assert.equal(countGeneratedConnection(cancelledAnchor, 'AAA', 'BBB'), 0);
+  assert.ok(countGeneratedConnection(cancelledPrevious, 'AAA', 'BBB') > 0);
+  assert.ok(countGeneratedConnection(cancelledNext, 'BBB', 'CCC') > 0);
+});
+
 test('endpoint arrival and departure times are hidden before deciding split rows', () => {
   const runtime = loadFrontendRuntime({
     startMinutes: 0,
@@ -243,14 +325,18 @@ function buildConnectionContextService(uid, crsList) {
     svc: { serviceUid: uid, runDate: '2026-04-27' },
     detail: {
       runDate: '2026-04-27',
-      locations: crsList.map((crs, idx) => ({
-        crs,
-        gbttBookedArrival: idx === 0 ? '' : `09${String(idx).padStart(2, '0')}`,
-        gbttBookedDeparture:
-          idx === crsList.length - 1 ? '' : `09${String(idx).padStart(2, '0')}`,
-        displayAs: 'CALL',
-        isPublicCall: true,
-      })),
+      locations: crsList.map((station, idx) => {
+        const stationSpec =
+          station && typeof station === 'object' ? station : { crs: station };
+        return {
+          crs: stationSpec.crs,
+          gbttBookedArrival: idx === 0 ? '' : `09${String(idx).padStart(2, '0')}`,
+          gbttBookedDeparture:
+            idx === crsList.length - 1 ? '' : `09${String(idx).padStart(2, '0')}`,
+          displayAs: stationSpec.displayAs || 'CALL',
+          isPublicCall: true,
+        };
+      }),
     },
   };
 }

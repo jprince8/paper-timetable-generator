@@ -578,6 +578,35 @@ function sortTimetableColumns({
     return chosen;
   }
 
+  function stationTimeInterval(
+    serviceIdx,
+    stationIdx,
+    arrOnlyStationIdx = null,
+    modeOverride = null,
+    ignoreFromStationIdx = null,
+    depOnlyStationIdx = null,
+    ignoreStationIdx = null,
+  ) {
+    let min = null;
+    let max = null;
+    groupedMembersForSort(serviceIdx).forEach((memberIdx) => {
+      const mins = stationTimeMinsForSingleService(
+        memberIdx,
+        stationIdx,
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
+      if (mins === null) return;
+      if (min === null || mins < min) min = mins;
+      if (max === null || mins > max) max = mins;
+    });
+    if (min === null || max === null) return null;
+    return { min, max };
+  }
+
   function stationTimeRoleForSingleService(
     serviceIdx,
     stationIdx,
@@ -787,6 +816,16 @@ function sortTimetableColumns({
         ignoreStationIdx,
       );
       if (time === null) continue;
+      const timeInterval = stationTimeInterval(
+        serviceIdx,
+        stationIdx,
+        arrOnlyStationIdx,
+        modeOverride,
+        ignoreFromStationIdx,
+        depOnlyStationIdx,
+        ignoreStationIdx,
+      );
+      if (!timeInterval) continue;
       const timeLabel = stationTimeLabel(
         serviceIdx,
         stationIdx,
@@ -822,6 +861,16 @@ function sortTimetableColumns({
           ignoreStationIdx,
         );
         if (otherTime === null) continue;
+        const otherInterval = stationTimeInterval(
+          otherSvc,
+          stationIdx,
+          arrOnlyStationIdx,
+          modeOverride,
+          ignoreFromStationIdx,
+          depOnlyStationIdx,
+          ignoreStationIdx,
+        );
+        if (!otherInterval) continue;
         const otherRole = stationTimeRole(
           otherSvc,
           stationIdx,
@@ -833,15 +882,15 @@ function sortTimetableColumns({
         );
 
         if (
-          otherTime < time ||
-          (otherTime === time &&
+          otherInterval.max < timeInterval.min ||
+          (otherInterval.max === timeInterval.min &&
             stationTimeRoleComesBefore(otherRole, timeRole))
         ) {
           lastLE = pos;
         }
         if (
-          otherTime > time ||
-          (otherTime === time &&
+          otherInterval.min > timeInterval.max ||
+          (otherInterval.min === timeInterval.max &&
             stationTimeRoleComesBefore(timeRole, otherRole))
         ) {
           greaterPositions.push(pos);
@@ -1008,6 +1057,55 @@ function sortTimetableColumns({
       return true;
     }
     return false;
+  }
+
+  function insertBestFallbackCandidate(
+    serviceIdx,
+    orderedSvcIndices,
+    remainingPeerServices,
+    options = {},
+    logPrefix = "Resolution pass 3",
+  ) {
+    const { hasConstraint, lowerBound, upperBound } = findInsertBounds(
+      serviceIdx,
+      orderedSvcIndices,
+      { ...options, logEnabled: false },
+    );
+    const maxPos = orderedSvcIndices.length;
+    const candidateStart = hasConstraint ? lowerBound : 0;
+    const candidateEnd = hasConstraint ? upperBound : maxPos;
+    if (candidateEnd <= candidateStart) return false;
+
+    let bestPosition = candidateStart;
+    let bestScore = null;
+    for (let pos = candidateStart; pos <= candidateEnd; pos++) {
+      const attempt = orderedSvcIndices.slice();
+      attempt.splice(pos, 0, serviceIdx);
+      let score = 0;
+      remainingPeerServices.forEach((peerIdx) => {
+        if (peerIdx === serviceIdx) return;
+        const bounds = findInsertBounds(peerIdx, attempt, {
+          logEnabled: false,
+        });
+        const peerStart = bounds.hasConstraint ? bounds.lowerBound : 0;
+        const peerEnd = bounds.hasConstraint ? bounds.upperBound : attempt.length;
+        if (peerStart > peerEnd) {
+          score += 100000 + (peerStart - peerEnd) * 1000;
+          return;
+        }
+        score += peerEnd - peerStart;
+      });
+      if (bestScore === null || score < bestScore) {
+        bestScore = score;
+        bestPosition = pos;
+      }
+    }
+
+    orderedSvcIndices.splice(bestPosition, 0, serviceIdx);
+    sortLogLines.push(
+      `${logPrefix}: selected scored position ${bestPosition} (bounds ${candidateStart}-${candidateEnd}, score ${bestScore}) for ${serviceLabel(serviceIdx)}`,
+    );
+    return true;
   }
 
   function recordSortSequence(serviceIdx) {
@@ -1270,7 +1368,13 @@ function sortTimetableColumns({
     sortLogLines.push("Resolution pass 3: start");
     for (let idx = 0; idx < remainingServices.length; idx++) {
       const svcIdx = remainingServices[idx];
-      if (insertFirstCandidate(svcIdx, orderedSvcIndices)) {
+      if (
+        insertBestFallbackCandidate(
+          svcIdx,
+          orderedSvcIndices,
+          remainingServices,
+        )
+      ) {
         remainingServices.splice(idx, 1);
         recordSortSequence(svcIdx);
         return true;

@@ -111,6 +111,10 @@ function isCallingLocation(loc) {
   return disp !== "PASS" && disp !== "CANCELLED_PASS";
 }
 
+function isCrossedOutCancelledCall(loc) {
+  return (loc?.displayAs || "").toUpperCase() === "CANCELLED_CALL";
+}
+
 function getCallingContexts(detail) {
   const locs = detail.locations || [];
   const calling = [];
@@ -314,6 +318,7 @@ function buildConnectionServiceEntries(
       getCallingContexts(entry.detail).forEach(({ previous, current, next }) => {
         const currentCrs = normaliseCrs(current?.crs || "");
         if (!currentCrs || !corridorSet.has(currentCrs)) return;
+        if (isCrossedOutCancelledCall(current)) return;
 
         const context = makeServiceContext(entry, previous, current, next);
 
