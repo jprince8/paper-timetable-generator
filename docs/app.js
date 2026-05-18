@@ -227,6 +227,14 @@ const REACHABLE_SERVICES_ONLY_STORAGE_KEY =
   "corridor_reachableServicesOnly";
 const FASTEST_ROUTES_ONLY_STORAGE_KEY = "corridor_fastestRoutesOnly";
 const ROTATE_PROMPT_DISMISSED_KEY = "corridor_rotatePromptDismissed";
+const TOGGLE_QUERY_PARAMS = {
+  realtime: "realtime",
+  platforms: "platforms",
+  directConnectionsOnly: "direct_connections",
+  directServicesOnly: "direct_services",
+  reachableServicesOnly: "reachable_services",
+  fastestRoutesOnly: "fastest_routes",
+};
 
 // === Mutable state ===
 const viaFields = [];
@@ -449,11 +457,23 @@ function registerStoredToggleControl(config) {
   storedToggleControls.push({
     control,
     storageKey: config.storageKey,
+    queryParam: config.queryParam,
     applyStoredValue(value) {
       control.setPreferred(value, { persist: false });
     },
   });
   return control;
+}
+
+function parseBooleanQueryValue(value) {
+  const normalised = `${value ?? ""}`.trim().toLowerCase();
+  if (normalised === "" || normalised === "1" || normalised === "true") {
+    return true;
+  }
+  if (normalised === "0" || normalised === "false") {
+    return false;
+  }
+  return null;
 }
 
 function restoreStoredToggleStates() {
@@ -463,6 +483,16 @@ function restoreStoredToggleStates() {
     const raw = localStorage.getItem(storageKey) || "";
     if (!raw) return;
     applyStoredValue(raw === "true");
+  });
+}
+
+function applyToggleStatesFromQuery() {
+  const params = new URLSearchParams(window.location.search);
+  storedToggleControls.forEach(({ queryParam, applyStoredValue }) => {
+    if (!queryParam || !params.has(queryParam)) return;
+    const value = parseBooleanQueryValue(params.get(queryParam));
+    if (value === null) return;
+    applyStoredValue(value);
   });
 }
 
@@ -484,6 +514,7 @@ function resolveConnectionStationSet({
 const realtimeToggle = registerStoredToggleControl({
   button: realtimeBtn,
   storageKey: REALTIME_TOGGLE_STORAGE_KEY,
+  queryParam: TOGGLE_QUERY_PARAMS.realtime,
   initialPreferred: realtimePreferred,
   onRender: ({ available, preferred, enabled }) => {
     realtimeAvailable = available;
@@ -495,6 +526,7 @@ const realtimeToggle = registerStoredToggleControl({
 const platformToggle = registerStoredToggleControl({
   button: platformBtn,
   storageKey: PLATFORM_TOGGLE_STORAGE_KEY,
+  queryParam: TOGGLE_QUERY_PARAMS.platforms,
   initialPreferred: showPlatformsPreferred,
   onRender: ({ available, preferred, enabled }) => {
     platformAvailable = available;
@@ -506,6 +538,7 @@ const platformToggle = registerStoredToggleControl({
 const directConnectionsOnlyToggle = registerStoredToggleControl({
   button: directConnectionsOnlyBtn,
   storageKey: DIRECT_CONNECTIONS_ONLY_STORAGE_KEY,
+  queryParam: TOGGLE_QUERY_PARAMS.directConnectionsOnly,
   initialPreferred: directConnectionsOnlyPreferred,
   onRender: ({ available, preferred, enabled }) => {
     directConnectionsOnlyAvailable = available;
@@ -517,6 +550,7 @@ const directConnectionsOnlyToggle = registerStoredToggleControl({
 const directServicesOnlyToggle = registerStoredToggleControl({
   button: directServicesOnlyBtn,
   storageKey: DIRECT_SERVICES_ONLY_STORAGE_KEY,
+  queryParam: TOGGLE_QUERY_PARAMS.directServicesOnly,
   initialAvailable: directServicesOnlyAvailable,
   initialPreferred: directServicesOnlyPreferred,
   onRender: ({ available, preferred, enabled }) => {
@@ -529,6 +563,7 @@ const directServicesOnlyToggle = registerStoredToggleControl({
 const reachableServicesOnlyToggle = registerStoredToggleControl({
   button: reachableServicesOnlyBtn,
   storageKey: REACHABLE_SERVICES_ONLY_STORAGE_KEY,
+  queryParam: TOGGLE_QUERY_PARAMS.reachableServicesOnly,
   initialAvailable: reachableServicesOnlyAvailable,
   initialPreferred: reachableServicesOnlyPreferred,
   onRender: ({ available, preferred, enabled }) => {
@@ -541,6 +576,7 @@ const reachableServicesOnlyToggle = registerStoredToggleControl({
 const fastestRoutesOnlyToggle = registerStoredToggleControl({
   button: fastestRoutesOnlyBtn,
   storageKey: FASTEST_ROUTES_ONLY_STORAGE_KEY,
+  queryParam: TOGGLE_QUERY_PARAMS.fastestRoutesOnly,
   initialAvailable: fastestRoutesOnlyAvailable,
   initialPreferred: fastestRoutesOnlyPreferred,
   onRender: ({ available, preferred, enabled }) => {
@@ -557,6 +593,7 @@ function setRealtimeToggleState({ enabled, active }, { persist = false } = {}) {
 if (realtimeBtn) {
   realtimeBtn.addEventListener("click", () => {
     if (!realtimeToggle.toggle({ persist: true })) return;
+    updateCurrentUrlFromInputs();
     if (lastTimetableContext) {
       rebuildConnectionsAndRender(lastTimetableContext);
     }
@@ -652,6 +689,7 @@ function handleRotatePromptViewportChange() {
 if (platformBtn) {
   platformBtn.addEventListener("click", () => {
     if (!platformToggle.toggle({ persist: true })) return;
+    updateCurrentUrlFromInputs();
     if (lastTimetableContext) {
       renderTimetablesFromContext(lastTimetableContext);
     }
@@ -661,6 +699,7 @@ if (platformBtn) {
 if (directConnectionsOnlyBtn) {
   directConnectionsOnlyBtn.addEventListener("click", () => {
     if (!directConnectionsOnlyToggle.toggle({ persist: true })) return;
+    updateCurrentUrlFromInputs();
     if (lastTimetableContext) {
       rebuildConnectionsAndRender(lastTimetableContext);
     }
@@ -670,6 +709,7 @@ if (directConnectionsOnlyBtn) {
 if (directServicesOnlyBtn) {
   directServicesOnlyBtn.addEventListener("click", () => {
     if (!directServicesOnlyToggle.toggle({ persist: true })) return;
+    updateCurrentUrlFromInputs();
     if (lastTimetableContext) {
       requestTimetableSubmit();
     }
@@ -679,6 +719,7 @@ if (directServicesOnlyBtn) {
 if (reachableServicesOnlyBtn) {
   reachableServicesOnlyBtn.addEventListener("click", () => {
     if (!reachableServicesOnlyToggle.toggle({ persist: true })) return;
+    updateCurrentUrlFromInputs();
     if (lastTimetableContext) {
       renderTimetablesFromContext(lastTimetableContext);
     }
@@ -688,6 +729,7 @@ if (reachableServicesOnlyBtn) {
 if (fastestRoutesOnlyBtn) {
   fastestRoutesOnlyBtn.addEventListener("click", () => {
     if (!fastestRoutesOnlyToggle.toggle({ persist: true })) return;
+    updateCurrentUrlFromInputs();
     if (lastTimetableContext) {
       renderTimetablesFromContext(lastTimetableContext);
     }
@@ -1139,6 +1181,7 @@ if (new URLSearchParams(window.location.search).size === 0) {
   loadSavedInputsFromStorage();
 }
 restoreStoredToggleStates();
+applyToggleStatesFromQuery();
 const lookupInitialisationPromise = loadLookupData().catch(() => undefined);
 Promise.all([hydratePrefilledStations(), lookupInitialisationPromise]).then(() => {
   if (shouldAutoSubmit) {
@@ -1448,9 +1491,34 @@ function buildUrlFromInputs({ includeAutoBuild = false } = {}) {
   } else {
     url.searchParams.delete("vias");
   }
+  url.searchParams.set(TOGGLE_QUERY_PARAMS.realtime, realtimePreferred ? "1" : "0");
+  url.searchParams.set(
+    TOGGLE_QUERY_PARAMS.platforms,
+    showPlatformsPreferred ? "1" : "0",
+  );
+  url.searchParams.set(
+    TOGGLE_QUERY_PARAMS.directConnectionsOnly,
+    directConnectionsOnlyPreferred ? "1" : "0",
+  );
+  url.searchParams.set(
+    TOGGLE_QUERY_PARAMS.directServicesOnly,
+    directServicesOnlyPreferred ? "1" : "0",
+  );
+  url.searchParams.set(
+    TOGGLE_QUERY_PARAMS.reachableServicesOnly,
+    reachableServicesOnlyPreferred ? "1" : "0",
+  );
+  url.searchParams.set(
+    TOGGLE_QUERY_PARAMS.fastestRoutesOnly,
+    fastestRoutesOnlyPreferred ? "1" : "0",
+  );
   url.hash = includeAutoBuild ? "#autobuild" : "";
 
   return url;
+}
+
+function updateCurrentUrlFromInputs() {
+  window.history.replaceState({}, "", buildUrlFromInputs().toString());
 }
 
 function buildShareUrl() {
