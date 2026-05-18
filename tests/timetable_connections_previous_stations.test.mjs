@@ -156,6 +156,88 @@ test('endpoint arrival and departure times are hidden before deciding split rows
   );
 });
 
+test('merged-row sorting uses the same endpoint-visible time as rendering', () => {
+  const runtime = loadFrontendRuntime({
+    startMinutes: 0,
+    endMinutes: 24 * 60 - 1,
+    connectionsData: {},
+    repoRoot: path.resolve(process.cwd()),
+  });
+  const rows = [
+    {
+      kind: 'station',
+      labelStation: 'London Bridge',
+      labelArrDep: '',
+      cells: [{ text: '10:28' }, { text: '10:28' }],
+    },
+  ];
+  const rowSpecs = [{ kind: 'station', stationIndex: 0, mode: 'merged' }];
+  const stationTimes = [
+    [
+      {
+        arrStr: '10:26',
+        arrMins: 626,
+        depStr: '10:28',
+        depMins: 628,
+        loc: {
+          gbttBookedArrival: '1026',
+          gbttBookedDeparture: '1028',
+          realtimeArrival: '1026',
+          realtimeDeparture: '1028',
+        },
+      },
+      {
+        arrStr: '10:29',
+        arrMins: 629,
+        depStr: '10:31',
+        depMins: 631,
+        loc: {
+          gbttBookedArrival: '1029',
+          gbttBookedDeparture: '1031',
+          realtimeArrival: '1028',
+          realtimeDeparture: '1031',
+        },
+      },
+    ],
+  ];
+
+  const sortResult = runtime.sortTimetableColumns({
+    rows,
+    rowSpecs,
+    stationTimes,
+    visibleTimeFlags: [
+      [
+        { arr: false, dep: true },
+        { arr: true, dep: false },
+      ],
+    ],
+    stationModes: ['merged'],
+    displayStations: [{ name: 'London Bridge', crs: 'LBG' }],
+    servicesWithDetails: [
+      {
+        svc: { serviceUid: 'P5-FIRST', runDate: '2026-05-17' },
+        detail: { realtimeActivated: true },
+      },
+      {
+        svc: { serviceUid: 'P6-LAST', runDate: '2026-05-17' },
+        detail: { realtimeActivated: true },
+      },
+    ],
+    serviceAllCancelled: [false, false],
+    serviceAllNoReport: [false, false],
+    serviceRealtimeFlags: [true, true],
+    realtimeToggleEnabled: true,
+    servicesMeta: [{ visible: 'P5-FIRST' }, { visible: 'P6-LAST' }],
+    highlightColors: {
+      outOfOrder: '#fce3b0',
+      depAfterArrival: '#e6d9ff',
+      serviceMisorder: '#f7c9c9',
+    },
+  });
+
+  assert.deepEqual(Array.from(sortResult.orderedSvcIndices), [1, 0]);
+});
+
 function buildConnectionContextService(uid, crsList) {
   return {
     svc: { serviceUid: uid, runDate: '2026-04-27' },

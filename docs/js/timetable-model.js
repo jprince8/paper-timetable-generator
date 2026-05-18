@@ -1182,6 +1182,7 @@ function buildBaseTimetableModel(
     rows,
     rowSpecs,
     stationTimes,
+    visibleTimeFlags,
     stationModes,
     displayStations,
     servicesWithDetails,

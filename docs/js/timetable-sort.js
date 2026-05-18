@@ -242,6 +242,7 @@ function sortTimetableColumns({
   rows,
   rowSpecs,
   stationTimes,
+  visibleTimeFlags,
   stationModes,
   displayStations,
   servicesWithDetails,
@@ -433,17 +434,52 @@ function sortTimetableColumns({
   function preferredTimeMinsAtStation(serviceIdx, stationIdx) {
     const t = stationTimes[stationIdx][serviceIdx];
     if (!t) return null;
-    if (t.depMins !== null) return t.depMins;
-    if (t.arrMins !== null) return t.arrMins;
+    const flags = visibleFlagsAtStation(serviceIdx, stationIdx);
+    if (flags.dep && t.depMins !== null) return t.depMins;
+    if (flags.arr && t.arrMins !== null) return t.arrMins;
     return null;
   }
 
   function preferredTimeLabelAtStation(serviceIdx, stationIdx) {
     const t = stationTimes[stationIdx][serviceIdx];
     if (!t) return "";
-    if (t.depStr) return t.depStr;
-    if (t.arrStr) return t.arrStr;
+    const flags = visibleFlagsAtStation(serviceIdx, stationIdx);
+    if (flags.dep && t.depStr) return t.depStr;
+    if (flags.arr && t.arrStr) return t.arrStr;
     return "";
+  }
+
+  function visibleFlagsAtStation(serviceIdx, stationIdx) {
+    return visibleTimeFlags?.[stationIdx]?.[serviceIdx] || {
+      arr: true,
+      dep: true,
+    };
+  }
+
+  function hasVisibleArrival(serviceIdx, stationIdx) {
+    const t = stationTimes[stationIdx][serviceIdx];
+    if (!t?.loc) return false;
+    const flags = visibleFlagsAtStation(serviceIdx, stationIdx);
+    if (!flags.arr) return false;
+    const useRealtimeForService =
+      realtimeToggleEnabled && serviceRealtimeFlags[serviceIdx] === true;
+    return Boolean(
+      t.loc.gbttBookedArrival ||
+        (useRealtimeForService ? t.loc.realtimeArrival : ""),
+    );
+  }
+
+  function hasVisibleDeparture(serviceIdx, stationIdx) {
+    const t = stationTimes[stationIdx][serviceIdx];
+    if (!t?.loc) return false;
+    const flags = visibleFlagsAtStation(serviceIdx, stationIdx);
+    if (!flags.dep) return false;
+    const useRealtimeForService =
+      realtimeToggleEnabled && serviceRealtimeFlags[serviceIdx] === true;
+    return Boolean(
+      t.loc.gbttBookedDeparture ||
+        (useRealtimeForService ? t.loc.realtimeDeparture : ""),
+    );
   }
 
   function getDisplayedTimeInfo(serviceIdx, stationIdx, isArrival) {
@@ -495,17 +531,23 @@ function sortTimetableColumns({
       return null;
     }
     if (arrOnlyStationIdx === stationIdx || modeOverride === "arrOnly") {
+      if (!hasVisibleArrival(serviceIdx, stationIdx)) return null;
       return getDisplayedTimeInfo(serviceIdx, stationIdx, true).mins;
     }
     if (depOnlyStationIdx === stationIdx || modeOverride === "depOnly") {
+      if (!hasVisibleDeparture(serviceIdx, stationIdx)) return null;
       return getDisplayedTimeInfo(serviceIdx, stationIdx, false).mins;
     }
     if (modeOverride === "ignore") {
       return null;
     }
-    const hasDeparture = t.loc?.gbttBookedDeparture || t.loc?.realtimeDeparture;
-    const isArrival = !hasDeparture;
-    return getDisplayedTimeInfo(serviceIdx, stationIdx, isArrival).mins;
+    if (hasVisibleDeparture(serviceIdx, stationIdx)) {
+      return getDisplayedTimeInfo(serviceIdx, stationIdx, false).mins;
+    }
+    if (hasVisibleArrival(serviceIdx, stationIdx)) {
+      return getDisplayedTimeInfo(serviceIdx, stationIdx, true).mins;
+    }
+    return null;
   }
 
   function stationTimeMins(
@@ -552,23 +594,29 @@ function sortTimetableColumns({
       return "";
     }
     if (arrOnlyStationIdx === stationIdx || modeOverride === "arrOnly") {
+      if (!hasVisibleArrival(serviceIdx, stationIdx)) return "";
       return getDisplayedTimeInfo(serviceIdx, stationIdx, true).mins === null
         ? ""
         : "arr";
     }
     if (depOnlyStationIdx === stationIdx || modeOverride === "depOnly") {
+      if (!hasVisibleDeparture(serviceIdx, stationIdx)) return "";
       return getDisplayedTimeInfo(serviceIdx, stationIdx, false).mins === null
         ? ""
         : "dep";
     }
     if (modeOverride === "ignore") return "";
-    const hasDeparture = t.loc?.gbttBookedDeparture || t.loc?.realtimeDeparture;
-    const isArrival = !hasDeparture;
-    return getDisplayedTimeInfo(serviceIdx, stationIdx, isArrival).mins === null
-      ? ""
-      : isArrival
-        ? "arr"
+    if (hasVisibleDeparture(serviceIdx, stationIdx)) {
+      return getDisplayedTimeInfo(serviceIdx, stationIdx, false).mins === null
+        ? ""
         : "dep";
+    }
+    if (hasVisibleArrival(serviceIdx, stationIdx)) {
+      return getDisplayedTimeInfo(serviceIdx, stationIdx, true).mins === null
+        ? ""
+        : "arr";
+    }
+    return "";
   }
 
   function stationTimeRole(
@@ -652,17 +700,23 @@ function sortTimetableColumns({
       return "";
     }
     if (arrOnlyStationIdx === stationIdx || modeOverride === "arrOnly") {
+      if (!hasVisibleArrival(serviceIdx, stationIdx)) return "";
       return getDisplayedTimeInfo(serviceIdx, stationIdx, true).text;
     }
     if (depOnlyStationIdx === stationIdx || modeOverride === "depOnly") {
+      if (!hasVisibleDeparture(serviceIdx, stationIdx)) return "";
       return getDisplayedTimeInfo(serviceIdx, stationIdx, false).text;
     }
     if (modeOverride === "ignore") {
       return "";
     }
-    const hasDeparture = t.loc?.gbttBookedDeparture || t.loc?.realtimeDeparture;
-    const isArrival = !hasDeparture;
-    return getDisplayedTimeInfo(serviceIdx, stationIdx, isArrival).text;
+    if (hasVisibleDeparture(serviceIdx, stationIdx)) {
+      return getDisplayedTimeInfo(serviceIdx, stationIdx, false).text;
+    }
+    if (hasVisibleArrival(serviceIdx, stationIdx)) {
+      return getDisplayedTimeInfo(serviceIdx, stationIdx, true).text;
+    }
+    return "";
   }
 
   function stationTimeLabel(
@@ -1614,6 +1668,18 @@ function sortTimetableColumns({
   function dedupeAdjacentConnectionColumns(columnOrder) {
     const deduped = [];
     const seenConnectionKeys = new Set();
+    const presentSourceIdentities = new Set();
+
+    columnOrder.forEach((svcIndex) => {
+      const entry = servicesWithDetails[svcIndex];
+      const svc = entry?.svc || {};
+      const uid = svc.serviceUid || svc.originalServiceUid || "";
+      const isConnection =
+        entry?.isConnection === true || String(uid).startsWith("CONN-");
+      if (isConnection) return;
+      const identity = serviceIdentity(svcIndex);
+      if (identity) presentSourceIdentities.add(identity);
+    });
 
     columnOrder.forEach((svcIndex) => {
       const key = connectionColumnKey(svcIndex);
@@ -1621,6 +1687,14 @@ function sortTimetableColumns({
         // Reset when we hit a real service or non-connection column.
         seenConnectionKeys.clear();
         deduped.push(svcIndex);
+        return;
+      }
+
+      const sourceIdentity = connectionSourceIdentity(svcIndex);
+      if (sourceIdentity && !presentSourceIdentities.has(sourceIdentity)) {
+        sortLogLines.push(
+          `Removed orphan connection column: ${serviceLabel(svcIndex)} (source ${sourceIdentity} not displayed)`,
+        );
         return;
       }
 
