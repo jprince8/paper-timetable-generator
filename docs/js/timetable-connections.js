@@ -204,11 +204,22 @@ function locationScheduledDepartureTimeInfo(loc) {
   ]);
 }
 
-function shouldSkipConnection(fromCrs, toCrs, corridorStations) {
+function shouldSkipConnection(
+  fromCrs,
+  toCrs,
+  corridorStations,
+  mandatoryViaStations = [],
+) {
   const fromIndex = corridorStations.indexOf(fromCrs);
   const toIndex = corridorStations.indexOf(toCrs);
   if (fromIndex === -1 || toIndex === -1) return false; // not in user specification, allow
-  return fromIndex > toIndex; // from appears after to in specification, skip
+  if (fromIndex > toIndex) return true; // from appears after to in specification, skip
+  const lowerIndex = Math.min(fromIndex, toIndex);
+  const upperIndex = Math.max(fromIndex, toIndex);
+  return mandatoryViaStations.some((viaCrs) => {
+    const viaIndex = corridorStations.indexOf(viaCrs);
+    return viaIndex > lowerIndex && viaIndex < upperIndex;
+  });
 }
 
 function buildConnectionServiceEntries(
@@ -220,6 +231,9 @@ function buildConnectionServiceEntries(
   options = {},
 ) {
   const realtimeEnabled = options.realtimeEnabled === true;
+  const mandatoryViaStations = Array.isArray(options.mandatoryViaStations)
+    ? options.mandatoryViaStations.map((crs) => normaliseCrs(crs)).filter(Boolean)
+    : [];
 
   function sourceIdentityFromEntry(sourceEntry) {
     const sourceSvc = sourceEntry?.svc || {};
@@ -466,7 +480,14 @@ function buildConnectionServiceEntries(
         if (!destCrs || !corridorSet.has(destCrs)) return;
         if (!Array.isArray(variants)) return;
 
-        if (shouldSkipConnection(originCrs, destCrs, corridorStations)) {
+        if (
+          shouldSkipConnection(
+            originCrs,
+            destCrs,
+            corridorStations,
+            mandatoryViaStations,
+          )
+        ) {
           if (shouldLogSkip()) {
             logConnectionInfo(
               "Connection skip: violates user specification order",

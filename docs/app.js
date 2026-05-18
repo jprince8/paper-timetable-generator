@@ -1500,6 +1500,7 @@ function rebuildConnectionsAndRender(context) {
     baseRetainedBA,
     filteredAllDetails,
     corridorStations,
+    mandatoryViaStations,
   } = context;
   
   if (
@@ -1542,7 +1543,12 @@ function rebuildConnectionsAndRender(context) {
     0,
     "both",
     corridorStations,
-    { realtimeEnabled },
+    {
+      realtimeEnabled,
+      mandatoryViaStations: directConnectionsOnlyPreferred
+        ? mandatoryViaStations
+        : [],
+    },
   );
   const inboundConnectionEntries = buildConnectionServiceEntries(
     baseRetainedBA,
@@ -1550,7 +1556,12 @@ function rebuildConnectionsAndRender(context) {
     0,
     "both",
     corridorStations.slice().reverse(),
-    { realtimeEnabled },
+    {
+      realtimeEnabled,
+      mandatoryViaStations: directConnectionsOnlyPreferred
+        ? mandatoryViaStations
+        : [],
+    },
   );
   const connectionEntries = outboundConnectionEntries.concat(inboundConnectionEntries);
 
@@ -1957,6 +1968,9 @@ form.addEventListener("submit", async (e) => {
     }))
     .filter((entry) => entry.crs);
   const viaValues = viaEntries.map((entry) => entry.crs);
+  const mandatoryViaStations = viaEntries
+    .filter((entry) => entry.required)
+    .map((entry) => entry.crs);
 
   // Persist current form values + vias for next visit
   localStorage.setItem("corridor_fromCrs", from);
@@ -2773,7 +2787,12 @@ form.addEventListener("submit", async (e) => {
     0,
     "both",
     corridorStations,
-    { realtimeEnabled },
+    {
+      realtimeEnabled,
+      mandatoryViaStations: directConnectionsOnlyPreferred
+        ? mandatoryViaStations
+        : [],
+    },
   );
   const inboundConnectionEntries = buildConnectionServiceEntries(
     baseRetainedBA,
@@ -2781,7 +2800,12 @@ form.addEventListener("submit", async (e) => {
     0,
     "both",
     corridorStations.slice().reverse(),
-    { realtimeEnabled },
+    {
+      realtimeEnabled,
+      mandatoryViaStations: directConnectionsOnlyPreferred
+        ? mandatoryViaStations
+        : [],
+    },
   );
   const connectionEntries = outboundConnectionEntries.concat(inboundConnectionEntries);
   if (DEBUG_CONNECTIONS) {
@@ -2883,6 +2907,7 @@ form.addEventListener("submit", async (e) => {
     baseRetainedBA,
     filteredAllDetails,
     corridorStations,
+    mandatoryViaStations,
     fromName,
     toName,
     viaNamesForward,
