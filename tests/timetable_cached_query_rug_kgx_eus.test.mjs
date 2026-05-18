@@ -14,5 +14,6 @@ registerCachedQuerySuite({
   cachePath: CACHE_PATH,
   expectedQueryIncludes: ['from=RUG', 'to=KGX', 'vias=EUS'],
   expectedConnectionEntriesAtLeast: 0,
+  expectedBuildError: /No services found calling at London Kings Cross/,
   extraAssertions: [],
 });

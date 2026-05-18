@@ -287,6 +287,7 @@ export function registerCachedQuerySuite({
   cachePath,
   expectedQueryIncludes = [],
   expectedConnectionEntriesAtLeast = null,
+  expectedBuildError = null,
   requireKgxToStpConnection = false,
   requireStpToKgxConnection = false,
   expectedAbStationOrderLabels = null,
@@ -300,6 +301,13 @@ export function registerCachedQuerySuite({
     }
     return cachedResultPromise;
   };
+
+  if (expectedBuildError) {
+    test(`${suiteLabel} fails with expected build error`, async () => {
+      await assert.rejects(getResult(), expectedBuildError);
+    });
+    return;
+  }
 
   test(`${suiteLabel} metadata matches expected corridor`, async () => {
     const result = await getResult();

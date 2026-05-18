@@ -278,6 +278,7 @@ const LOOKUP_LOAD_ERROR_MESSAGE =
 
 function resolveInputStationLabel(crs, inputValue, fallback) {
   const trimmed = (inputValue || "").trim();
+  if (fallback && normaliseCrs(trimmed) === normaliseCrs(crs)) return fallback;
   if (trimmed) return trimmed;
   return fallback || crs || "";
 }
@@ -1435,6 +1436,32 @@ function assertWithStatus(condition, userMessage, detail = {}, options = {}) {
   }
 }
 
+function findRequiredStationsWithoutCalls(services, requiredStations) {
+  const requiredSet = new Set(
+    (requiredStations || []).map((crs) => normaliseCrs(crs)).filter(Boolean),
+  );
+  if (requiredSet.size === 0) return [];
+
+  (services || []).forEach((entry) => {
+    const locations = entry?.detail?.locations || [];
+    locations.forEach((loc) => {
+      const crs = normaliseCrs(loc?.crs || "");
+      if (!requiredSet.has(crs)) return;
+      const disp = (loc.displayAs || "").toUpperCase();
+      if (disp === "PASS" || disp === "CANCELLED_PASS") return;
+      requiredSet.delete(crs);
+    });
+  });
+
+  return Array.from(requiredSet);
+}
+
+function formatListWithAnd(values) {
+  const items = (values || []).map((value) => String(value).trim()).filter(Boolean);
+  if (items.length <= 2) return items.join(" and ");
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
 downloadPdfBtn.addEventListener("click", async () => {
   if (!lastPdfPayload) return;
   downloadPdfBtn.disabled = true;
@@ -2370,6 +2397,8 @@ form.addEventListener("submit", async (e) => {
     corridorStations,
     okCorridorDetails,
     stationOrderLogger.log,
+    stationNameByCrs,
+    directConnectionsOnlyPreferred,
   );
   let stations = stationData.stations;
   if (stations.length === 0) {
@@ -2905,6 +2934,35 @@ form.addEventListener("submit", async (e) => {
   );
   const servicesAB = split.ab;
   const servicesBA = split.ba;
+  const missingRequiredCallStations = findRequiredStationsWithoutCalls(
+    servicesAB.concat(servicesBA),
+    [from, to, ...mandatoryViaStations],
+  );
+  const missingRequiredCallStationNames = missingRequiredCallStations.map(
+    (crs) => {
+      const viaField = viaFields.find(
+        (field) => normaliseCrs(field.crsInput.value) === crs,
+      );
+      const inputLabel =
+        crs === from
+          ? fromStationInput.value
+          : crs === to
+            ? toStationInput.value
+            : viaField?.textInput?.value;
+      return resolveInputStationLabel(
+        crs,
+        inputLabel,
+        findStationNameByCrs(stations, crs),
+      );
+    },
+  );
+  assertWithStatus(
+    missingRequiredCallStations.length === 0,
+    `No services found calling at ${formatListWithAnd(
+      missingRequiredCallStationNames,
+    )}.`,
+    { missingStations: missingRequiredCallStations },
+  );
   const inTableConnections = connectionEntries.filter((entry) => {
     const { detail } = entry;
     if (!detail || !Array.isArray(detail.locations)) return false;
@@ -3442,6 +3500,8 @@ function collectStationData(
   corridorStations,
   servicesWithDetails,
   debugOrderLog,
+  stationNameByCrs = {},
+  enforceRequestedCorridorOrder = false,
 ) {
   const stationMap = {};
   const corridorIndex = {};
@@ -3488,8 +3548,20 @@ function collectStationData(
   corridorStations.forEach((crs) => {
     const normalised = normaliseCrs(crs || "");
     if (!normalised) return;
-    addStation(normalised, "", normalised);
+    addStation(normalised, "", stationNameByCrs[normalised] || normalised);
   });
+
+  if (enforceRequestedCorridorOrder) {
+    const requestedCorridorSequence = corridorStations
+      .map((crs) => normaliseCrs(crs || ""))
+      .filter(Boolean);
+    if (requestedCorridorSequence.length >= 2) {
+      sequences.push(requestedCorridorSequence);
+      debugOrderLog("requested corridor sequence", {
+        sequence: [...requestedCorridorSequence],
+      });
+    }
+  }
 
   servicesWithDetails.forEach(({ detail }) => {
     const locs = detail.locations || [];

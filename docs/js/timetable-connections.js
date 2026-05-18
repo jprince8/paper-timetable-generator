@@ -370,12 +370,6 @@ function buildConnectionServiceEntries(
     );
   }
 
-  function hasMatchingRealServiceAt(stationCrs, constraints) {
-    return contextsForStation(stationCrs).some((context) =>
-      contextMatchesConstraints(context, constraints),
-    );
-  }
-
   function pushGeneratedConnection({
     sourceEntry,
     fromCrs,
@@ -572,10 +566,6 @@ function buildConnectionServiceEntries(
                 return;
               }
 
-              if (!hasMatchingRealServiceAt(destCrs, destConstraints)) {
-                return;
-              }
-
               const departMins = arrivalMins + bufferMinutes;
               const arriveMins = departMins + durationMinutes;
 
@@ -617,10 +607,6 @@ function buildConnectionServiceEntries(
               }
 
               if (!contextMatchesConstraints(destContext, destConstraints)) {
-                return;
-              }
-
-              if (!hasMatchingRealServiceAt(originCrs, originConstraints)) {
                 return;
               }
 

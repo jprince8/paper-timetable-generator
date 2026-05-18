@@ -64,6 +64,95 @@ function filterServicesForTimetableModel(stations, servicesWithDetails) {
   return { services: workingServices, displayStations };
 }
 
+function timetableModelAssert(condition, userMessage, detail = {}) {
+  if (condition) return;
+  if (typeof assertWithStatus === "function") {
+    assertWithStatus(condition, userMessage, detail);
+    return;
+  }
+  let detailText = "";
+  try {
+    detailText = JSON.stringify(detail);
+  } catch (err) {
+    detailText = String(detail);
+  }
+  throw new Error(detailText ? `${userMessage} (${detailText})` : userMessage);
+}
+
+function serviceDebugLabel(entry, meta, svcIndex) {
+  const svc = entry?.svc || {};
+  const detail = entry?.detail || {};
+  const uid = svc.serviceUid || svc.originalServiceUid || "";
+  const trainId = svc.trainIdentity || svc.runningIdentity || "";
+  const runDate = svc.runDate || detail.runDate || "";
+  const operator = meta?.visible || svc.atocCode || detail.atocCode || "";
+  return [operator, trainId, uid, runDate]
+    .filter(Boolean)
+    .join(" ")
+    .trim() || `service #${svcIndex + 1}`;
+}
+
+function assertNoBlankRenderedStationRows(rows, rowSpecs, displayStations) {
+  const blankRows = [];
+  rows.forEach((row, rowIdx) => {
+    const spec = rowSpecs[rowIdx];
+    if (spec?.kind !== "station") return;
+    const hasVisibleCell = (row.cells || []).some((cell) => {
+      const text = cellToText(cell).trim();
+      return text && text !== "|";
+    });
+    if (hasVisibleCell) return;
+    const station = displayStations[spec.stationIndex] || {};
+    blankRows.push({
+      row: rowIdx,
+      crs: station.crs || "",
+      name: station.name || row.labelStation || "",
+      label: row.labelArrDep || "",
+    });
+  });
+
+  timetableModelAssert(
+    blankRows.length === 0,
+    "Timetable contains a blank station row.",
+    { rows: blankRows },
+  );
+}
+
+function assertNoBlankRenderedServiceColumns(
+  rows,
+  rowSpecs,
+  servicesWithDetails,
+  orderedSvcIndices,
+  servicesMeta,
+) {
+  const stationRowIndices = rowSpecs
+    .map((spec, rowIdx) => (spec?.kind === "station" ? rowIdx : null))
+    .filter((rowIdx) => rowIdx !== null);
+  const blankServices = [];
+
+  (orderedSvcIndices || []).forEach((svcIndex) => {
+    const hasVisibleCell = stationRowIndices.some((rowIdx) => {
+      const text = cellToText(rows[rowIdx]?.cells?.[svcIndex]).trim();
+      return text && text !== "|";
+    });
+    if (hasVisibleCell) return;
+    blankServices.push({
+      index: svcIndex,
+      service: serviceDebugLabel(
+        servicesWithDetails[svcIndex],
+        servicesMeta?.[svcIndex],
+        svcIndex,
+      ),
+    });
+  });
+
+  timetableModelAssert(
+    blankServices.length === 0,
+    "Timetable contains a blank service column.",
+    { services: blankServices },
+  );
+}
+
 function cellTimeMinutes(cell) {
   if (!cell) return null;
   if (cell && typeof cell === "object" && cell.format?.strike) return null;
@@ -536,17 +625,18 @@ function buildBaseTimetableModel(
   const serviceRealtimeFlags = servicesWithDetails.map(
     ({ detail }) => detail && detail.realtimeActivated === true,
   );
+  const serviceSyntheticConnectionFlags = servicesWithDetails.map((entry) => {
+    const svc = entry?.svc || {};
+    const uid = svc.originalServiceUid || svc.serviceUid || "";
+    return entry?.isConnection === true || String(uid).startsWith("CONN-");
+  });
   const serviceAllCancelled = new Array(numServices).fill(false);
   const serviceAllNoReport = new Array(numServices).fill(false);
   const connectionEndpointCrs = new Set();
 
-  servicesWithDetails.forEach((entry) => {
-    const svc = entry?.svc || {};
+  servicesWithDetails.forEach((entry, svcIndex) => {
     const detail = entry?.detail || {};
-    const uid = svc.originalServiceUid || svc.serviceUid || "";
-    const isSyntheticConnection =
-      entry?.isConnection === true || String(uid).startsWith("CONN-");
-    if (!isSyntheticConnection) return;
+    if (!serviceSyntheticConnectionFlags[svcIndex]) return;
     const locs = detail.locations || [];
     if (locs.length === 0) return;
     const fromCrs = locs[0]?.crs || "";
@@ -617,6 +707,7 @@ function buildBaseTimetableModel(
     }
 
     if (timedStationIndices.length === 0) continue;
+    if (serviceSyntheticConnectionFlags[s]) continue;
 
     const firstStationIndex = timedStationIndices[0];
     const lastStationIndex = timedStationIndices[timedStationIndices.length - 1];
@@ -980,12 +1071,14 @@ function buildBaseTimetableModel(
         if (timeStr) {
           if (showPlatforms) {
             const platform = String(loc.platform || "").trim();
-            platformInfo = {
-              text: platform ? `[${platform}]` : "[?]",
-              confirmed:
-                realtimeToggleEnabled && loc.platformConfirmed === true,
-              changed: realtimeToggleEnabled && loc.platformChanged === true,
-            };
+            if (platform) {
+              platformInfo = {
+                text: `[${platform}]`,
+                confirmed:
+                  realtimeToggleEnabled && loc.platformConfirmed === true,
+                changed: realtimeToggleEnabled && loc.platformChanged === true,
+              };
+            }
           }
           rows[r].cells[s] = {
             text: timeStr,
@@ -1210,6 +1303,15 @@ function buildBaseTimetableModel(
   // Row-order adjustments during sorting can move station rows; rerun natural
   // line fill so pass-through continuity reflects the final row order.
   applyStationLineFill();
+
+  assertNoBlankRenderedStationRows(rows, rowSpecs, displayStations);
+  assertNoBlankRenderedServiceColumns(
+    rows,
+    rowSpecs,
+    servicesWithDetails,
+    sortResult.orderedSvcIndices,
+    servicesMeta,
+  );
 
   return {
     rows,

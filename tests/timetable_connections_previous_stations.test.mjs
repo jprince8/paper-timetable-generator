@@ -94,6 +94,42 @@ test('direct connection mandatory vias block generated connections that skip ove
   assert.ok(countGeneratedConnection(generatedWithBarrier, 'BBB', 'CCC') > 0);
 });
 
+test('generated connections can extend to an endpoint without a real service there', () => {
+  const runtime = loadFrontendRuntime({
+    startMinutes: 0,
+    endMinutes: 24 * 60 - 1,
+    connectionsData: {
+      MAN: [
+        {
+          connections: {
+            MCV: [{ durationMinutes: 30, mode: 'tram' }],
+          },
+        },
+      ],
+      MCV: [
+        {
+          connections: {
+            MAN: [{ durationMinutes: 30, mode: 'tram' }],
+          },
+        },
+      ],
+    },
+    repoRoot: path.resolve(process.cwd()),
+  });
+  const corridorSet = new Set(['SPT', 'MAN', 'MCV']);
+  const generated = runtime.buildConnectionServiceEntries(
+    [buildConnectionContextService('SRC-MAN', ['SPT', 'MAN'])],
+    corridorSet,
+    0,
+    'both',
+    ['SPT', 'MAN', 'MCV'],
+    { mandatoryViaStations: ['MAN'] },
+  );
+
+  assert.equal(countGeneratedConnection(generated, 'MCV', 'MAN'), 0);
+  assert.ok(countGeneratedConnection(generated, 'MAN', 'MCV') > 0);
+});
+
 test('cancelled current stops do not anchor generated connections', () => {
   const runtime = loadFrontendRuntime({
     startMinutes: 0,
@@ -269,6 +305,88 @@ test('tram and DLR connection modes use dedicated operator codes and tooltips', 
   assert.ok(facilitiesRow.includes('TRAM'), 'expected TRAM PDF facility token');
   assert.ok(facilitiesRow.includes('DLR'), 'expected DLR PDF facility token');
   assert.ok(facilitiesRow.includes('LU'), 'expected LU PDF facility token');
+});
+
+test('synthetic connection endpoint times remain visible', () => {
+  const runtime = loadFrontendRuntime({
+    startMinutes: 0,
+    endMinutes: 24 * 60 - 1,
+    connectionsData: {},
+    repoRoot: path.resolve(process.cwd()),
+  });
+  const stations = [
+    { crs: 'AAA', name: 'Alpha' },
+    { crs: 'BBB', name: 'Bravo' },
+  ];
+  const stationSet = Object.fromEntries(stations.map((station) => [station.crs, station]));
+  const model = runtime.buildTimetableModel(stations, stationSet, [
+    {
+      svc: {
+        serviceUid: 'CONN-SYNTHETIC-ENDPOINTS',
+        runDate: '2026-04-27',
+        atocCode: 'T',
+        atocName: 'Tram',
+        serviceType: 'connection',
+      },
+      detail: {
+        runDate: '2026-04-27',
+        serviceType: 'connection',
+        connectionMode: 'Tram',
+        locations: [
+          {
+            crs: 'AAA',
+            gbttBookedDeparture: '0900',
+            displayAs: 'CALL',
+            isPublicCall: true,
+          },
+          {
+            crs: 'BBB',
+            gbttBookedArrival: '0910',
+            displayAs: 'CALL',
+            isPublicCall: true,
+          },
+        ],
+      },
+      isConnection: true,
+    },
+  ]);
+
+  const visibleCells = model.rows
+    .filter((row) => row.kind === 'station')
+    .map((row) => row.cells[0]?.text || row.cells[0] || '');
+
+  assert.deepEqual(JSON.parse(JSON.stringify(visibleCells)), ['09:00', '09:10']);
+});
+
+test('blank rendered station rows and service columns raise assertions', () => {
+  const runtime = loadFrontendRuntime({
+    startMinutes: 0,
+    endMinutes: 24 * 60 - 1,
+    connectionsData: {},
+    repoRoot: path.resolve(process.cwd()),
+  });
+
+  assert.throws(
+    () =>
+      runtime.assertNoBlankRenderedStationRows(
+        [{ kind: 'station', labelStation: 'Alpha', cells: [''] }],
+        [{ kind: 'station', stationIndex: 0, mode: 'single' }],
+        [{ crs: 'AAA', name: 'Alpha' }],
+      ),
+    /blank station row/i,
+  );
+
+  assert.throws(
+    () =>
+      runtime.assertNoBlankRenderedServiceColumns(
+        [{ kind: 'station', cells: [''] }],
+        [{ kind: 'station', stationIndex: 0, mode: 'single' }],
+        [{ svc: { serviceUid: 'CONN-BLANK', runDate: '2026-04-27' }, detail: {} }],
+        [0],
+        [{ visible: 'CONN' }],
+      ),
+    /blank service column/i,
+  );
 });
 
 test('endpoint arrival and departure times are hidden before deciding split rows', () => {
