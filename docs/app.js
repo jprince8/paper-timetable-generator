@@ -978,6 +978,133 @@ function updateViaRequirementUi(field) {
   field.row.classList.toggle("is-optional", !isRequired);
 }
 
+function getViaFieldLabel(field) {
+  return field.textInput.closest(".station-field");
+}
+
+function getViaFieldLabels() {
+  return viaFields.map((field) => getViaFieldLabel(field)).filter(Boolean);
+}
+
+function snapshotViaPositions() {
+  return new Map(
+    getViaFieldLabels().map((label) => [label, label.getBoundingClientRect()]),
+  );
+}
+
+function animateViaReorder(previousPositions) {
+  getViaFieldLabels().forEach((label) => {
+    const previousRect = previousPositions.get(label);
+    if (!previousRect) return;
+    const currentRect = label.getBoundingClientRect();
+    const deltaY = previousRect.top - currentRect.top;
+    if (!deltaY) return;
+
+    label.animate(
+      [
+        { transform: `translateY(${deltaY}px)` },
+        { transform: "translateY(0)" },
+      ],
+      {
+        duration: 160,
+        easing: "ease-out",
+      },
+    );
+  });
+}
+
+function reorderViaField(field, targetIndex) {
+  const currentIndex = viaFields.indexOf(field);
+  const nextIndex = Math.max(0, Math.min(targetIndex, viaFields.length - 1));
+  if (currentIndex === -1 || currentIndex === nextIndex) {
+    return;
+  }
+  const previousPositions = snapshotViaPositions();
+  viaFields.splice(currentIndex, 1);
+  viaFields.splice(nextIndex, 0, field);
+
+  const label = getViaFieldLabel(field);
+  if (!label || !viaScroll) return;
+
+  const nextField = viaFields[nextIndex + 1];
+  const nextLabel = nextField ? getViaFieldLabel(nextField) : addViaBtn;
+  viaScroll.insertBefore(label, nextLabel || addViaBtn);
+  animateViaReorder(previousPositions);
+}
+
+function getViaDropIndex(pointerY, draggedField) {
+  const visibleFields = viaFields.filter((field) => field !== draggedField);
+  const targetIndex = visibleFields.findIndex((field) => {
+    const label = getViaFieldLabel(field);
+    if (!label) return false;
+    const rect = label.getBoundingClientRect();
+    return pointerY < rect.top + rect.height / 2;
+  });
+
+  if (targetIndex === -1) {
+    return visibleFields.length;
+  }
+
+  return targetIndex;
+}
+
+function setupViaDrag(field, dragHandle) {
+  let draggedLabel = null;
+  let activePointerId = null;
+
+  function handleDragMove(event) {
+    if (!draggedLabel || activePointerId !== event.pointerId) {
+      return;
+    }
+    reorderViaField(field, getViaDropIndex(event.clientY, field));
+  }
+
+  function finishDrag(event) {
+    if (!draggedLabel || activePointerId !== event.pointerId) {
+      return;
+    }
+    if (
+      dragHandle.releasePointerCapture &&
+      dragHandle.hasPointerCapture?.(event.pointerId)
+    ) {
+      dragHandle.releasePointerCapture(event.pointerId);
+    }
+    draggedLabel.classList.remove("is-dragging");
+    viaScroll?.classList.remove("is-reordering");
+    document.removeEventListener("pointermove", handleDragMove);
+    document.removeEventListener("pointerup", finishDrag);
+    document.removeEventListener("pointercancel", finishDrag);
+    draggedLabel = null;
+    activePointerId = null;
+  }
+
+  dragHandle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 && event.pointerType === "mouse") {
+      return;
+    }
+
+    draggedLabel = getViaFieldLabel(field);
+    if (!draggedLabel) {
+      return;
+    }
+
+    event.preventDefault();
+    activePointerId = event.pointerId;
+    if (dragHandle.setPointerCapture) {
+      try {
+        dragHandle.setPointerCapture(event.pointerId);
+      } catch {
+        // Synthetic pointer events and some browser edge cases have no capturable pointer.
+      }
+    }
+    draggedLabel.classList.add("is-dragging");
+    viaScroll?.classList.add("is-reordering");
+    document.addEventListener("pointermove", handleDragMove);
+    document.addEventListener("pointerup", finishDrag);
+    document.addEventListener("pointercancel", finishDrag);
+  });
+}
+
 function createViaField(initialConfig = {}) {
   const config =
     typeof initialConfig === "string"
@@ -988,6 +1115,12 @@ function createViaField(initialConfig = {}) {
         };
   const label = document.createElement("label");
   label.className = "station-field";
+
+  const dragHandle = document.createElement("button");
+  dragHandle.type = "button";
+  dragHandle.className = "via-drag-handle";
+  dragHandle.title = "Drag to reorder via station";
+  dragHandle.setAttribute("aria-label", "Drag to reorder via station");
 
   const requiredToggle = document.createElement("label");
   requiredToggle.className = "via-required-toggle";
@@ -1019,6 +1152,7 @@ function createViaField(initialConfig = {}) {
 
   const row = document.createElement("div");
   row.className = "station-field-row via-row";
+  row.appendChild(dragHandle);
   row.appendChild(requiredToggle);
   row.appendChild(input);
   row.appendChild(removeBtn);
@@ -1057,6 +1191,7 @@ function createViaField(initialConfig = {}) {
     requiredToggle: requiredInput,
     row,
   });
+  setupViaDrag(field, dragHandle);
   updateViaRequirementUi(field);
   viaFields.push(field);
 

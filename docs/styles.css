@@ -71,6 +71,12 @@ header.hero {
 }
 
 .panel-narrow {
+  max-width: 56rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.panel-narrow-intro {
   max-width: 48rem;
   margin-left: auto;
   margin-right: auto;
@@ -243,7 +249,56 @@ input:focus {
 }
 
 .via-row {
-  gap: 0.5rem;
+  gap: 0.18rem;
+}
+
+.via-scroll.is-reordering {
+  user-select: none;
+}
+
+.via-scroll .station-field.is-dragging {
+  opacity: 0.72;
+  z-index: 6;
+}
+
+.via-drag-handle {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 0.9rem;
+  align-self: center;
+  width: 0.9rem;
+  height: 1.6rem;
+  padding: 0;
+  border: 0;
+  background:
+    radial-gradient(circle, rgba(58, 47, 36, 0.5) 1.5px, transparent 1.8px)
+      0.18rem 0.12rem / 0.36rem 0.32rem no-repeat,
+    radial-gradient(circle, rgba(58, 47, 36, 0.5) 1.5px, transparent 1.8px)
+      0.52rem 0.12rem / 0.36rem 0.32rem no-repeat,
+    radial-gradient(circle, rgba(58, 47, 36, 0.5) 1.5px, transparent 1.8px)
+      0.18rem 0.44rem / 0.36rem 0.32rem no-repeat,
+    radial-gradient(circle, rgba(58, 47, 36, 0.5) 1.5px, transparent 1.8px)
+      0.52rem 0.44rem / 0.36rem 0.32rem no-repeat,
+    radial-gradient(circle, rgba(58, 47, 36, 0.5) 1.5px, transparent 1.8px)
+      0.18rem 0.76rem / 0.36rem 0.32rem no-repeat,
+    radial-gradient(circle, rgba(58, 47, 36, 0.5) 1.5px, transparent 1.8px)
+      0.52rem 0.76rem / 0.36rem 0.32rem no-repeat,
+    radial-gradient(circle, rgba(58, 47, 36, 0.5) 1.5px, transparent 1.8px)
+      0.18rem 1.08rem / 0.36rem 0.32rem no-repeat,
+    radial-gradient(circle, rgba(58, 47, 36, 0.5) 1.5px, transparent 1.8px)
+      0.52rem 1.08rem / 0.36rem 0.32rem no-repeat;
+  color: var(--ink-soft);
+  cursor: grab;
+  touch-action: none;
+}
+
+.via-drag-handle:active {
+  cursor: grabbing;
+}
+
+.via-drag-handle:focus-visible {
+  outline: 2px solid rgba(161, 95, 43, 0.35);
+  outline-offset: 2px;
 }
 
 .rotate-modal {
