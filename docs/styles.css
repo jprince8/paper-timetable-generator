@@ -909,7 +909,6 @@ th.icon-row {
   display: grid;
   gap: 1rem;
   margin-top: 1.25rem;
-  max-width: 48rem;
 }
 
 .action-buttons {
