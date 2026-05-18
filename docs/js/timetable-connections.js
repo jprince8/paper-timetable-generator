@@ -1,5 +1,15 @@
 const PROXY_CONNECTIONS = `${(window.BACKEND_BASE || "").trim()}/api/connections`;
 const DEFAULT_CONNECTION_BUFFER_MINUTES = 0;
+const CONNECTION_MODE_META = {
+  walk: { atocCode: "W", atocName: "Walk", connectionMode: "Walking" },
+  underground: {
+    atocCode: "U",
+    atocName: "Underground",
+    connectionMode: "Underground",
+  },
+  tram: { atocCode: "T", atocName: "Tram", connectionMode: "Tram" },
+  dlr: { atocCode: "D", atocName: "DLR", connectionMode: "DLR" },
+};
 
 let connectionsByStation = {};
 
@@ -10,6 +20,19 @@ function connectionDebugEnabled() {
 function logConnectionInfo(...args) {
   if (!connectionDebugEnabled()) return;
   console.info(...args);
+}
+
+function connectionModeMeta(mode) {
+  const rawMode = String(mode || "walk").trim();
+  const modeLower = rawMode.toLowerCase() || "walk";
+  return {
+    modeLower,
+    ...(CONNECTION_MODE_META[modeLower] || {
+      atocCode: "U",
+      atocName: rawMode || "Connection",
+      connectionMode: rawMode || "Connection",
+    }),
+  };
 }
 
 function normaliseConnectionConstraintList(value) {
@@ -371,9 +394,8 @@ function buildConnectionServiceEntries(
 
     const departTime = minutesToRttTime(departMins);
     const arriveTime = minutesToRttTime(arriveMins);
-    const modeLower = (mode || "walk").toLowerCase();
-    const atocCode = modeLower === "walk" ? "W" : "U";
-    const atocName = modeLower === "walk" ? "Walk" : mode || "Connection";
+    const { modeLower, atocCode, atocName, connectionMode } =
+      connectionModeMeta(mode);
 
     const runDate =
       sourceEntry.svc?.runDate ||
@@ -413,7 +435,7 @@ function buildConnectionServiceEntries(
     const detail = {
       runDate,
       serviceType: modeLower === "walk" ? "walk" : "connection",
-      connectionMode: modeLower === "walk" ? "Walking" : mode || "Connection",
+      connectionMode,
       locations: [
         {
           crs: fromCrs,

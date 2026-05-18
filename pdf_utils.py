@@ -339,6 +339,9 @@ def build_timetable_pdf(tables, meta=None):
         "FC": _load_svg_icon(os.path.join(assets_dir, "first-class.svg"), icon_size),
         "SL": _load_svg_icon(os.path.join(assets_dir, "bed.svg"), icon_size),
         "BUS": _load_svg_icon(os.path.join(assets_dir, "bus.svg"), icon_size),
+        "LU": _load_svg_icon(os.path.join(assets_dir, "lu.svg"), icon_size),
+        "TRAM": _load_svg_icon(os.path.join(assets_dir, "tram.svg"), icon_size),
+        "DLR": _load_svg_icon(os.path.join(assets_dir, "dlr.svg"), icon_size),
     }
 
     for table in tables:
@@ -437,6 +440,12 @@ def build_timetable_pdf(tables, meta=None):
                 key_items.append((icon_map.get("SL"), "Sleeper"))
             if "BUS" in facilities_tokens:
                 key_items.append((icon_map.get("BUS"), "Bus service"))
+            if "LU" in facilities_tokens:
+                key_items.append((icon_map.get("LU"), "LU connection"))
+            if "TRAM" in facilities_tokens:
+                key_items.append((icon_map.get("TRAM"), "Tram connection"))
+            if "DLR" in facilities_tokens:
+                key_items.append((icon_map.get("DLR"), "DLR connection"))
             if format_flags["bold"]:
                 key_items.append((None, "<b>12:34</b> Actual time"))
             if format_flags["italic"]:

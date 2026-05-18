@@ -40,6 +40,8 @@
   "TY": "VT",
   "YG": "Other",
   "ZZ": "Other",
+  "D": "DLR",
+  "T": "TRAM",
   "W": "WALK",
   "U": "LU"
 }

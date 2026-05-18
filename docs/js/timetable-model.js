@@ -1165,6 +1165,12 @@ function buildBaseTimetableModel(
 
     const isBus = serviceTypeLower === "bus";
     const isWalk = serviceTypeLower === "walk";
+    const connectionModeLower = String(detail.connectionMode || "")
+      .trim()
+      .toLowerCase();
+    const isUndergroundConnection = connectionModeLower === "underground";
+    const isTramConnection = connectionModeLower === "tram";
+    const isDlrConnection = connectionModeLower === "dlr";
     const busFirstClassAvailable = isBus ? false : firstClassAvailable;
 
     return {
@@ -1175,6 +1181,9 @@ function buildBaseTimetableModel(
       isSleeper,
       isBus,
       isWalk,
+      isUndergroundConnection,
+      isTramConnection,
+      isDlrConnection,
     };
   });
 

@@ -50,6 +50,41 @@ function walkSvgMarkup() {
   `;
 }
 
+function luSvgMarkup() {
+  return `
+<span class="connection-mode-icon lu-icon" title="LU connection" aria-label="LU connection">
+  <svg viewBox="0 0 24 24" role="img" focusable="false" aria-hidden="true">
+    <circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="3"/>
+    <path d="M3 12h18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+  </svg>
+</span>
+  `;
+}
+
+function tramSvgMarkup() {
+  return `
+<span class="connection-mode-icon tram-icon" title="Tram connection" aria-label="Tram connection">
+  <svg viewBox="0 0 24 24" role="img" focusable="false" aria-hidden="true">
+    <path d="M7 4h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <path d="M9 4l2 3h2l2-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path fill="currentColor" fill-rule="evenodd" d="M7 6h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zM8 9.4h8v4H8z"/>
+    <path d="M8 22l2-2m4 0l2 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  </svg>
+</span>
+  `;
+}
+
+function dlrSvgMarkup() {
+  return `
+<span class="connection-mode-icon dlr-icon" title="DLR connection" aria-label="DLR connection">
+  <svg viewBox="0 0 24 24" role="img" focusable="false" aria-hidden="true">
+    <path fill="currentColor" fill-rule="evenodd" d="M6.5 5h11A1.5 1.5 0 0 1 19 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 17.5v-11A1.5 1.5 0 0 1 6.5 5zM7.2 8h2.6v5H7.2zM10.7 8h2.6v5h-2.6zM14.2 8h2.6v5h-2.6zM8 14.75a1.45 1.45 0 1 0 0 2.9a1.45 1.45 0 0 0 0-2.9zM16 14.75a1.45 1.45 0 1 0 0 2.9a1.45 1.45 0 0 0 0-2.9z"/>
+    <path d="M8 19v2M16 19v2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  </svg>
+</span>
+  `;
+}
+
 function renderTableKey(model, keyEl) {
   if (!keyEl) return;
   const { rows, orderedSvcIndices, servicesMeta } = model;
@@ -64,6 +99,9 @@ function renderTableKey(model, keyEl) {
     sleeper: servicesMeta.some((meta) => meta.isSleeper),
     bus: servicesMeta.some((meta) => meta.isBus),
     walk: servicesMeta.some((meta) => meta.isWalk),
+    underground: servicesMeta.some((meta) => meta.isUndergroundConnection),
+    tram: servicesMeta.some((meta) => meta.isTramConnection),
+    dlr: servicesMeta.some((meta) => meta.isDlrConnection),
   };
 
   if (facilityFlags.firstClass) {
@@ -83,6 +121,24 @@ function renderTableKey(model, keyEl) {
     items.push({
       sampleHtml: walkSvgMarkup(),
       label: "Walking connection",
+    });
+  }
+  if (facilityFlags.underground) {
+    items.push({
+      sampleHtml: luSvgMarkup(),
+      label: "LU connection",
+    });
+  }
+  if (facilityFlags.tram) {
+    items.push({
+      sampleHtml: tramSvgMarkup(),
+      label: "Tram connection",
+    });
+  }
+  if (facilityFlags.dlr) {
+    items.push({
+      sampleHtml: dlrSvgMarkup(),
+      label: "DLR connection",
     });
   }
 
@@ -355,6 +411,15 @@ function renderTimetable(
     }
     if (meta.isWalk) {
       icons.push(walkSvgMarkup());
+    }
+    if (meta.isUndergroundConnection) {
+      icons.push(luSvgMarkup());
+    }
+    if (meta.isTramConnection) {
+      icons.push(tramSvgMarkup());
+    }
+    if (meta.isDlrConnection) {
+      icons.push(dlrSvgMarkup());
     }
 
     th.innerHTML = icons.length

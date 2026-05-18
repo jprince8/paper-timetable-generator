@@ -176,6 +176,101 @@ test('cancelled current stops do not anchor generated connections', () => {
   assert.ok(countGeneratedConnection(cancelledNext, 'BBB', 'CCC') > 0);
 });
 
+test('tram and DLR connection modes use dedicated operator codes and tooltips', () => {
+  const runtime = loadFrontendRuntime({
+    startMinutes: 0,
+    endMinutes: 24 * 60 - 1,
+    connectionsData: {
+      AAA: [
+        {
+          connections: {
+            BBB: [{ durationMinutes: 5, mode: 'tram' }],
+            CCC: [{ durationMinutes: 8, mode: 'DLR' }],
+            DDD: [{ durationMinutes: 10, mode: 'underground' }],
+          },
+        },
+      ],
+    },
+    repoRoot: path.resolve(process.cwd()),
+  });
+  const corridorSet = new Set(['PRE', 'AAA', 'BBB', 'CCC', 'DDD']);
+  const generated = runtime.buildConnectionServiceEntries(
+    [
+      buildConnectionContextService('SRC-AAA', ['PRE', 'AAA']),
+      buildConnectionContextService('SRC-BBB', ['AAA', 'BBB']),
+      buildConnectionContextService('SRC-CCC', ['AAA', 'CCC']),
+      buildConnectionContextService('SRC-DDD', ['AAA', 'DDD']),
+    ],
+    corridorSet,
+    0,
+    'outbound',
+    [],
+  );
+
+  const tram = generated.find(
+    (entry) =>
+      entry?.detail?.locations?.[0]?.crs === 'AAA' &&
+      entry?.detail?.locations?.[1]?.crs === 'BBB',
+  );
+  const dlr = generated.find(
+    (entry) =>
+      entry?.detail?.locations?.[0]?.crs === 'AAA' &&
+      entry?.detail?.locations?.[1]?.crs === 'CCC',
+  );
+  const underground = generated.find(
+    (entry) =>
+      entry?.detail?.locations?.[0]?.crs === 'AAA' &&
+      entry?.detail?.locations?.[1]?.crs === 'DDD',
+  );
+
+  assert.equal(tram?.svc?.atocCode, 'T');
+  assert.equal(tram?.detail?.connectionMode, 'Tram');
+  assert.equal(dlr?.svc?.atocCode, 'D');
+  assert.equal(dlr?.detail?.connectionMode, 'DLR');
+  assert.equal(underground?.svc?.atocCode, 'U');
+  assert.equal(underground?.detail?.connectionMode, 'Underground');
+
+  const stations = [
+    { crs: 'AAA', name: 'Alpha' },
+    { crs: 'BBB', name: 'Bravo' },
+    { crs: 'CCC', name: 'Charlie' },
+    { crs: 'DDD', name: 'Delta' },
+  ];
+  const stationSet = Object.fromEntries(stations.map((station) => [station.crs, station]));
+  const model = runtime.buildTimetableModel(stations, stationSet, [tram, dlr, underground], {
+    atocNameByCode: { D: 'DLR', T: 'TRAM', U: 'LU' },
+  });
+  const metas = model.servicesMeta;
+
+  assert.deepEqual(metas.map((meta) => meta.visible).sort(), ['DLR', 'LU', 'TRAM']);
+  assert.ok(
+    metas.some((meta) => /^Tram connection:/.test(meta.tooltip)),
+    'expected Tram connection tooltip',
+  );
+  assert.ok(
+    metas.some((meta) => /^DLR connection:/.test(meta.tooltip)),
+    'expected DLR connection tooltip',
+  );
+  assert.ok(
+    metas.some((meta) => /^Underground connection:/.test(meta.tooltip)),
+    'expected Underground connection tooltip',
+  );
+
+  const pdfTableData = runtime.buildPdfTableData({
+    rows: [],
+    orderedSvcIndices: [0, 1, 2],
+    servicesMeta: [
+      { visible: 'TRAM', isTramConnection: true },
+      { visible: 'DLR', isDlrConnection: true },
+      { visible: 'LU', isUndergroundConnection: true },
+    ],
+  });
+  const facilitiesRow = pdfTableData.rows?.[0] || [];
+  assert.ok(facilitiesRow.includes('TRAM'), 'expected TRAM PDF facility token');
+  assert.ok(facilitiesRow.includes('DLR'), 'expected DLR PDF facility token');
+  assert.ok(facilitiesRow.includes('LU'), 'expected LU PDF facility token');
+});
+
 test('endpoint arrival and departure times are hidden before deciding split rows', () => {
   const runtime = loadFrontendRuntime({
     startMinutes: 0,

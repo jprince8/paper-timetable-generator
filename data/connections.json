@@ -2639,6 +2639,102 @@
       }
     }
   ],
+  "ACC": [
+    {
+      "connections": {
+        "AML": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "AML": [
+    {
+      "connections": {
+        "ACC": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "BEC": [
+    {
+      "connections": {
+        "BKJ": [
+          {
+            "durationMinutes": 30,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "BKJ": [
+    {
+      "connections": {
+        "BEC": [
+          {
+            "durationMinutes": 30,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "BCS": [
+    {
+      "connections": {
+        "BIT": [
+          {
+            "durationMinutes": 25,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "BIT": [
+    {
+      "connections": {
+        "BCS": [
+          {
+            "durationMinutes": 25,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "BDQ": [
+    {
+      "connections": {
+        "BDI": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "BDI": [
+    {
+      "connections": {
+        "BDQ": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
   "BHM": [
     {
       "connections": {
@@ -2675,6 +2771,1026 @@
         "BHM": [
           {
             "durationMinutes": 10,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "BMN": [
+    {
+      "connections": {
+        "BMS": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "BMS": [
+    {
+      "connections": {
+        "BMN": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "BCB": [
+    {
+      "connections": {
+        "BCJ": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "BCJ": [
+    {
+      "connections": {
+        "BCB": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "CBE": [
+    {
+      "connections": {
+        "CBW": [
+          {
+            "durationMinutes": 25,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "CBW": [
+    {
+      "connections": {
+        "CBE": [
+          {
+            "durationMinutes": 25,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "CTF": [
+    {
+      "connections": {
+        "CFB": [
+          {
+            "durationMinutes": 5,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "CFB": [
+    {
+      "connections": {
+        "CTF": [
+          {
+            "durationMinutes": 5,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "CBC": [
+    {
+      "connections": {
+        "CBS": [
+          {
+            "durationMinutes": 15,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "CBS": [
+    {
+      "connections": {
+        "CBC": [
+          {
+            "durationMinutes": 15,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "DKG": [
+    {
+      "connections": {
+        "DPD": [
+          {
+            "durationMinutes": 10,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "DPD": [
+    {
+      "connections": {
+        "DKG": [
+          {
+            "durationMinutes": 10,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "EBR": [
+    {
+      "connections": {
+        "EBT": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "EBT": [
+    {
+      "connections": {
+        "EBR": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "ENF": [
+    {
+      "connections": {
+        "ENC": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "ENC": [
+    {
+      "connections": {
+        "ENF": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "FNB": [
+    {
+      "connections": {
+        "FNN": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "FNN": [
+    {
+      "connections": {
+        "FNB": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "FOG": [
+    {
+      "connections": {
+        "WNP": [
+          {
+            "durationMinutes": 10,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "WNP": [
+    {
+      "connections": {
+        "FOG": [
+          {
+            "durationMinutes": 10,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "GNB": [
+    {
+      "connections": {
+        "GBL": [
+          {
+            "durationMinutes": 25,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "GBL": [
+    {
+      "connections": {
+        "GNB": [
+          {
+            "durationMinutes": 25,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "GLC": [
+    {
+      "connections": {
+        "GLQ": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "GLQ": [
+    {
+      "connections": {
+        "GLC": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "HAC": [
+    {
+      "connections": {
+        "HKC": [
+          {
+            "durationMinutes": 5,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "HKC": [
+    {
+      "connections": {
+        "HAC": [
+          {
+            "durationMinutes": 5,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "HGY": [
+    {
+      "connections": {
+        "HRY": [
+          {
+            "durationMinutes": 10,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "HRY": [
+    {
+      "connections": {
+        "HGY": [
+          {
+            "durationMinutes": 10,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "HFE": [
+    {
+      "connections": {
+        "HFN": [
+          {
+            "durationMinutes": 25,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "HFN": [
+    {
+      "connections": {
+        "HFE": [
+          {
+            "durationMinutes": 25,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "KTN": [
+    {
+      "connections": {
+        "KTW": [
+          {
+            "durationMinutes": 15,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "KTW": [
+    {
+      "connections": {
+        "KTN": [
+          {
+            "durationMinutes": 15,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "KWB": [
+    {
+      "connections": {
+        "KWG": [
+          {
+            "durationMinutes": 25,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "KWG": [
+    {
+      "connections": {
+        "KWB": [
+          {
+            "durationMinutes": 25,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "MDE": [
+    {
+      "connections": {
+        "MDB": [
+          {
+            "durationMinutes": 15,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "MDB": [
+    {
+      "connections": {
+        "MDE": [
+          {
+            "durationMinutes": 15,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "MAN": [
+    {
+      "connections": {
+        "MCV": [
+          {
+            "durationMinutes": 30,
+            "mode": "tram"
+          }
+        ]
+      }
+    }
+  ],
+  "MCV": [
+    {
+      "connections": {
+        "MAN": [
+          {
+            "durationMinutes": 30,
+            "mode": "tram"
+          }
+        ],
+        "DGT": [
+          {
+            "durationMinutes": 25,
+            "mode": "tram"
+          }
+        ]
+      }
+    }
+  ],
+  "DGT": [
+    {
+      "connections": {
+        "MCV": [
+          {
+            "durationMinutes": 25,
+            "mode": "tram"
+          }
+        ]
+      }
+    }
+  ],
+  "NCT": [
+    {
+      "connections": {
+        "NNG": [
+          {
+            "durationMinutes": 25,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "NNG": [
+    {
+      "connections": {
+        "NCT": [
+          {
+            "durationMinutes": 25,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "NMC": [
+    {
+      "connections": {
+        "NMN": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "NMN": [
+    {
+      "connections": {
+        "NMC": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "OUN": [
+    {
+      "connections": {
+        "OUS": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "OUS": [
+    {
+      "connections": {
+        "OUN": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "PNE": [
+    {
+      "connections": {
+        "PNW": [
+          {
+            "durationMinutes": 15,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "PNW": [
+    {
+      "connections": {
+        "PNE": [
+          {
+            "durationMinutes": 15,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "SHL": [
+    {
+      "connections": {
+        "PWW": [
+          {
+            "durationMinutes": 15,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "PWW": [
+    {
+      "connections": {
+        "SHL": [
+          {
+            "durationMinutes": 15,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "PLE": [
+    {
+      "connections": {
+        "PLW": [
+          {
+            "durationMinutes": 15,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "PLW": [
+    {
+      "connections": {
+        "PLE": [
+          {
+            "durationMinutes": 15,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "PFR": [
+    {
+      "connections": {
+        "PFM": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "PFM": [
+    {
+      "connections": {
+        "PFR": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "RDN": [
+    {
+      "connections": {
+        "RDS": [
+          {
+            "durationMinutes": 25,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "RDS": [
+    {
+      "connections": {
+        "RDN": [
+          {
+            "durationMinutes": 25,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "SOC": [
+    {
+      "connections": {
+        "SOV": [
+          {
+            "durationMinutes": 15,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "SOV": [
+    {
+      "connections": {
+        "SOC": [
+          {
+            "durationMinutes": 15,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "SAC": [
+    {
+      "connections": {
+        "SAA": [
+          {
+            "durationMinutes": 30,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "SAA": [
+    {
+      "connections": {
+        "SAC": [
+          {
+            "durationMinutes": 30,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "SBF": [
+    {
+      "connections": {
+        "SBV": [
+          {
+            "durationMinutes": 5,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "SBV": [
+    {
+      "connections": {
+        "SBF": [
+          {
+            "durationMinutes": 5,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "SRA": [
+    {
+      "connections": {
+        "SFA": [
+          {
+            "durationMinutes": 15,
+            "mode": "DLR"
+          }
+        ],
+        "WEH": [
+          {
+            "durationMinutes": 15,
+            "mode": "DLR"
+          }
+        ]
+      }
+    }
+  ],
+  "SFA": [
+    {
+      "connections": {
+        "SRA": [
+          {
+            "durationMinutes": 15,
+            "mode": "DLR"
+          }
+        ]
+      }
+    }
+  ],
+  "WEH": [
+    {
+      "connections": {
+        "SRA": [
+          {
+            "durationMinutes": 15,
+            "mode": "DLR"
+          }
+        ]
+      }
+    }
+  ],
+  "WKK": [
+    {
+      "connections": {
+        "WKF": [
+          {
+            "durationMinutes": 25,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "WKF": [
+    {
+      "connections": {
+        "WKK": [
+          {
+            "durationMinutes": 25,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "WHC": [
+    {
+      "connections": {
+        "WMW": [
+          {
+            "durationMinutes": 10,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "WMW": [
+    {
+      "connections": {
+        "WHC": [
+          {
+            "durationMinutes": 10,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "WBQ": [
+    {
+      "connections": {
+        "WAC": [
+          {
+            "durationMinutes": 25,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "WAC": [
+    {
+      "connections": {
+        "WBQ": [
+          {
+            "durationMinutes": 25,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "WMB": [
+    {
+      "connections": {
+        "WCX": [
+          {
+            "durationMinutes": 15,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "WCX": [
+    {
+      "connections": {
+        "WMB": [
+          {
+            "durationMinutes": 15,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "WHD": [
+    {
+      "connections": {
+        "WHP": [
+          {
+            "durationMinutes": 5,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "WHP": [
+    {
+      "connections": {
+        "WHD": [
+          {
+            "durationMinutes": 5,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "WGN": [
+    {
+      "connections": {
+        "WGW": [
+          {
+            "durationMinutes": 5,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "WGW": [
+    {
+      "connections": {
+        "WGN": [
+          {
+            "durationMinutes": 5,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "WNC": [
+    {
+      "connections": {
+        "WNR": [
+          {
+            "durationMinutes": 15,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "WNR": [
+    {
+      "connections": {
+        "WNC": [
+          {
+            "durationMinutes": 15,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "WWC": [
+    {
+      "connections": {
+        "WWA": [
+          {
+            "durationMinutes": 10,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "WWA": [
+    {
+      "connections": {
+        "WWC": [
+          {
+            "durationMinutes": 10,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "WOF": [
+    {
+      "connections": {
+        "WOS": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "WOS": [
+    {
+      "connections": {
+        "WOF": [
+          {
+            "durationMinutes": 20,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "YVJ": [
+    {
+      "connections": {
+        "YVP": [
+          {
+            "durationMinutes": 45,
+            "mode": "walk"
+          }
+        ]
+      }
+    }
+  ],
+  "YVP": [
+    {
+      "connections": {
+        "YVJ": [
+          {
+            "durationMinutes": 45,
             "mode": "walk"
           }
         ]
