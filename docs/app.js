@@ -384,8 +384,7 @@ if (nowBtn) {
     const now = new Date();
     const start = new Date(now);
     const end = new Date(now);
-    start.setHours(now.getHours() - 1);
-    end.setHours(now.getHours() + 2);
+    end.setHours(now.getHours() + 3);
 
     document.getElementById("serviceDate").value = formatDateInput(now);
     document.getElementById("startTime").value = formatTimeInput(start);
