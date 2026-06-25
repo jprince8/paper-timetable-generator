@@ -5,6 +5,7 @@ import {
   assertConnectionGenerationUsesRealtimeWhenEnabled,
   assertConnectionEndpointsForceSplitStationRows,
   assertEqualTimeDepartureSortsAfterArrival,
+  loadAppRuntime,
   loadFrontendRuntime,
 } from './helpers/timetable_cached_query_runner.mjs';
 
@@ -305,6 +306,41 @@ test('tram and DLR connection modes use dedicated operator codes and tooltips', 
   assert.ok(facilitiesRow.includes('TRAM'), 'expected TRAM PDF facility token');
   assert.ok(facilitiesRow.includes('DLR'), 'expected DLR PDF facility token');
   assert.ok(facilitiesRow.includes('LU'), 'expected LU PDF facility token');
+});
+
+test('spreadsheet connection columns show existing text in operator row and CONN in headcode row', () => {
+  const repoRoot = path.resolve(process.cwd());
+  const runtime = loadAppRuntime({ repoRoot });
+  const table = runtime.buildSpreadsheetTableData(
+    {
+      displayStations: [],
+      orderedSvcIndices: [0, 1],
+      servicesWithDetails: [
+        { svc: { serviceUid: 'BASE', runDate: '2026-04-27' }, detail: {} },
+        { svc: { serviceUid: 'CONN-BASE-AAA-BBB-1001', runDate: '2026-04-27' }, detail: {} },
+      ],
+      servicesMeta: [
+        { visible: 'LNWR', headcode: '1A00', href: 'https://example.com/base' },
+        {
+          visible: 'Walk',
+          headcode: 'CONN-BASE-AAA-BBB-1001',
+          href: '',
+        },
+      ],
+      rows: [],
+      rowSpecs: [],
+    },
+    {
+      title: 'Test',
+      sheetName: 'Test',
+      dateLabel: '2026-04-27',
+    },
+  ).table;
+
+  assert.equal(table.headers[2], 'LNWR');
+  assert.equal(table.headers[3], 'Walk');
+  assert.equal(table.headcodes[2].text, '1A00');
+  assert.equal(table.headcodes[3].text, 'CONN');
 });
 
 test('synthetic connection endpoint times remain visible', () => {

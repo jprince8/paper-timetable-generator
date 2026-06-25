@@ -37,5 +37,17 @@ registerCachedQuerySuite({
         assert.ok(baStpToKgx > 0, 'expected BA to include at least one STP -> KGX connection');
       },
     },
+    {
+      name: 'pins requested endpoints to the table edges',
+      assert: (result) => {
+        const abStations = result?.ab?.displayStations || [];
+        const baStations = result?.ba?.displayStations || [];
+
+        assert.equal(abStations[0]?.crs, 'CBG', 'expected AB to start at CBG');
+        assert.equal(abStations.at(-1)?.crs, 'STP', 'expected AB to end at STP');
+        assert.equal(baStations[0]?.crs, 'STP', 'expected BA to start at STP');
+        assert.equal(baStations.at(-1)?.crs, 'CBG', 'expected BA to end at CBG');
+      },
+    },
   ],
 });

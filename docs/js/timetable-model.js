@@ -1313,6 +1313,7 @@ function buildBaseTimetableModel(
       visible,
       tooltip,
       href,
+      headcode,
       firstClassAvailable: busFirstClassAvailable,
       isSleeper,
       isBus,
