@@ -336,8 +336,11 @@ async function ensureLookupDataReadyForBuild() {
 }
 
 function minutesToRttTime(mins) {
-  const time = minutesToTimeStr(mins);
-  return time.replace(":", "");
+  if (mins === null || mins === undefined) return "";
+  const m = Math.max(0, Math.floor(mins));
+  const hh = String(Math.floor(m / 60)).padStart(2, "0");
+  const mm = String(m % 60).padStart(2, "0");
+  return `${hh}${mm}`;
 }
 
 function setBuildInProgress(active) {
@@ -1330,7 +1333,83 @@ Promise.all([hydratePrefilledStations(), lookupInitialisationPromise]).then(() =
 });
 
 // === Service range helpers ===
-function serviceInTimeRange(locationDetail) {
+function parseIsoDateOnly(dateStr) {
+  if (!dateStr || typeof dateStr !== "string") return null;
+  const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function queryDayOffsetMinutes(runDate) {
+  const currentUtc = parseIsoDateOnly(currentDate);
+  const runUtc = parseIsoDateOnly(runDate);
+  if (currentUtc === null || runUtc === null) return 0;
+  const diffDays = Math.round((currentUtc - runUtc) / 86400000);
+  return Math.max(0, diffDays) * 1440;
+}
+
+function absolutizeLocationTimes(locations) {
+  if (!Array.isArray(locations) || locations.length === 0) return locations;
+
+  const fields = [
+    "gbttBookedArrival",
+    "gbttBookedDeparture",
+    "gbttBookedPass",
+    "realtimeArrival",
+    "realtimeDeparture",
+    "realtimePass",
+    "publicArrival",
+    "publicDeparture",
+    "publicTime",
+  ];
+  let dayOffset = 0;
+  let prevMins = null;
+
+  return locations.map((loc) => {
+    if (!loc || typeof loc !== "object") return loc;
+    const updated = { ...loc };
+    let minRawMins = null;
+
+    fields.forEach((field) => {
+      const raw = updated[field];
+      const mins = rttTimeToMinutes(raw);
+      if (mins === null) return;
+      if (minRawMins === null || mins < minRawMins) {
+        minRawMins = mins;
+      }
+    });
+
+    if (minRawMins !== null && prevMins !== null && minRawMins + dayOffset < prevMins) {
+      const diff = prevMins - (minRawMins + dayOffset);
+      if (diff > 6 * 60) {
+        dayOffset += 1440;
+      }
+    }
+
+    fields.forEach((field) => {
+      const raw = updated[field];
+      const mins = rttTimeToMinutes(raw);
+      if (mins === null) return;
+      updated[field] = minutesToRttTime(mins + dayOffset);
+    });
+
+    if (minRawMins !== null) {
+      prevMins = minRawMins + dayOffset;
+    }
+
+    return updated;
+  });
+}
+
+function absolutizeServiceDetail(detail) {
+  if (!detail || !Array.isArray(detail.locations)) return detail;
+  return {
+    ...detail,
+    locations: absolutizeLocationTimes(detail.locations),
+  };
+}
+
+function serviceInTimeRange(locationDetail, dayOffsetMinutes = 0) {
   if (!locationDetail) return false;
   const tStr =
     locationDetail.gbttBookedDeparture ||
@@ -1340,12 +1419,14 @@ function serviceInTimeRange(locationDetail) {
     "";
   const mins = rttTimeToMinutes(tStr);
   if (mins === null) return false;
-  return mins >= startMinutes && mins <= endMinutes;
+  const absoluteMins = mins + dayOffsetMinutes;
+  return absoluteMins >= startMinutes && absoluteMins <= endMinutes;
 }
 
 function serviceAtStationInRange(service) {
   const ld = service.locationDetail || {};
-  return serviceInTimeRange(ld);
+  const dayOffsetMinutes = queryDayOffsetMinutes(service?.runDate || "");
+  return serviceInTimeRange(ld, dayOffsetMinutes);
 }
 
 function serviceCallsAllStationsInRange(detail, crsSet) {
@@ -2014,7 +2095,7 @@ function spreadsheetTimeForLocation(loc, kind, useRealtime) {
   const raw = useRealtime
     ? loc[realtimeKey] || loc[gbttKey] || loc[publicKey] || ""
     : loc[gbttKey] || loc[publicKey] || "";
-  return raw ? padTime(raw) : "";
+  return raw ? formatRttTimeForDisplay(raw) : "";
 }
 
 function findSpreadsheetLocation(service, crs) {
@@ -2895,7 +2976,7 @@ form.addEventListener("submit", async (e) => {
     }
     return {
       svc,
-      detail: data,
+      detail: absolutizeServiceDetail(data),
       searchLegs: entry.searchLegs,
       status,
       statusText,
@@ -3140,7 +3221,7 @@ form.addEventListener("submit", async (e) => {
           if (markRttFailure(data, status)) {
             return;
           }
-          entry.detail = data;
+          entry.detail = absolutizeServiceDetail(data);
         })
         .catch((err) => {
           if (isAbortError(err)) {

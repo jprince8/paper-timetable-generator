@@ -201,7 +201,7 @@ function locationTimeInfoFromCandidates(loc, candidates) {
     minutes: rttTimeToMinutes(chosen.value),
     sourceField: chosen.field,
     sourceRaw: chosen.value,
-    sourceDisplay: padTime(chosen.value),
+    sourceDisplay: formatRttTimeForDisplay(chosen.value),
   };
 }
 

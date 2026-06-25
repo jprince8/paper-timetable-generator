@@ -97,13 +97,13 @@ function serviceLocationDebugSummary(entry) {
   return locs.map((loc) => {
     const crs = loc.crs || "";
     const displayAs = loc.displayAs || "";
-    const arr = padTime(
+    const arr = formatRttTimeForDisplay(
       loc.gbttBookedArrival ||
         loc.realtimeArrival ||
         loc.publicArrival ||
         "",
     );
-    const dep = padTime(
+    const dep = formatRttTimeForDisplay(
       loc.gbttBookedDeparture ||
         loc.realtimeDeparture ||
         loc.publicDeparture ||
@@ -717,11 +717,11 @@ function buildBaseTimetableModel(
         (useRealtimeForService ? loc.realtimeDeparture : "") ||
         "";
 
-      const arrStr = rawArr ? padTime(rawArr) : "";
-      const depStr = rawDep ? padTime(rawDep) : "";
+      const arrStr = rawArr ? formatRttTimeForDisplay(rawArr) : "";
+      const depStr = rawDep ? formatRttTimeForDisplay(rawDep) : "";
 
-      const arrMins = arrStr ? timeStrToMinutes(arrStr) : null;
-      const depMins = depStr ? timeStrToMinutes(depStr) : null;
+      const arrMins = rawArr ? rttTimeToMinutes(rawArr) : null;
+      const depMins = rawDep ? rttTimeToMinutes(rawDep) : null;
 
       stationTimes[stationIndex][svcIndex] = {
         arrStr,
@@ -1280,8 +1280,8 @@ function buildBaseTimetableModel(
         toLoc.description ||
         toCrs ||
         "";
-      const depTime = padTime(fromLoc.gbttBookedDeparture || "");
-      const arrTime = padTime(toLoc.gbttBookedArrival || "");
+      const depTime = formatRttTimeForDisplay(fromLoc.gbttBookedDeparture || "");
+      const arrTime = formatRttTimeForDisplay(toLoc.gbttBookedArrival || "");
       const baseMode =
         detail.connectionMode ||
         svc.atocName ||

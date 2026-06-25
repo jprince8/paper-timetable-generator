@@ -55,12 +55,19 @@ function minutesToTimeStr(mins) {
 
 function rttTimeToMinutes(hhmm) {
   if (!hhmm) return null;
-  const s = String(hhmm);
-  if (s.length !== 4) return null;
-  const h = parseInt(s.slice(0, 2), 10);
-  const m = parseInt(s.slice(2), 10);
+  const s = String(hhmm).trim();
+  const match = s.match(/^(\d+):(\d{2})$/) || s.match(/^(\d{2,})(\d{2})$/);
+  if (!match) return null;
+  const h = parseInt(match[1], 10);
+  const m = parseInt(match[2], 10);
   if (Number.isNaN(h) || Number.isNaN(m)) return null;
   return h * 60 + m;
+}
+
+function formatRttTimeForDisplay(hhmm) {
+  const mins = rttTimeToMinutes(hhmm);
+  if (mins === null) return padTime(hhmm);
+  return minutesToTimeStr(mins);
 }
 
 function cellToText(cell) {
@@ -147,31 +154,39 @@ function chooseDisplayedTimeAndStatus(
     ? loc.realtimeArrivalActual
     : loc.realtimeDepartureActual;
 
-  const schedDisplay = sched ? padTime(sched) : "";
-  const rtDisplay = rt ? padTime(rt) : "";
+  const schedDisplay = sched ? formatRttTimeForDisplay(sched) : "";
+  const rtDisplay = rt ? formatRttTimeForDisplay(rt) : "";
+  const schedMins = rttTimeToMinutes(sched);
+  const rtMins = rttTimeToMinutes(rt);
 
   const displayAs = (loc.displayAs || "").toUpperCase();
   if (displayAs === "CANCELLED_CALL") {
     return {
       text: schedDisplay,
       format: { strike: true },
+      raw: sched,
+      mins: schedMins,
     };
   }
   if (isArrival && displayAs === "STARTS") {
     return {
       text: schedDisplay,
       format: { strike: true },
+      raw: sched,
+      mins: schedMins,
     };
   }
   if (!isArrival && displayAs === "ENDS") {
     return {
       text: schedDisplay,
       format: { strike: true },
+      raw: sched,
+      mins: schedMins,
     };
   }
 
   if (serviceRealtimeActivated !== true || !realtimeToggleEnabled) {
-    return { text: schedDisplay, format: null };
+    return { text: schedDisplay, format: null, raw: sched, mins: schedMins };
   }
 
   const noReport = isArrival
@@ -185,12 +200,12 @@ function chooseDisplayedTimeAndStatus(
     return {
       text: unknownPass,
       format: { italic: true, noReport: true },
+      raw: rt || sched,
+      mins: rtMins ?? schedMins,
     };
   }
 
   if (rtDisplay) {
-    const schedMins = rttTimeToMinutes(sched);
-    const rtMins = rttTimeToMinutes(rt);
     const delayMins =
       schedMins !== null && rtMins !== null ? rtMins - schedMins : null;
     const color = delayToColor(delayMins);
@@ -202,17 +217,19 @@ function chooseDisplayedTimeAndStatus(
         color,
         delayMins: rtAct === true ? delayMins : null,
       },
+      raw: rt,
+      mins: rtMins,
     };
   }
 
-  return { text: schedDisplay, format: null };
+  return { text: schedDisplay, format: null, raw: sched, mins: schedMins };
 }
 
 function safePairText(pairs) {
   if (!Array.isArray(pairs) || !pairs[0]) return "";
   const p = pairs[0];
   const name = p.description || "";
-  const time = p.publicTime ? padTime(p.publicTime) : "";
+  const time = p.publicTime ? formatRttTimeForDisplay(p.publicTime) : "";
   return name + (time ? " " + time : "");
 }
 

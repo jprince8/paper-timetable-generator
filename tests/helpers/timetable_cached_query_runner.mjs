@@ -344,9 +344,9 @@ export function loadFrontendRuntime({ startMinutes, endMinutes, connectionsData,
     `
 function minutesToRttTime(mins) {
   if (mins === null || mins === undefined) return '';
-  const wrapped = ((mins % 1440) + 1440) % 1440;
-  const hh = String(Math.floor(wrapped / 60)).padStart(2, '0');
-  const mm = String(wrapped % 60).padStart(2, '0');
+  const safe = Math.max(0, Math.floor(mins));
+  const hh = String(Math.floor(safe / 60)).padStart(2, '0');
+  const mm = String(safe % 60).padStart(2, '0');
   return hh + mm;
 }
 function downloadTextFile() {
@@ -379,6 +379,17 @@ export function loadAppRuntime({ repoRoot, queryUrl = 'http://127.0.0.1:8080/' }
     const code = fs.readFileSync(scriptPath, 'utf8');
     vm.runInContext(code, context, { filename: scriptPath });
   });
+
+  vm.runInContext(
+    `
+function __setBuildTimeRangeForTests(date, start, end) {
+  currentDate = date;
+  startMinutes = start;
+  endMinutes = end;
+}
+`,
+    context,
+  );
 
   return context;
 }
