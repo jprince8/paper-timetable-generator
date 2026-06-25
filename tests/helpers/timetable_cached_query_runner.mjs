@@ -360,6 +360,29 @@ connectionsByStation = normaliseConnectionData(__connectionsData);
   return vmContext;
 }
 
+export function loadAppRuntime({ repoRoot, queryUrl = 'http://127.0.0.1:8080/' }) {
+  const { context } = createHarnessEnvironment({
+    queryUrl,
+    fixture: { requiredRequestKeys: [] },
+    repoRoot,
+  });
+  const scripts = [
+    path.join(repoRoot, 'docs/js/timetable-utils.js'),
+    path.join(repoRoot, 'docs/js/timetable-connections.js'),
+    path.join(repoRoot, 'docs/js/timetable-sort.js'),
+    path.join(repoRoot, 'docs/js/timetable-model.js'),
+    path.join(repoRoot, 'docs/js/timetable-render.js'),
+    path.join(repoRoot, 'docs/app.js'),
+  ];
+
+  scripts.forEach((scriptPath) => {
+    const code = fs.readFileSync(scriptPath, 'utf8');
+    vm.runInContext(code, context, { filename: scriptPath });
+  });
+
+  return context;
+}
+
 function buildDirection(runtime, stationsDir, stationSetObj, servicesDir, model) {
   const filterResult = runtime.filterServicesForTimetableModel(stationsDir, servicesDir);
   const preFiltered = filterResult.services;

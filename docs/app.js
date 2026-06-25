@@ -35,6 +35,7 @@ const BACKEND_BASE = (window.BACKEND_BASE || "").trim();
 const PROXY_SEARCH = `${BACKEND_BASE}/rtt/search`;
 const PROXY_SERVICE = `${BACKEND_BASE}/rtt/service`;
 const PROXY_PDF = `${BACKEND_BASE}/timetable/pdf`; // if you call this from JS
+const PROXY_XLSX = `${BACKEND_BASE}/timetable/xlsx`;
 const PROXY_STATION = `${BACKEND_BASE}/api/stations`; // if you call this from JS
 const PROXY_ATOC = `${BACKEND_BASE}/api/atoc-codes`;
 
@@ -200,6 +201,7 @@ const toCrsInput = document.getElementById("toCrs");
 const toSuggestBox = document.getElementById("toSuggest");
 const buildBtn = document.getElementById("buildBtn");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
+const downloadXlsxBtn = document.getElementById("downloadXlsxBtn");
 const shareBtn = document.getElementById("shareBtn");
 const realtimeBtn = document.getElementById("realtimeBtn");
 const platformBtn = document.getElementById("platformBtn");
@@ -244,6 +246,7 @@ let currentDate = "";
 let startMinutes = null;
 let endMinutes = null;
 let lastPdfPayload = null;
+let lastXlsxPayload = null;
 let lastTimetableContext = null;
 let lastSortLog = "";
 let realtimeEnabled = false;
@@ -1473,8 +1476,10 @@ function resetOutputs() {
   headerIconsRowBA.innerHTML = "";
   bodyRowsBA.innerHTML = "";
   downloadPdfBtn.disabled = true;
+  downloadXlsxBtn.disabled = true;
   shareBtn.disabled = true;
   lastPdfPayload = null;
+  lastXlsxPayload = null;
   lastTimetableContext = null;
   lastSortLog = "";
   setRealtimeToggleState({ enabled: false, active: realtimePreferred });
@@ -1497,8 +1502,10 @@ function clearTimetableOutputs() {
   headerIconsRowBA.innerHTML = "";
   bodyRowsBA.innerHTML = "";
   downloadPdfBtn.disabled = true;
+  downloadXlsxBtn.disabled = true;
   shareBtn.disabled = true;
   lastPdfPayload = null;
+  lastXlsxPayload = null;
   lastTimetableContext = null;
   lastSortLog = "";
   setRealtimeToggleState({ enabled: false, active: realtimePreferred });
@@ -1655,6 +1662,41 @@ downloadPdfBtn.addEventListener("click", async () => {
     setStatus(`Error building PDF: ${err.message}`, { isError: true });
   } finally {
     downloadPdfBtn.disabled = false;
+  }
+});
+
+downloadXlsxBtn.addEventListener("click", async () => {
+  if (!lastXlsxPayload) return;
+  downloadXlsxBtn.disabled = true;
+  setStatus("Building XLSX...");
+
+  try {
+    const resp = await fetch(PROXY_XLSX, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(lastXlsxPayload),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      const friendly = stripHtmlToText(text).trim();
+      throw new Error(friendly || "XLSX build failed.");
+    }
+
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = lastXlsxPayload.meta?.filename || "timetable.xlsx";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setStatus("");
+  } catch (err) {
+    setStatus(`Error building XLSX: ${err.message}`, { isError: true });
+  } finally {
+    downloadXlsxBtn.disabled = false;
   }
 });
 
@@ -1952,12 +1994,227 @@ function servicesForCurrentRealtimeMode(services) {
   return services.map(stripRealtimeFromServiceEntry);
 }
 
+function spreadsheetFacilitiesText(meta) {
+  const labels = [];
+  if (meta.firstClassAvailable) labels.push("First class");
+  if (meta.isSleeper) labels.push("Sleeper");
+  if (meta.isBus) labels.push("Bus");
+  if (meta.isWalk) labels.push("Walk");
+  if (meta.isUndergroundConnection) labels.push("Underground");
+  if (meta.isTramConnection) labels.push("Tram");
+  if (meta.isDlrConnection) labels.push("DLR");
+  return labels.join(", ");
+}
+
+function spreadsheetTimeForLocation(loc, kind, useRealtime) {
+  if (!loc) return "";
+  const realtimeKey = kind === "arr" ? "realtimeArrival" : "realtimeDeparture";
+  const gbttKey = kind === "arr" ? "gbttBookedArrival" : "gbttBookedDeparture";
+  const publicKey = kind === "arr" ? "publicArrival" : "publicDeparture";
+  const raw = useRealtime
+    ? loc[realtimeKey] || loc[gbttKey] || loc[publicKey] || ""
+    : loc[gbttKey] || loc[publicKey] || "";
+  return raw ? padTime(raw) : "";
+}
+
+function findSpreadsheetLocation(service, crs) {
+  const locs = service?.detail?.locations || [];
+  return locs.find((loc) => normaliseCrs(loc?.crs || "") === crs) || null;
+}
+
+function isSpreadsheetGeneratedConnection(service, meta = null) {
+  if (String(meta?.headcode || "").startsWith("CONN-")) return true;
+  const uid = service?.svc?.originalServiceUid || service?.svc?.serviceUid || "";
+  return String(uid).startsWith("CONN-");
+}
+
+function spreadsheetLineMarkers(model) {
+  const markers = new Map();
+  const rows = model?.rows || [];
+  const rowSpecs = model?.rowSpecs || [];
+
+  rowSpecs.forEach((spec, rowIdx) => {
+    if (spec?.kind !== "station") return;
+    const stationIndex = spec.stationIndex;
+    if (stationIndex === null || stationIndex === undefined) return;
+    if (!markers.has(stationIndex)) markers.set(stationIndex, new Set());
+    const stationMarkers = markers.get(stationIndex);
+    (model.orderedSvcIndices || []).forEach((svcIndex) => {
+      if (cellToText(rows[rowIdx]?.cells?.[svcIndex]) === "|") {
+        stationMarkers.add(svcIndex);
+      }
+    });
+  });
+
+  return markers;
+}
+
+function spreadsheetExtraRow(model, label) {
+  const row = (model?.rows || []).find(
+    (candidate) => candidate?.kind === "extra" && candidate.labelStation === label,
+  );
+  if (!row) return null;
+
+  const stationCodes = new Map();
+  const cells = [
+    label,
+    "",
+    ...(model.orderedSvcIndices || []).map((svcIndex) => {
+      const value = row.cells?.[svcIndex];
+      const text = cellToText(value);
+      if (text && value && typeof value === "object" && value.title) {
+        stationCodes.set(text, value.title);
+      }
+      return text;
+    }),
+  ];
+  const hasValue = cells.slice(2).some((value) => String(value || "").trim());
+  return hasValue ? { cells, stationCodes } : null;
+}
+
+function buildSpreadsheetTableData(model, {
+  title,
+  sheetName,
+  dateLabel,
+  useRealtime = false,
+} = {}) {
+  const { displayStations, orderedSvcIndices, servicesMeta, servicesWithDetails } = model;
+  const lineMarkers = spreadsheetLineMarkers(model);
+  const headers = [
+    "Operator",
+    "",
+    ...orderedSvcIndices.map((svcIndex) => servicesMeta[svcIndex]?.visible || ""),
+  ];
+  const headcodes = [
+    "Headcode",
+    "",
+    ...orderedSvcIndices.map((svcIndex) => {
+      const meta = servicesMeta[svcIndex] || {};
+      const isConnection = isSpreadsheetGeneratedConnection(
+        servicesWithDetails[svcIndex],
+        meta,
+      );
+      return {
+        text: isConnection ? "CONN" : meta.headcode || "",
+        hyperlink: meta.href || "",
+      };
+    }),
+  ];
+  const rows = [
+    [
+      "Facilities",
+      "",
+      ...orderedSvcIndices.map((svcIndex) =>
+        isSpreadsheetGeneratedConnection(
+          servicesWithDetails[svcIndex],
+          servicesMeta[svcIndex],
+        )
+          ? ""
+          : spreadsheetFacilitiesText(servicesMeta[svcIndex] || {}),
+      ),
+    ],
+  ];
+  const stationCodes = new Map();
+  const tocCodes = new Map();
+  orderedSvcIndices.forEach((svcIndex) => {
+    const meta = servicesMeta[svcIndex] || {};
+    const service = servicesWithDetails[svcIndex] || {};
+    const svc = service?.svc || {};
+    const detail = service?.detail || {};
+    const code = String(meta.visible || svc.atocCode || detail.atocCode || "").trim();
+    const name = String(
+      detail.connectionMode ||
+        svc.atocName ||
+        detail.atocName ||
+        "",
+    ).trim();
+    if (code && name && !tocCodes.has(code)) tocCodes.set(code, name);
+  });
+  const comesFromRow = spreadsheetExtraRow(model, "Comes from");
+  if (comesFromRow) {
+    rows.push(comesFromRow.cells);
+    mergeStationCodes(stationCodes, comesFromRow.stationCodes);
+  }
+
+  (displayStations || []).forEach((station, stationIndex) => {
+    const crs = normaliseCrs(station?.crs || "");
+    const stationName = station?.name || "";
+    if (crs) stationCodes.set(crs, stationName);
+
+    const stationLabel = crs || stationName;
+    const arrivals = ["", "arr"];
+    const departures = ["", "dep"];
+    const platforms = ["", "plat"];
+    let hasPlatform = false;
+    let hasArrival = false;
+    let hasDeparture = false;
+    const stationLineMarkers = lineMarkers.get(stationIndex) || new Set();
+
+    orderedSvcIndices.forEach((svcIndex) => {
+      const service = servicesWithDetails[svcIndex];
+      const loc = findSpreadsheetLocation(service, crs);
+      const lineMarker = stationLineMarkers.has(svcIndex) ? "|" : "";
+      const arrival = spreadsheetTimeForLocation(loc, "arr", useRealtime) || lineMarker;
+      const departure = spreadsheetTimeForLocation(loc, "dep", useRealtime) || lineMarker;
+      arrivals.push(arrival);
+      departures.push(departure);
+      if (arrival) hasArrival = true;
+      if (departure) hasDeparture = true;
+      const platform = loc?.platform ? String(loc.platform).trim() : "";
+      platforms.push(platform || (lineMarker && arrival === "|" && departure === "|" ? "|" : ""));
+      if (platform) hasPlatform = true;
+    });
+
+    const stationRows = [];
+    if (hasArrival) stationRows.push(arrivals);
+    if (showPlatformsEnabled && hasPlatform && (hasArrival || hasDeparture)) {
+      stationRows.push(platforms);
+    }
+    if (hasDeparture) stationRows.push(departures);
+    if (stationRows.length > 0) {
+      stationRows[0][0] = stationLabel;
+      rows.push(...stationRows);
+    }
+  });
+
+  const continuesToRow = spreadsheetExtraRow(model, "Continues to");
+  if (continuesToRow) {
+    rows.push(continuesToRow.cells);
+    mergeStationCodes(stationCodes, continuesToRow.stationCodes);
+  }
+
+  return {
+    table: { title, sheetName, dateLabel, headcodes, headers, rows },
+    stationCodes,
+    tocCodes,
+  };
+}
+
+function mergeStationCodes(target, source) {
+  source.forEach((name, code) => {
+    if (!target.has(code)) target.set(code, name || "");
+  });
+}
+
+function mergeTocCodes(target, source) {
+  source.forEach((name, code) => {
+    if (!code) return;
+    const current = target.get(code);
+    const next = String(name || "").trim();
+    if (!current && next) {
+      target.set(code, next);
+    }
+  });
+}
+
 function renderTimetablesFromContext(context) {
   const {
     stations,
     stationSet,
     servicesAB,
     servicesBA,
+    fromCrs,
+    toCrs,
     fromName,
     toName,
     forwardStopsLabel,
@@ -1971,6 +2228,9 @@ function renderTimetablesFromContext(context) {
   const hasServices = servicesAB.length > 0 || servicesBA.length > 0;
   setPlatformToggleAvailability(hasServices);
   const pdfTables = [];
+  const xlsxTables = [];
+  const xlsxStationCodes = new Map();
+  const xlsxTocCodes = new Map();
   const sortLogs = [];
   const scheduledPdfServices = buildScheduledPdfServicesForContext(context);
   context.partialSort = null;
@@ -2016,6 +2276,30 @@ function renderTimetablesFromContext(context) {
       serviceTimes: tableDataAB.serviceTimes,
       ...tableDataAB,
     });
+    const scheduledXlsxModelAB = {
+      ...modelAB,
+      servicesWithDetails: modelAB.servicesWithDetails.map(stripRealtimeFromServiceEntry),
+    };
+    const xlsxAB = buildSpreadsheetTableData(scheduledXlsxModelAB, {
+      title: `${fromName} → ${toName}`,
+      sheetName: `${fromCrs} to ${toCrs}`,
+      dateLabel,
+      useRealtime: false,
+    });
+    xlsxTables.push(xlsxAB.table);
+    mergeStationCodes(xlsxStationCodes, xlsxAB.stationCodes);
+    mergeTocCodes(xlsxTocCodes, xlsxAB.tocCodes);
+    if (realtimeEnabled) {
+      const xlsxRealtimeAB = buildSpreadsheetTableData(modelAB, {
+        title: `${fromName} → ${toName} realtime`,
+        sheetName: `${fromCrs} to ${toCrs} realtime`,
+        dateLabel,
+        useRealtime: true,
+      });
+      xlsxTables.push(xlsxRealtimeAB.table);
+      mergeStationCodes(xlsxStationCodes, xlsxRealtimeAB.stationCodes);
+      mergeTocCodes(xlsxTocCodes, xlsxRealtimeAB.tocCodes);
+    }
     tableCardAB?.classList.add("has-data");
   } else {
     headingAB.textContent =
@@ -2073,6 +2357,30 @@ function renderTimetablesFromContext(context) {
       serviceTimes: tableDataBA.serviceTimes,
       ...tableDataBA,
     });
+    const scheduledXlsxModelBA = {
+      ...modelBA,
+      servicesWithDetails: modelBA.servicesWithDetails.map(stripRealtimeFromServiceEntry),
+    };
+    const xlsxBA = buildSpreadsheetTableData(scheduledXlsxModelBA, {
+      title: `${toName} → ${fromName}`,
+      sheetName: `${toCrs} to ${fromCrs}`,
+      dateLabel,
+      useRealtime: false,
+    });
+    xlsxTables.push(xlsxBA.table);
+    mergeStationCodes(xlsxStationCodes, xlsxBA.stationCodes);
+    mergeTocCodes(xlsxTocCodes, xlsxBA.tocCodes);
+    if (realtimeEnabled) {
+      const xlsxRealtimeBA = buildSpreadsheetTableData(modelBA, {
+        title: `${toName} → ${fromName} realtime`,
+        sheetName: `${toCrs} to ${fromCrs} realtime`,
+        dateLabel,
+        useRealtime: true,
+      });
+      xlsxTables.push(xlsxRealtimeBA.table);
+      mergeStationCodes(xlsxStationCodes, xlsxRealtimeBA.stationCodes);
+      mergeTocCodes(xlsxTocCodes, xlsxRealtimeBA.tocCodes);
+    }
     tableCardBA?.classList.add("has-data");
   } else {
     headingBA.textContent =
@@ -2109,11 +2417,29 @@ function renderTimetablesFromContext(context) {
       },
       tables: pdfTables,
     };
+    lastXlsxPayload = {
+      meta: {
+        title,
+        subtitle,
+        documentTitle: pdfDocumentTitle || title,
+        filename: pdfFilename.replace(/\.pdf$/i, ".xlsx"),
+      },
+      tables: xlsxTables,
+      stationCodes: Array.from(xlsxStationCodes.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([code, name]) => ({ code, name })),
+      tocCodes: Array.from(xlsxTocCodes.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([code, name]) => ({ code, name })),
+    };
     downloadPdfBtn.disabled = false;
+    downloadXlsxBtn.disabled = false;
     shareBtn.disabled = false;
   } else {
     downloadPdfBtn.disabled = true;
+    downloadXlsxBtn.disabled = true;
     shareBtn.disabled = true;
+    lastXlsxPayload = null;
   }
 
   updateRenderedTimetableStatus(context);
@@ -3042,6 +3368,7 @@ form.addEventListener("submit", async (e) => {
     }
   }
 
+  orderedCrs = pinRequestedEndpointsToStationOrder(orderedCrs, from, to);
   stationOrderLogger.log("final order", { orderedCrs: [...orderedCrs] });
   stationOrderLogger.download();
   if (excludedSequences.length > 0) {
@@ -3285,6 +3612,8 @@ form.addEventListener("submit", async (e) => {
     filteredAllDetails,
     corridorStations,
     mandatoryViaStations,
+    fromCrs: from,
+    toCrs: to,
     fromName,
     toName,
     viaNamesForward,
@@ -3737,6 +4066,25 @@ function groupSequencesByStationSet(sequences) {
     groups.get(key).items.push(entry);
   });
   return Array.from(groups.values());
+}
+
+function pinRequestedEndpointsToStationOrder(orderedCrs, fromCrs, toCrs) {
+  const ordered = [];
+  const seen = new Set();
+  (orderedCrs || []).forEach((crs) => {
+    const normalised = normaliseCrs(crs || "");
+    if (!normalised || seen.has(normalised)) return;
+    seen.add(normalised);
+    ordered.push(normalised);
+  });
+
+  const from = normaliseCrs(fromCrs || "");
+  const to = normaliseCrs(toCrs || "");
+  if (!from || !to) return ordered;
+  if (from === to) return ordered;
+
+  const middle = ordered.filter((crs) => crs !== from && crs !== to);
+  return [from, ...middle, to];
 }
 
 // Build station union over a possibly multi-via corridor.

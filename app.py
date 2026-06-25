@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from pdf_utils import build_timetable_pdf
+from xlsx_utils import build_timetable_xlsx
 
 from flask_cors import CORS
 
@@ -1325,6 +1326,21 @@ def _pdf_download_name(meta):
     return name[:180] or "timetable.pdf"
 
 
+def _xlsx_download_name(meta):
+    raw_name = ""
+    if isinstance(meta, dict):
+        raw_name = str(meta.get("filename") or "").strip()
+    if not raw_name:
+        return "timetable.xlsx"
+
+    name = re.sub(r"[\x00-\x1f/\\]+", "-", raw_name)
+    name = re.sub(r"\s+", " ", name).strip(" .")
+    name = re.sub(r"\.pdf$", ".xlsx", name, flags=re.IGNORECASE)
+    if not name.lower().endswith(".xlsx"):
+        name = f"{name}.xlsx"
+    return name[:180] or "timetable.xlsx"
+
+
 @app.route("/timetable/pdf", methods=["POST"])
 def timetable_pdf():
     payload = request.get_json(silent=True) or {}
@@ -1340,6 +1356,30 @@ def timetable_pdf():
         mimetype="application/pdf",
         as_attachment=True,
         download_name=_pdf_download_name(meta),
+    )
+
+
+@app.route("/timetable/xlsx", methods=["POST"])
+def timetable_xlsx():
+    payload = request.get_json(silent=True) or {}
+    tables = payload.get("tables", [])
+    meta = payload.get("meta", {})
+    station_codes = payload.get("stationCodes", [])
+    toc_codes = payload.get("tocCodes", [])
+
+    if not isinstance(tables, list) or not tables:
+        return jsonify({"error": "tables payload required"}), 400
+
+    xlsx_bytes = build_timetable_xlsx(
+        tables,
+        station_codes=station_codes,
+        toc_codes=toc_codes,
+    )
+    return send_file(
+        io.BytesIO(xlsx_bytes),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=_xlsx_download_name(meta),
     )
 
 if __name__ == "__main__":
