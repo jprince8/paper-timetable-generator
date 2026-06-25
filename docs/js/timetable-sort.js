@@ -499,16 +499,10 @@ function sortTimetableColumns({
     }
     const allowNoReportMins =
       chosen.format?.noReport && serviceAllNoReport[serviceIdx] === true;
-    const minsText = allowNoReportMins
-      ? chosen.text.replace(/\?$/, "")
-      : chosen.text;
     return {
       text: chosen.text,
-      mins: chosen.format?.noReport
-        ? allowNoReportMins
-          ? timeStrToMinutes(minsText)
-          : null
-        : timeStrToMinutes(minsText),
+      mins:
+        chosen.format?.noReport && !allowNoReportMins ? null : chosen.mins,
       format: chosen.format,
     };
   }
