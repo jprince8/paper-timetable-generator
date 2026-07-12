@@ -10,3 +10,4 @@ docs/rtt-cache-enabled.flag
 start.sh
 tests/fixtures
 .playwright-mcp
+local_analysis/
