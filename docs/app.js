@@ -1348,6 +1348,19 @@ function queryDayOffsetMinutes(runDate) {
   return Math.max(0, diffDays) * 1440;
 }
 
+function normaliseSelectedTimeRange(startMins, endMins) {
+  if (startMins === null || endMins === null) {
+    return { startMins, endMins };
+  }
+  if (endMins < startMins) {
+    return {
+      startMins,
+      endMins: endMins + 1440,
+    };
+  }
+  return { startMins, endMins };
+}
+
 function absolutizeLocationTimes(locations) {
   if (!Array.isArray(locations) || locations.length === 0) return locations;
 
@@ -2732,8 +2745,14 @@ form.addEventListener("submit", async (e) => {
   window.history.replaceState({}, "", updatedUrl.toString());
 
   currentDate = dateInput;
-  startMinutes = timeStrToMinutes(startInput);
-  endMinutes = timeStrToMinutes(endInput);
+  const parsedStartMinutes = timeStrToMinutes(startInput);
+  const parsedEndMinutes = timeStrToMinutes(endInput);
+  const normalisedTimeRange = normaliseSelectedTimeRange(
+    parsedStartMinutes,
+    parsedEndMinutes,
+  );
+  startMinutes = normalisedTimeRange.startMins;
+  endMinutes = normalisedTimeRange.endMins;
 
   if (!from || !to) {
     setStatus("Please select both From and To stations.", { isError: true });

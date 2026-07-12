@@ -39,6 +39,24 @@ test('search range filtering excludes previous-day services that arrive after mi
   );
 });
 
+test('overnight selected time ranges wrap the end time into the next day', () => {
+  const runtime = loadAppRuntime({ repoRoot: path.resolve(process.cwd()) });
+  const wrapped = runtime.normaliseSelectedTimeRange(20 * 60 + 46, 11 * 60 + 46);
+
+  assert.equal(wrapped.startMins, 20 * 60 + 46);
+  assert.equal(wrapped.endMins, 24 * 60 + 11 * 60 + 46);
+
+  runtime.__setBuildTimeRangeForTests('2026-07-13', wrapped.startMins, wrapped.endMins);
+  const detail = runtime.absolutizeServiceDetail({
+    locations: [
+      { crs: 'CMB', gbttBookedDeparture: '2258', isPublicCall: true },
+      { crs: 'KGX', gbttBookedArrival: '0044', isPublicCall: true },
+    ],
+  });
+
+  assert.equal(runtime.serviceAnyStationInRange(detail, new Set(['CMB', 'KGX'])), true);
+});
+
 test('displayed timetable cells wrap overnight absolute times without losing absolute sort minutes', () => {
   const runtime = loadFrontendRuntime({ repoRoot: path.resolve(process.cwd()) });
   const chosen = runtime.chooseDisplayedTimeAndStatus(
