@@ -15,6 +15,7 @@ from flask_cors import CORS
 app = Flask(__name__, static_folder="docs", static_url_path="")
 
 ALLOWED_ORIGINS = [
+    "https://timetable.railwaytools.dev",
     "https://jprince8.github.io",
     "http://127.0.0.1:8080",
     "http://localhost:8080",
